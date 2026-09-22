@@ -3,16 +3,20 @@
 -- | Checks with no dependency beyond base, so the suite runs wherever GHC does.
 module Main (main) where
 
-import Cipher.Alphabet (fromLetters, toLetters)
+import Cipher.Alphabet (Letter, fromLetters, toLetters)
+import Cipher.Anneal (anneal)
+import Cipher.Square (omissionsFor, perturb, randomSquare)
 import Cipher.Attack (Candidate (..), chiKey, icByPeriod, rank, searchKeys)
 import Cipher.Autokey (Priming (..), decipherAuto, encipherAuto, primings)
 import qualified Cipher.Bifid as Bifid
+import qualified Cipher.Square as Square
 import qualified Cipher.Hill as Hill
 import qualified Cipher.Porta as Porta
 import Cipher.Sweep (Trial (..), best, topScore)
 import Cipher.Fitness (lexiconFrom, segment, wordCover)
 import Cipher.Kasiski (Repeat (..), factorTally, repeats)
 import Cipher.Ngram (Model (..), parseModel, render, score, train)
+import Cipher.Polyglot (loadPolyglot, polyglotScore)
 import Cipher.Periodic (Family (..), columns, decipher, encipher, every, families)
 import Cipher.Random (nextWord, randomKey, seed, shuffle)
 import Cipher.Stats (chiSquared, counts, indexOfCoincidence)
@@ -45,9 +49,40 @@ sampleLexicon = ["THE", "QUICK", "BROWN", "FOX", "OX", "ROW", "ICK", "HE", "UI"]
 
 main :: IO ()
 main = do
-  let results = checks
+  planted <- plantedBifid
+  let results = checks ++ [planted]
   mapM_ (\(name, ok) -> putStrLn ((if ok then "ok   " else "FAIL ") ++ name)) results
   unless (all snd results) exitFailure
+
+-- | Break a bifid square this suite planted itself.
+--
+-- The negative results this tool reports are only worth what its positive ones
+-- are, so the search that returns nothing on the real ciphertext has to be
+-- shown breaking one it was handed. It needs the shipped models rather than a
+-- few hundred letters of corpus: a search over 25 factorial squares is guided
+-- by the judge, and a judge trained on one paragraph guides it nowhere.
+--
+-- The temperatures matter more than they look. One swap in a square moves a
+-- bifid plaintext everywhere at once, so the steps in the score are large; a
+-- schedule that starts at 0.3 never accepts an uphill move and is a greedy
+-- climb wearing a disguise. This attack failed on a 300-letter planted key
+-- until that was noticed.
+plantedBifid :: IO (String, Bool)
+plantedBifid = do
+  bank <- loadPolyglot "../data/models"
+  let missing = 8
+      pt = take 300 (filter (/= missing) (toLetters corpus ++ toLetters plaintext))
+      (key, _) = randomSquare missing (seed 12345)
+      ct = Bifid.encipherBifid 7 key pt
+      attempts =
+        [ anneal (\sq -> polyglotScore bank (Bifid.decipherBifid 7 sq ct)) perturb 40000 (4.0, 0.05) start s1
+        | r <- [0 .. 5 :: Int]
+        , let (start, s1) = randomSquare missing (seed (fromIntegral r * 0x9E3779B97F4A7C15 + 7))
+        ]
+  pure
+    ( "annealing recovers a planted bifid square"
+    , any (\(sq, _) -> Bifid.decipherBifid 7 sq ct == pt) attempts
+    )
 
 checks :: [(String, Bool)]
 checks =
@@ -243,8 +278,8 @@ checks =
         , let msg = filter (/= missing) (toLetters plaintext)
         ]
     )
-  , ("a bifid square omits exactly one letter", length (Bifid.squareOmitting 8) == 25 && notElem 8 (Bifid.squareOmitting 8))
-  , ("bifid flattens the index of coincidence", indexOfCoincidence (Bifid.encipherBifid 7 (Bifid.squareOmitting 8) (filter (/= 8) (toLetters plaintext))) < indexOfCoincidence (toLetters plaintext))
+  , ("a bifid square omits exactly one letter", length (Square.squareOmitting 8) == 25 && notElem 8 (Square.squareOmitting 8))
+  , ("bifid flattens the index of coincidence", indexOfCoincidence (Bifid.encipherBifid 7 (Square.squareOmitting 8) (filter (/= 8) (toLetters plaintext))) < indexOfCoincidence (toLetters plaintext))
   , ( "a sweep keeps only the best it was asked for"
     , length (best 3 indexOfCoincidence [(show i, replicate i 0 ++ toLetters plaintext) | i <- [1 .. 10]]) == 3
     )
@@ -260,5 +295,17 @@ checks =
   , ( "the family-wise test flags a planted period"
     , let ct = encipher Vigenere (toLetters "LEMON") (toLetters plaintext)
        in fwP (familywise icByPeriod 60 [2 .. 10] ct (seed 77)) < 0.05
+    )
+  , ( "the square omission is pinned down by the letters the ciphertext lacks"
+    , let ct = toLetters "ABCDEFGHIJKLMNOPQRSTUVWXY"
+       in omissionsFor ct == [25]
+    )
+  , ("a perturbed square is still a square", let (sq, _) = perturb (seed 4) (Square.squareOmitting 8) in sort sq == sort (Square.squareOmitting 8))
+  , ("a random square is still a square", let (sq, _) = randomSquare 8 (seed 4) in sort sq == sort (Square.squareOmitting 8))
+  , ( "annealing finds the maximum of a simple landscape"
+    , let target = [3, 1, 4, 1, 5] :: [Int]
+          fit xs = negate (fromIntegral (sum (zipWith (\a b -> abs (a - b)) xs target)))
+          step s xs = let (w, s') = nextWord s in (take 5 (drop (fromIntegral (w `mod` 5)) (cycle target)), s')
+       in snd (anneal fit step 400 (1.0, 0.01) [0, 0, 0, 0, 0] (seed 8)) >= fit target - 1e-9
     )
   ]

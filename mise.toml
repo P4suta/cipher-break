@@ -5,25 +5,60 @@ ghc = "9.14.1"
 cabal = "3.16.1.0"
 
 [tasks.build]
-description = "Build the library and the executable"
+description = "Build the Rust tool"
+run = "cargo build --release"
+
+[tasks."build:gpu"]
+description = "Build the Rust tool with the GPU backend"
+run = "cargo build --release --features gpu"
+
+[tasks."build:reference"]
+description = "Build the Haskell reference implementation"
+dir = "reference"
 run = "cabal build all"
 
 [tasks.test]
-description = "Run the test suite"
+description = "Run the Rust suites: unit, then the planted ciphers"
+run = ["cargo test --release --lib", "cargo test --release --test solves"]
+
+[tasks."test:reference"]
+description = "Run the Haskell reference suite"
+dir = "reference"
 run = "cabal test --test-show-details=direct"
 
 [tasks.lint]
-description = "Build with warnings denied"
-run = "cabal build all --ghc-options=-Werror"
+description = "Formatting and clippy, with warnings denied"
+run = ["cargo fmt --check", "cargo clippy --all-targets --features gpu -- -D warnings"]
 
 [tasks.check]
-description = "Build, lint and test"
-depends = ["build", "lint", "test"]
+description = "Everything: both implementations built, linted and tested"
+depends = ["build", "build:reference", "lint", "test", "test:reference", "agree"]
+
+[tasks.agree]
+description = "Check that Rust and the Haskell reference agree on the same ciphertext"
+# Two implementations are only worth having while they answer alike.
+# This compares the statistic both compute without any search in it, so a drift in the arithmetic shows up before it can hide inside a sweep.
+run = """
+set -e
+rust=$(cargo run --release --quiet -- report data/ciphertext.txt --plain | awk '/^  cipher-break/{print $5}')
+cd reference && haskell=$(cabal run -v0 cipher-break -- analyze ../data/ciphertext.txt --null 1 | awk '/^IC /{print $2}')
+echo "rust IC $rust, haskell IC $haskell"
+[ "$rust" = "$haskell" ] || { echo "the two implementations disagree"; exit 1; }
+"""
 
 [tasks.solve]
-description = "Run the solver over the committed ciphertext"
-run = "cabal run -v0 cipher-break -- solve data/ciphertext.txt"
+description = "Run the tool over the committed ciphertext"
+run = "cargo run --release --features gpu --quiet -- solve data/ciphertext.txt --gpu"
 
-[tasks.analyze]
-description = "Run the diagnostics over the committed ciphertext"
-run = "cabal run -v0 cipher-break -- analyze data/ciphertext.txt"
+[tasks.bench]
+description = "Time the exhaustive periodic sweeps on both backends"
+run = """
+set -e
+cargo build --release --features gpu
+for p in 4 5 6; do
+  printf 'period %s  cpu ' "$p"
+  /usr/bin/time -p ./target/release/cb try "vigenere period $p" data/ciphertext.txt --nulls 0 --depth 7 --plain >/dev/null 2>/tmp/cb-cpu; grep real /tmp/cb-cpu
+  printf 'period %s  gpu ' "$p"
+  /usr/bin/time -p ./target/release/cb try "vigenere period $p" data/ciphertext.txt --nulls 0 --depth 7 --plain --gpu >/dev/null 2>/tmp/cb-gpu; grep real /tmp/cb-gpu
+done
+"""

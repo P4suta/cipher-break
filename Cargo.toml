@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[package]
+name = "cipher-break"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+description = "A cryptanalysis workbench for classical ciphers, with a null for every claim"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/P4suta/cipher-break"
+keywords = ["cryptanalysis", "cipher", "vigenere", "classical", "cryptography"]
+categories = ["command-line-utilities", "cryptography"]
+
+[[bin]]
+name = "cb"
+path = "src/main.rs"
+
+[lib]
+name = "cipher_break"
+path = "src/lib.rs"
+
+[dependencies]
+pollster = { version = "0.4", optional = true }
+rayon = "1.12"
+wgpu = { version = "27", optional = true }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+# Every value cast here is a letter, a period or a language count: all far below any width that could wrap.
+cast_possible_wrap = "allow"
+# The statistics here are counts that happen to be carried as floats, and the tests compare them to the integers they are.
+float_cmp = "allow"
+
+[features]
+# The GPU backend is optional.
+# The tool is complete without it, and only the exhaustive sweeps are large enough for the crossing to the device to pay for itself; everything smaller is faster where it already is.
+default = []
+gpu = ["dep:wgpu", "dep:pollster"]

@@ -13,23 +13,15 @@
 -- noticing: this ciphertext contains no @I@ but three @J@s, exactly the shape a
 -- square that dropped @I@ would leave.
 module Cipher.Bifid
-  ( Square
-  , squareOmitting
-  , standardSquares
+  ( standardSquares
   , encipherBifid
   , decipherBifid
   ) where
 
 import Cipher.Alphabet (Letter, alphabetSize)
+import Cipher.Square (Square, squareOmitting)
 import Data.List (elemIndex)
 import Data.Maybe (fromMaybe)
-
--- | The 25 letters of a five-by-five square, in reading order.
-type Square = [Letter]
-
--- | The plain alphabet with one letter left out.
-squareOmitting :: Letter -> Square
-squareOmitting missing = [l | l <- [0 .. alphabetSize - 1], l /= missing]
 
 -- | Unkeyed squares, one for each letter that might have been dropped.
 standardSquares :: [(Letter, Square)]

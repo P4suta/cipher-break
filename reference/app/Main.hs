@@ -5,6 +5,8 @@
 module Main (main) where
 
 import Cipher.Alphabet (Letter, alphabetSize, fromLetters, letterChar, toLetters)
+import Cipher.Anneal (anneal)
+import Cipher.Square (omissionsFor, perturb, randomSquare)
 import Cipher.Autokey (decipherAuto, primings)
 import Cipher.Attack
   ( Candidate (..)
@@ -17,6 +19,7 @@ import Cipher.Attack
   , searchKeys
   )
 import Cipher.Fitness (Lexicon (..), loadLexicon, segment, wordCover)
+import Cipher.Bifid (decipherBifid)
 import qualified Cipher.Bifid as Bifid
 import qualified Cipher.Hill as Hill
 import qualified Cipher.Porta as Porta
@@ -25,7 +28,7 @@ import Cipher.Polyglot (Polyglot, identify, loadPolyglot, polyglotScore)
 import Cipher.Sweep (Outcome (..), Search (..), Trial (..), sweepTwoStage)
 import Cipher.Kasiski (Repeat (..), factorTally, repeats)
 import Cipher.Ngram (Model (..), loadModel, render, score, train)
-import Cipher.Periodic (Family (..), decipher, families)
+import Cipher.Periodic (Family (..), decipher, every, families)
 import Cipher.Stats (chiSquared, counts, indexOfCoincidence)
 import Cipher.Random (randomKeys, seed)
 import Cipher.Superpose (FamilyWise (..), Significance (..), alignment, familywise, mergedIC, significance, significanceOf)
@@ -43,10 +46,10 @@ defaultDict :: FilePath
 defaultDict = "/usr/share/dict/words"
 
 defaultModel :: FilePath
-defaultModel = "data/english-quadgrams.txt"
+defaultModel = "../data/english-quadgrams.txt"
 
 defaultModels :: FilePath
-defaultModels = "data/models"
+defaultModels = "../data/models"
 
 -- | Periods worth trying: past a quarter of the text a column holds too few
 -- letters for any statistic to mean anything.
@@ -58,6 +61,28 @@ maxPeriod = 16
 restarts :: Int
 restarts = 12
 
+-- | How an annealing run is shaped: steps, restarts, and the temperatures it
+-- falls between.
+--
+-- The temperatures have to match the scale of the score, not look plausible on
+-- their own. One swap in a square moves a bifid plaintext everywhere at once,
+-- so the steps in the score are large, and a schedule tuned for small ones
+-- never accepts an uphill move and is a greedy climb wearing a disguise.
+data Schedule = Schedule
+  { scheduleSteps :: Int
+  , scheduleRestarts :: Int
+  , scheduleHot :: Double
+  , scheduleCold :: Double
+  }
+
+scheduleFrom :: [String] -> Schedule
+scheduleFrom opts =
+  Schedule
+    (readOption "--steps" 40000 opts)
+    (readOption "--restarts" 6 opts)
+    (readOption "--hot" 4.0 opts)
+    (readOption "--cold" 0.05 opts)
+
 usage :: String
 usage =
   unlines
@@ -66,6 +91,7 @@ usage =
     , "       cipher-break triage FILE [--trials N]"
     , "       cipher-break calibrate FILE [--samples N]   (corpus on stdin)"
     , "       cipher-break sweep FILE [--which NAME] [--nulls N] [--keep N]"
+    , "                          [--steps N] [--restarts N] [--hot T] [--cold T]"
     , "       cipher-break reduce FILE --period N"
     , "       cipher-break train [--order N] [--cutoff N]   (corpus on stdin)"
     ]
@@ -91,7 +117,7 @@ main = do
       printf "models: %s\n" (unwords (Cipher.Polyglot.languages bank))
       mapM_
         (runSweep bank (readOption "--nulls" 20 opts) (readOption "--shortlist" 400 opts) (readOption "--keep" 3 opts) ct)
-        (chosen (polyglotScore bank) (option "--which" "all" opts))
+        (chosen (scheduleFrom opts) (polyglotScore bank) (option "--which" "all" opts))
     ("calibrate" : path : opts) -> do
       ct <- readLetters path
       bank <- loadPolyglot (option "--models" defaultModels opts)
@@ -290,8 +316,8 @@ report' vs = do
 -- credit to muddle a judge, which is what makes exhausting them worthwhile at
 -- all. The judge itself is passed in: the index of coincidence filters, and
 -- the bank of language models decides.
-searches :: ([Letter] -> Double) -> [Search]
-searches judge =
+searches :: Schedule -> ([Letter] -> Double) -> [Search]
+searches plan judge =
   [ Search ("vigenere period " ++ show n) $ \ct ->
       [ (show fam ++ " " ++ fromLetters key, decipher fam key ct)
       | fam <- families
@@ -321,6 +347,31 @@ searches judge =
           | c <- climbAttack judge restarts [1 .. maxPeriod] ct
           ]
        ]
+    ++ [ Search ("keyed bifid, period " ++ show p) $ \ct ->
+          [ ("omits " ++ [letterChar missing] ++ " " ++ fromLetters square, decipherBifid p square ct)
+          | missing <- omissionsFor ct
+          , restart <- [0 .. scheduleRestarts plan - 1]
+          , let s0 = seed (fromIntegral (p * 2003 + missing * 37 + restart) * 0x9E3779B97F4A7C15 + 1)
+          , let (start, s1) = randomSquare missing s0
+          , let (square, _) =
+                  anneal
+                    (\sq -> judge (decipherBifid p sq ct))
+                    perturb
+                    (scheduleSteps plan)
+                    (scheduleHot plan, scheduleCold plan)
+                    start
+                    s1
+          ]
+       | p <- [3 .. 16]
+       ]
+    ++ [ Search "selection: every nth letter" $ \ct ->
+          [ ("every " ++ show k ++ " from " ++ show j ++ direction, picked)
+          | k <- [2 .. 12]
+          , j <- [0 .. k - 1]
+          , let taken = every k (drop j ct)
+          , (direction, picked) <- [("", taken), (" reversed", reverse taken)]
+          ]
+       ]
     ++ [ Search "bifid unkeyed square" $ \ct ->
           [ ("omits " ++ [letterChar missing] ++ ", period " ++ show n, Bifid.decipherBifid n sq ct)
           | (missing, sq) <- Bifid.standardSquares
@@ -329,9 +380,9 @@ searches judge =
        ]
 
 -- | Pick searches by name, or all of them.
-chosen :: ([Letter] -> Double) -> String -> [Search]
-chosen judge "all" = searches judge
-chosen judge name = filter ((name `isPrefixOf`) . searchName) (searches judge)
+chosen :: Schedule -> ([Letter] -> Double) -> String -> [Search]
+chosen plan judge "all" = searches plan judge
+chosen plan judge name = filter ((name `isPrefixOf`) . searchName) (searches plan judge)
 
 runSweep :: Polyglot -> Int -> Int -> Int -> [Letter] -> Search -> IO ()
 runSweep bank nulls shortlist keep ct search = do

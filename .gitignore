@@ -1,6 +1,7 @@
+/target/
+/reference/dist-newstyle/
 /dist-newstyle/
 /.stack-work/
-/target/
 *.hi
 *.o
 *.dyn_hi

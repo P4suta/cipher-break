@@ -19,9 +19,10 @@ module Cipher.Triage
   , windows
   ) where
 
-import Cipher.Alphabet (Letter)
+import Cipher.Alphabet (Letter, letterChar)
 import Cipher.Random (Seed, randomKeys)
 import Cipher.Stats (indexOfCoincidence)
+import Data.List (group)
 import qualified Data.Map.Strict as M
 
 -- | A number computed from a text, and the name to report it under.
@@ -66,6 +67,36 @@ digraphIC ls
     table = M.fromListWith (+) [(p, 1 :: Int) | p <- pairs]
     n = length pairs
 
+-- | How many of the letters are vowels.
+--
+-- Worth a line of its own because a person inventing a random-looking string
+-- avoids vowels without meaning to: letters that would make the result read
+-- like a word get passed over. A cipher has no such preference.
+vowels :: [Letter] -> Double
+vowels ls = fromIntegral (length [l | l <- ls, l `elem` [0, 4, 8, 14, 20]])
+
+-- | Adjacent letters that neighbour each other on a QWERTY keyboard.
+--
+-- The other half of the same suspicion: a mashed keyboard leaves its own
+-- geometry behind, and this is what that looks like when counted.
+qwertyRuns :: [Letter] -> Double
+qwertyRuns ls = fromIntegral (length (filter neighbouring (zip ls (drop 1 ls))))
+  where
+    rows = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]
+    places = [(c, (r, i)) | (r, row) <- zip [0 :: Int ..] rows, (i, c) <- zip [0 :: Int ..] row]
+    place l = lookup (letterChar l) places
+    neighbouring (a, b) = case (place a, place b) of
+      (Just (r1, c1), Just (r2, c2)) ->
+        abs (r1 - r2) <= 1 && abs (c1 - c2) <= 1 && (r1, c1) /= (r2, c2)
+      _ -> False
+
+-- | The longest stretch of one repeated letter.
+longestRun :: [Letter] -> Double
+longestRun = fromIntegral . foldr step (0 :: Int) . runs
+  where
+    runs ls = [length g | g <- group ls]
+    step n acc = max n acc
+
 -- | How many of the 26 letters appear at all.
 coverage :: [Letter] -> Double
 coverage ls = fromIntegral (M.size (M.fromListWith (+) [(l, 1 :: Int) | l <- ls]))
@@ -78,6 +109,9 @@ statistics =
   , Statistic "repeated trigrams" Upper (repetition 3)
   , Statistic "digraph IC" Upper digraphIC
   , Statistic "distinct letters" Lower coverage
+  , Statistic "vowels" Lower vowels
+  , Statistic "QWERTY neighbours" Upper qwertyRuns
+  , Statistic "longest run" Upper longestRun
   ]
 
 -- | An observed statistic beside the null distribution it has to stand out

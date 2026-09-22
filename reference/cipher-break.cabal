@@ -1,7 +1,7 @@
 cabal-version:   3.0
-name:            cipher-break
+name:            cipher-break-reference
 version:         0.1.0.0
-synopsis:        A cryptanalysis workbench for classical polyalphabetic ciphers
+synopsis:        The readable reference implementation of cipher-break
 description:
   Diagnostics and attacks for the Vigenere family: index of coincidence by
   period, Kasiski examination, chi-squared column solving and a dictionary
@@ -11,7 +11,7 @@ license-files:   LICENSE-MIT LICENSE-APACHE
 author:          Yasunobu
 maintainer:      42543015+P4suta@users.noreply.github.com
 build-type:      Simple
-extra-doc-files: README.md
+extra-doc-files: ../README.md
 
 common lang
   default-language: GHC2021
@@ -27,7 +27,12 @@ library
       Cipher.Autokey
       Cipher.Porta
       Cipher.Hill
+      Cipher.Square
+      Cipher.Anneal
       Cipher.Bifid
+      Cipher.Playfair
+      Cipher.Substitution
+      Cipher.Transposition
       Cipher.Kasiski
       Cipher.Fitness
       Cipher.Ngram
@@ -40,11 +45,11 @@ library
   build-depends:   base >=4.18 && <5, containers, array, directory, filepath
   ghc-options:     -O2
 
-executable cipher-break
+executable cipher-break-reference
   import:         lang
   hs-source-dirs: app
   main-is:        Main.hs
-  build-depends:  base, cipher-break, containers
+  build-depends:  base, cipher-break-reference, containers
   ghc-options:    -O2
 
 test-suite spec
@@ -52,4 +57,4 @@ test-suite spec
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Spec.hs
-  build-depends:  base, cipher-break
+  build-depends:  base, cipher-break-reference

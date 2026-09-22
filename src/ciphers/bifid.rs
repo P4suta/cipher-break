@@ -93,6 +93,34 @@ mod tests {
     }
 
     #[test]
+    fn a_period_of_zero_changes_nothing() {
+        let sq = omitting(8);
+        let msg: Vec<u8> = to_letters(PLAIN).into_iter().filter(|&l| l != 8).collect();
+        assert_eq!(encipher(0, &sq, &msg), msg);
+        assert_eq!(decipher(0, &sq, &msg), msg);
+    }
+
+    #[test]
+    fn a_period_of_one_is_a_substitution() {
+        // With one letter per block the coordinates never interleave, so the cipher degenerates and the letter counts survive.
+        use crate::stats::index_of_coincidence;
+        let sq = omitting(8);
+        let msg: Vec<u8> = to_letters(PLAIN).into_iter().filter(|&l| l != 8).collect();
+        let ct = encipher(1, &sq, &msg);
+        assert!((index_of_coincidence(&ct) - index_of_coincidence(&msg)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_ragged_last_block_still_returns() {
+        let sq = omitting(8);
+        let msg: Vec<u8> = to_letters("ABCDEFG")
+            .into_iter()
+            .filter(|&l| l != 8)
+            .collect();
+        assert_eq!(decipher(5, &sq, &encipher(5, &sq, &msg)), msg);
+    }
+
+    #[test]
     fn it_flattens_the_index_of_coincidence() {
         use crate::stats::index_of_coincidence;
         let sq = omitting(8);

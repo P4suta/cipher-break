@@ -171,6 +171,117 @@ mod tests {
         assert!(outcome.null.is_empty());
     }
 
+    fn made(best: Option<f64>, null: Vec<f64>) -> Outcome {
+        Outcome {
+            name: "test".into(),
+            family: "test",
+            coverage: Coverage::Exhaustive(10),
+            best: best
+                .map(|score| {
+                    vec![crate::attack::Candidate {
+                        score,
+                        key: "k".into(),
+                        plain: vec![0],
+                    }]
+                })
+                .unwrap_or_default(),
+            null,
+        }
+    }
+
+    #[test]
+    fn an_outcome_with_no_candidate_leads_with_nothing() {
+        assert_eq!(made(None, vec![]).leader(), f64::NEG_INFINITY);
+        assert_eq!(made(None, vec![]).null_max(), f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn the_leader_is_the_first_candidate() {
+        assert_eq!(made(Some(3.5), vec![]).leader(), 3.5);
+    }
+
+    #[test]
+    fn the_null_maximum_is_the_maximum() {
+        assert_eq!(made(None, vec![1.0, 5.0, 2.0]).null_max(), 5.0);
+    }
+
+    #[test]
+    fn the_null_moments_are_its_mean_and_spread() {
+        let (mean, sd) = made(None, vec![1.0, 3.0]).null_moments();
+        assert!((mean - 2.0).abs() < 1e-12);
+        assert!((sd - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn z_is_the_margin_in_deviations_of_the_null() {
+        // Leader 5, null mean 2, deviation 1: three deviations clear.
+        let z = made(Some(5.0), vec![1.0, 3.0])
+            .z()
+            .expect("two nulls are enough");
+        assert!((z - 3.0).abs() < 1e-9, "z was {z}");
+    }
+
+    #[test]
+    fn one_null_is_not_enough_for_a_z() {
+        assert!(made(Some(5.0), vec![1.0]).z().is_none());
+        assert!(made(Some(5.0), vec![1.0, 3.0]).z().is_some());
+    }
+
+    #[test]
+    fn only_an_impossible_coverage_reports_why() {
+        assert!(made(None, vec![]).impossible().is_none());
+        let mut o = made(None, vec![]);
+        o.coverage = Coverage::Impossible("because");
+        assert_eq!(o.impossible(), Some("because"));
+    }
+
+    #[test]
+    fn a_run_with_no_nulls_records_none() {
+        let judge = Polyglot::default();
+        let scale = Scale::build(&judge, 8, 2, &mut Rng::new(1));
+        let ctx = Context {
+            judge: &judge,
+            scale: &scale,
+            plan: Schedule::default(),
+            seed: 1,
+            keep: 1,
+            focus: None,
+            focus_scale: None,
+            trace: &crate::trace::QUIET,
+        };
+        let outcome = run(
+            &crate::attack::AffineSweep,
+            &to_letters("ABCDEFGH"),
+            &ctx,
+            0,
+        );
+        assert!(outcome.null.is_empty());
+        assert!(outcome.z().is_none());
+    }
+
+    #[test]
+    fn a_run_records_one_null_per_shuffle_asked_for() {
+        let judge = Polyglot::default();
+        let scale = Scale::build(&judge, 8, 2, &mut Rng::new(1));
+        let ctx = Context {
+            judge: &judge,
+            scale: &scale,
+            plan: Schedule::default(),
+            seed: 1,
+            keep: 1,
+            focus: None,
+            focus_scale: None,
+            trace: &crate::trace::QUIET,
+        };
+        let outcome = run(
+            &crate::attack::AffineSweep,
+            &to_letters("ABCDEFGH"),
+            &ctx,
+            5,
+        );
+        assert_eq!(outcome.null.len(), 5);
+    }
+
     #[test]
     fn z_needs_a_null_to_exist() {
         let outcome = Outcome {

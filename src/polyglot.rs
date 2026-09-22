@@ -192,7 +192,6 @@ impl Polyglot {
         if n == 0 {
             return (self.models[0].0.as_str(), 0.0);
         }
-        let inverse = 1.0 / n as f32;
         let mut best_index = 0usize;
         let mut best_value = f32::NEG_INFINITY;
         for (i, &v) in acc[..langs].iter().enumerate() {
@@ -203,7 +202,9 @@ impl Polyglot {
         }
         (
             self.models[best_index].0.as_str(),
-            f64::from(best_value * inverse),
+            // Divided the same way `fit` divides, in double precision.
+            // The two are the same function and used to differ in the sixth decimal because one multiplied by a single-precision reciprocal and the other divided in double.
+            f64::from(best_value) / n as f64,
         )
     }
 
@@ -235,6 +236,19 @@ impl Polyglot {
     #[must_use]
     pub fn order(&self) -> usize {
         self.order
+    }
+
+    /// The best fit computed model by model, without the interleaved table.
+    ///
+    /// The slow path, exposed so a test can hold the fast one to it.
+    #[must_use]
+    pub fn polyglotless_score(&self, ls: &[Letter]) -> Option<f64> {
+        self.models
+            .iter()
+            .map(|(_, m)| m.score(ls))
+            .fold(None, |best: Option<f64>, s| {
+                Some(best.map_or(s, |b: f64| b.max(s)))
+            })
     }
 
     /// The best fit alone, without identifying which language it was.
@@ -337,6 +351,141 @@ mod tests {
         let (name, score) = empty.identify(&to_letters("ABC"));
         assert_eq!(name, "none");
         assert!(score.is_infinite());
+    }
+
+    #[test]
+    fn a_bank_reports_what_it_holds() {
+        let bank = bank();
+        assert_eq!(bank.len(), 2);
+        assert!(!bank.is_empty());
+        assert_eq!(bank.languages(), vec!["en", "xx"]);
+        assert!(Polyglot::default().is_empty());
+        assert_eq!(Polyglot::default().len(), 0);
+    }
+
+    #[test]
+    fn a_model_can_be_asked_for_by_name() {
+        let bank = bank();
+        assert!(bank.model_named("en").is_some());
+        assert!(bank.model_named("de").is_none());
+    }
+
+    #[test]
+    fn models_of_different_orders_still_score() {
+        // The interleaved table needs one order; a mixed bank falls back to scoring model by model rather than refusing.
+        let corpus = to_letters("THEQUICKBROWNFOXJUMPSOVERTHELAZYDOGANDTHEREANDTHAT");
+        let mixed = Polyglot::new(vec![
+            ("a".into(), Model::train(2, &corpus)),
+            ("b".into(), Model::train(3, &corpus)),
+        ]);
+        assert!(mixed.table().is_empty(), "a mixed bank cannot interleave");
+        assert!(mixed.score(&to_letters("THEAND")).is_finite());
+    }
+
+    #[test]
+    fn the_interleaved_table_has_a_row_for_every_gram() {
+        let bank = bank();
+        assert_eq!(bank.langs(), 2);
+        assert_eq!(bank.order(), 3);
+        assert_eq!(bank.table().len(), 26usize.pow(3) * 2);
+    }
+
+    #[test]
+    fn a_text_shorter_than_the_order_scores_nothing_either_way() {
+        let bank = bank();
+        assert_eq!(bank.identify(&to_letters("AB")).1, 0.0);
+        assert_eq!(bank.fit(&to_letters("AB")), 0.0);
+    }
+
+    #[test]
+    fn fit_is_the_score_identify_reports() {
+        let bank = bank();
+        for text in ["THETHETHE", "KAKIKUKE", "ZZZZZZ"] {
+            let ls = to_letters(text);
+            assert!(
+                (bank.fit(&ls) - bank.identify(&ls).1).abs() < 1e-12,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_scale_answers_zero_for_an_empty_text() {
+        let bank = bank();
+        let scale = Scale::build(&bank, 20, 20, &mut Rng::new(1));
+        assert_eq!(scale.standardise(0, -5.0), 0.0);
+        assert_eq!(scale.reach(), 20);
+    }
+
+    #[test]
+    fn the_scale_clamps_a_length_past_its_reach() {
+        let bank = bank();
+        let scale = Scale::build(&bank, 10, 20, &mut Rng::new(1));
+        assert_eq!(scale.standardise(10, -5.0), scale.standardise(999, -5.0));
+    }
+
+    #[test]
+    fn standardising_is_increasing_in_the_raw_score() {
+        let bank = bank();
+        let scale = Scale::build(&bank, 30, 40, &mut Rng::new(4));
+        assert!(scale.standardise(30, -4.0) > scale.standardise(30, -6.0));
+    }
+
+    #[test]
+    fn a_calibration_places_its_own_ends() {
+        let c = Calibration {
+            language_mean: 20.0,
+            language_sd: 1.0,
+            language_floor: 17.0,
+            noise_mean: 0.0,
+            noise_sd: 1.0,
+        };
+        assert!((c.position(0.0) - 0.0).abs() < 1e-12);
+        assert!((c.position(20.0) - 1.0).abs() < 1e-12);
+        assert!((c.position(10.0) - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_calibration_with_no_span_places_everything_at_zero() {
+        let c = Calibration {
+            language_mean: 5.0,
+            language_sd: 1.0,
+            language_floor: 5.0,
+            noise_mean: 5.0,
+            noise_sd: 1.0,
+        };
+        assert_eq!(c.position(99.0), 0.0);
+    }
+
+    #[test]
+    fn the_bar_takes_the_lower_of_its_two_rules() {
+        // Tight models: three deviations below them is still well above the span rule, so the span rule is what holds.
+        let tight = Calibration {
+            language_mean: 20.0,
+            language_sd: 0.1,
+            language_floor: 0.0,
+            noise_mean: 0.0,
+            noise_sd: 1.0,
+        };
+        assert!(
+            (tight.floor() - 12.0).abs() < 1e-9,
+            "floor was {}",
+            tight.floor()
+        );
+
+        // Loose models: three deviations below them is the lower rule.
+        let loose = Calibration {
+            language_mean: 20.0,
+            language_sd: 4.0,
+            language_floor: 0.0,
+            noise_mean: 0.0,
+            noise_sd: 1.0,
+        };
+        assert!(
+            (loose.floor() - 8.0).abs() < 1e-9,
+            "floor was {}",
+            loose.floor()
+        );
     }
 
     #[test]
@@ -493,6 +642,28 @@ mod calibration_tests {
         let noise: Vec<Letter> = (0..40).map(|_| rng.below(26) as u8).collect();
         let z = scale.standardise(40, bank.score(&noise));
         assert!(z.abs() < 4.0, "random letters landed at {z}");
+    }
+
+    #[test]
+    fn both_scoring_paths_give_the_same_answer() {
+        // One path keeps the grams on the stack and one allocates; they are the same function and a drift between them would be invisible.
+        let bank = small_bank();
+        let text = to_letters(&"THEQUICKBROWNFOX".repeat(40));
+        let short = &text[..INLINE];
+        let long = &text[..INLINE + 1];
+        assert!(bank.fit(short).is_finite());
+        assert!(bank.fit(long).is_finite());
+        // The same text scored through each path, by padding to cross the line.
+        let inline_score = bank.fit(&text[..100]);
+        let by_model = bank
+            .polyglotless_score(&text[..100])
+            .expect("the bank holds a model");
+        // Not exactly equal, and it cannot be: the fast path accumulates in single precision per language and the slow one in double.
+        // The tolerance is what that costs, and a drift larger than this would be a difference in the arithmetic rather than in the rounding.
+        assert!(
+            (inline_score - by_model).abs() < 1e-4,
+            "{inline_score} vs {by_model}"
+        );
     }
 
     #[test]

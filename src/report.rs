@@ -478,6 +478,72 @@ mod tests {
     }
 
     #[test]
+    fn an_impossible_coverage_needs_no_nulls() {
+        assert_eq!(nulls_required(Coverage::Impossible("x")), 0);
+        assert_eq!(
+            nulls_required(Coverage::Exhaustive(1)),
+            MIN_NULLS_EXHAUSTIVE
+        );
+        assert_eq!(nulls_required(Coverage::Searched(1)), MIN_NULLS_SEARCHED);
+    }
+
+    #[test]
+    fn a_candidate_below_its_own_null_is_not_read() {
+        let outcomes = vec![outcome(20.0, vec![21.0, 20.5, 22.0, 20.1])];
+        assert!(matches!(
+            conclude(&outcomes, &mut Calibrator::fixed(cal()), |_| "en".into()),
+            Conclusion::Unread { .. }
+        ));
+    }
+
+    #[test]
+    fn every_outcome_is_considered_and_not_just_the_first() {
+        // A weak outcome first and a strong one second: the strong one must still be found, which a loop that stops at the first failure would miss.
+        let weak = outcome(1.0, vec![1.0, 1.1, 0.9, 1.0]);
+        let strong = outcome(20.0, vec![1.0, 1.1, 0.9, 1.0]);
+        assert!(matches!(
+            conclude(&[weak, strong], &mut Calibrator::fixed(cal()), |_| "en"
+                .into()),
+            Conclusion::Read { .. }
+        ));
+    }
+
+    #[test]
+    fn several_candidates_of_one_outcome_are_all_considered() {
+        let mut o = outcome(1.0, vec![1.0, 1.1, 0.9, 1.0]);
+        o.best.push(Candidate {
+            score: 20.0,
+            key: "second".into(),
+            plain: vec![1, 2, 3],
+        });
+        match conclude(&[o], &mut Calibrator::fixed(cal()), |_| "en".into()) {
+            Conclusion::Read { key, .. } => assert_eq!(key, "second"),
+            Conclusion::Unread { .. } => panic!("the second candidate was never looked at"),
+        }
+    }
+
+    #[test]
+    fn the_unread_summary_counts_what_it_saw() {
+        let mut exhaustive = outcome(1.0, vec![1.0, 1.1, 0.9, 1.0]);
+        exhaustive.coverage = Coverage::Exhaustive(100);
+        let mut searched = outcome(1.0, vec![1.0, 1.1, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        searched.coverage = Coverage::Searched(50);
+        match conclude(
+            &[exhaustive, searched],
+            &mut Calibrator::fixed(cal()),
+            |_| "en".into(),
+        ) {
+            Conclusion::Unread {
+                keys, exhaustive, ..
+            } => {
+                assert_eq!(keys, 150);
+                assert_eq!(exhaustive, 1);
+            }
+            Conclusion::Read { .. } => panic!("should not read"),
+        }
+    }
+
+    #[test]
     fn impossible_attacks_are_carried_into_the_conclusion() {
         let mut o = outcome(5.0, vec![1.0, 1.1, 0.9, 1.0]);
         o.coverage = Coverage::Impossible("because");

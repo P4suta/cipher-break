@@ -75,4 +75,13 @@ mod tests {
         assert_eq!(add(25, 1), 0);
         assert_eq!(sub(0, 1), 25);
     }
+
+    #[test]
+    fn arithmetic_is_arithmetic_away_from_the_wrap() {
+        // The wrapping cases alone are satisfied by a function that always answers zero, which is a mutation this once survived.
+        assert_eq!(add(1, 2), 3);
+        assert_eq!(add(10, 7), 17);
+        assert_eq!(sub(9, 4), 5);
+        assert_eq!(sub(20, 3), 17);
+    }
 }

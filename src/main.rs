@@ -691,3 +691,135 @@ fn try_one(name: &str, ct: &[Letter], args: &[String]) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn an_option_is_the_word_after_its_name() {
+        let a = args(&["solve", "file", "--top", "7", "--seed", "3"]);
+        assert_eq!(option(&a, "--top"), Some("7"));
+        assert_eq!(option(&a, "--seed"), Some("3"));
+    }
+
+    #[test]
+    fn a_missing_option_is_absent() {
+        assert_eq!(option(&args(&["solve"]), "--top"), None);
+        assert_eq!(
+            option(&args(&["--top"]), "--top"),
+            None,
+            "a name with nothing after it"
+        );
+    }
+
+    #[test]
+    fn an_option_is_found_wherever_it_sits() {
+        let a = args(&["a", "b", "c", "d", "--word", "VONVON"]);
+        assert_eq!(option(&a, "--word"), Some("VONVON"));
+    }
+
+    #[test]
+    fn a_flag_is_present_or_it_is_not() {
+        assert!(flag(&args(&["solve", "--gpu"]), "--gpu"));
+        assert!(!flag(&args(&["solve"]), "--gpu"));
+    }
+
+    #[test]
+    fn a_number_that_will_not_parse_falls_back() {
+        assert_eq!(number(&args(&["--top", "9"]), "--top", 1usize), 9);
+        assert_eq!(number(&args(&["--top", "x"]), "--top", 1usize), 1);
+        assert_eq!(number(&args(&["--nope"]), "--top", 1usize), 1);
+    }
+
+    #[test]
+    fn the_named_efforts_differ_and_deepen() {
+        let quick = effort_from(&args(&["--effort", "quick"]));
+        let normal = effort_from(&args(&[]));
+        let deep = effort_from(&args(&["--effort", "deep"]));
+        let max = effort_from(&args(&["--effort", "max"]));
+        assert!(quick.depth < normal.depth);
+        assert!(normal.depth < deep.depth);
+        assert!(deep.depth < max.depth);
+        assert!(quick.nulls < normal.nulls);
+        assert!(quick.plan.steps < max.plan.steps);
+    }
+
+    #[test]
+    fn an_explicit_depth_and_null_count_win() {
+        let e = effort_from(&args(&[
+            "--effort", "quick", "--depth", "6", "--nulls", "30",
+        ]));
+        assert_eq!(e.depth, 6);
+        assert_eq!(e.nulls, 30);
+    }
+
+    #[test]
+    fn an_unknown_effort_is_the_ordinary_one() {
+        assert_eq!(
+            effort_from(&args(&["--effort", "wat"])).depth,
+            effort_from(&args(&[])).depth
+        );
+    }
+
+    #[test]
+    fn colour_can_be_taken_out() {
+        let painted = "\x1b[1;32mREAD\x1b[0m here";
+        assert_eq!(strip_ansi(painted), "READ here");
+        assert_eq!(strip_ansi("nothing to strip"), "nothing to strip");
+        assert_eq!(paint(&args(&["--plain"]), painted), "READ here");
+    }
+
+    #[test]
+    fn the_built_in_bank_carries_every_shipped_model() {
+        let bank = models(&args(&[])).expect("the bundle parses");
+        assert_eq!(bank.len(), 26, "languages: {:?}", bank.languages());
+        assert!(bank.model_named("de").is_some());
+        assert!(bank.model_named("ja").is_some());
+        assert!(!bank.is_empty());
+    }
+
+    #[test]
+    fn the_german_model_loads_only_when_asked_for() {
+        assert!(focus_model(&args(&[])).is_none());
+        assert!(focus_model(&args(&["--language", "de"])).is_some());
+        assert!(focus_model(&args(&["--language", "xx"])).is_none());
+    }
+
+    #[test]
+    fn the_german_model_is_the_quadgram_one() {
+        let m = focus_model(&args(&["--language", "de"])).expect("loads");
+        assert_eq!(m.order(), 4);
+        assert!(m.total() > 1_000_000.0, "trained on {} grams", m.total());
+    }
+
+    #[test]
+    fn the_catalogue_names_are_distinct() {
+        let names: Vec<String> = registry(4).iter().map(|a| a.name()).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "two attacks share a name");
+    }
+
+    #[test]
+    fn the_catalogue_deepens_with_the_depth_it_is_given() {
+        assert!(registry(5).len() > registry(3).len());
+    }
+
+    #[test]
+    fn the_usage_text_lists_every_command_the_parser_accepts() {
+        for command in [
+            "solve", "report", "crib", "bombe", "try", "list", "devices", "train",
+        ] {
+            assert!(
+                USAGE.contains(command),
+                "{command} is not in the usage text"
+            );
+        }
+    }
+}

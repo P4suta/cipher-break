@@ -120,6 +120,30 @@ mod tests {
     }
 
     #[test]
+    fn every_affine_key_is_a_permutation() {
+        for (name, key) in affine_keys() {
+            let mut sorted = key;
+            sorted.sort_unstable();
+            assert_eq!(sorted, identity(), "{name} was not a permutation");
+        }
+    }
+
+    #[test]
+    fn the_affine_keys_include_the_shifts_and_atbash() {
+        let keys: Vec<Key> = affine_keys().into_iter().map(|(_, k)| k).collect();
+        assert!(keys.contains(&shift(7)), "a=1 b=7 is a shift");
+        assert!(keys.contains(&atbash()), "a=25 b=25 is Atbash");
+        assert!(keys.contains(&identity()));
+    }
+
+    #[test]
+    fn a_random_key_is_a_permutation() {
+        let mut sorted = random(&mut Rng::new(31));
+        sorted.sort_unstable();
+        assert_eq!(sorted, identity());
+    }
+
+    #[test]
     fn there_are_312_affine_keys() {
         assert_eq!(affine_keys().len(), 312);
     }

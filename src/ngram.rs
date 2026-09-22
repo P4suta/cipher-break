@@ -220,6 +220,11 @@ impl Iterator for Grams<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {
+        // An order of zero has no grams.
+        // The Haskell reference has always said so; this said every letter was one, because `seen >= 0` is always true and the modulus was one, so every gram was index zero.
+        if self.order == 0 {
+            return None;
+        }
         while let Some((&l, tail)) = self.rest.split_first() {
             self.rest = tail;
             self.acc = (self.acc * ALPHABET + l as usize) % self.modulus;
@@ -273,6 +278,64 @@ mod tests {
         let noise: Vec<u8> = (0..200).map(|_| rng.below(26) as u8).collect();
         assert_eq!(drawn.len(), 200);
         assert!(m.score(&drawn) > m.score(&noise));
+    }
+
+    #[test]
+    fn an_order_of_zero_has_no_grams() {
+        assert_eq!(Grams::new(0, &to_letters("ABCDEF")).count(), 0);
+    }
+
+    #[test]
+    fn a_model_scores_nothing_on_a_text_too_short_for_it() {
+        let m = Model::train(3, &to_letters(CORPUS));
+        assert_eq!(m.score(&to_letters("AB")), 0.0);
+    }
+
+    #[test]
+    fn an_unseen_gram_gets_the_floor_and_not_infinity() {
+        let m = Model::train(3, &to_letters("AAAAAA"));
+        let score = m.score(&to_letters("QXZ"));
+        assert!(score.is_finite(), "an unseen gram was fatal");
+        assert!(score < m.score(&to_letters("AAA")));
+    }
+
+    #[test]
+    fn a_models_total_is_the_grams_it_counted() {
+        let corpus = to_letters(CORPUS);
+        let m = Model::train(3, &corpus);
+        assert!((m.total() - (corpus.len() - 2) as f64).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_log_table_has_a_slot_for_every_gram() {
+        let m = Model::train(3, &to_letters(CORPUS));
+        assert_eq!(m.log_table().len(), 26usize.pow(3));
+    }
+
+    #[test]
+    fn a_header_without_an_order_is_refused() {
+        assert!(Model::parse("").is_none());
+        assert!(Model::parse("orderly 3\n").is_none());
+        assert!(Model::parse("order x\n").is_none());
+    }
+
+    #[test]
+    fn a_line_whose_gram_is_the_wrong_length_is_skipped() {
+        let m = Model::parse("order 3\nABCD 5\nABC 7\n").expect("parses");
+        assert!((m.total() - 7.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rendering_honours_its_cutoff() {
+        let m = Model::train(3, &to_letters(CORPUS));
+        let all = m.render(1).lines().count();
+        let some = m.render(2).lines().count();
+        assert!(some < all, "a higher cutoff kept as much");
+        assert_eq!(
+            m.render(u32::MAX).lines().count(),
+            1,
+            "only the header should remain"
+        );
     }
 
     #[test]

@@ -125,6 +125,66 @@ pub trait Attack: Sync + Send {
     fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate>;
 }
 
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn coverage_reports_the_keys_it_will_look_at() {
+        assert_eq!(Coverage::Exhaustive(1234).keys(), 1234);
+        assert_eq!(Coverage::Searched(99).keys(), 99);
+        assert_eq!(Coverage::Impossible("x").keys(), 0);
+    }
+
+    #[test]
+    fn a_periodic_sweep_counts_three_families() {
+        let ct = vec![0u8; 20];
+        assert_eq!(
+            PeriodicSweep { period: 2 }.coverage(&ct),
+            Coverage::Exhaustive(3 * 26 * 26)
+        );
+    }
+
+    #[test]
+    fn a_porta_sweep_counts_in_thirteens() {
+        let ct = vec![0u8; 20];
+        assert_eq!(
+            PortaSweep { period: 2 }.coverage(&ct),
+            Coverage::Exhaustive(169)
+        );
+    }
+
+    #[test]
+    fn an_autokey_sweep_counts_six_variants() {
+        let ct = vec![0u8; 20];
+        assert_eq!(
+            AutokeySweep { length: 1 }.coverage(&ct),
+            Coverage::Exhaustive(6 * 26)
+        );
+    }
+
+    #[test]
+    fn a_columnar_sweep_counts_factorially() {
+        let ct = vec![0u8; 20];
+        assert_eq!(
+            ColumnarSweep { width: 4 }.coverage(&ct),
+            Coverage::Exhaustive(24)
+        );
+    }
+
+    #[test]
+    fn the_penalty_is_zero_for_a_board_with_no_leads() {
+        assert!((penalised(5.0, 0, 70) - 5.0).abs() < 1e-12);
+        assert!(penalised(5.0, 1, 70) < 5.0);
+        assert!(penalised(5.0, 2, 70) < penalised(5.0, 1, 70));
+    }
+
+    #[test]
+    fn the_plugboard_has_every_unordered_pair() {
+        assert_eq!(PLUGBOARD_PAIRS, 325);
+    }
+}
+
 /// A bounded collection of the highest scores seen, by key index.
 ///
 /// Sweeps run to tens of millions of keys, so nothing may be kept per key.

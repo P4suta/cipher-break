@@ -147,6 +147,19 @@ mod tests {
     }
 
     #[test]
+    fn two_rails_is_the_shortest_fence_there_is() {
+        let msg = to_letters("ABCDEF");
+        assert_ne!(rail_fence(2, &msg), msg, "two rails must move something");
+        assert_eq!(rail_fence(0, &msg), msg);
+    }
+
+    #[test]
+    fn permutations_of_nothing_is_one_empty_order() {
+        assert_eq!(permutations(0).len(), 1);
+        assert_eq!(permutations(0)[0], Vec::<usize>::new());
+    }
+
+    #[test]
     fn one_rail_changes_nothing() {
         let msg = to_letters("ABCDEF");
         assert_eq!(rail_fence(1, &msg), msg);

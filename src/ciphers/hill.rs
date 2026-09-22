@@ -110,6 +110,19 @@ mod tests {
     }
 
     #[test]
+    fn a_text_of_one_letter_is_left_alone() {
+        let m = Matrix(3, 3, 2, 5);
+        assert_eq!(m.apply(&to_letters("A")), to_letters("A"));
+        assert!(m.apply(&[]).is_empty());
+    }
+
+    #[test]
+    fn the_identity_matrix_changes_nothing() {
+        let msg = to_letters("ITISACAPITALMISTAKE");
+        assert_eq!(Matrix(1, 0, 0, 1).apply(&msg), msg);
+    }
+
+    #[test]
     fn a_trailing_odd_letter_is_left_alone() {
         assert_eq!(Matrix(3, 3, 2, 5).apply(&to_letters("ABC")).len(), 3);
     }

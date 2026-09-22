@@ -121,6 +121,51 @@ mod tests {
     #[test]
     fn ic_of_a_short_text_is_zero() {
         assert_eq!(index_of_coincidence(&to_letters("A")), 0.0);
+        assert_eq!(index_of_coincidence(&[]), 0.0);
+    }
+
+    #[test]
+    fn two_letters_are_enough_to_have_an_index() {
+        // The boundary itself: a pair is the shortest text with a pair in it,
+        // and treating it as too short reports nothing where the answer is one.
+        assert_eq!(index_of_coincidence(&to_letters("AA")), 1.0);
+        assert_eq!(index_of_coincidence(&to_letters("AB")), 0.0);
+    }
+
+    #[test]
+    fn chi_squared_is_not_zero_on_text_that_is_not_english() {
+        assert!(chi_squared(&to_letters("ZZZZZZZZ")) > 0.0);
+    }
+
+    #[test]
+    fn moments_are_the_mean_and_the_deviation() {
+        let (mean, sd) = moments(&[1.0, 3.0]);
+        assert!((mean - 2.0).abs() < 1e-12, "mean was {mean}");
+        assert!((sd - 1.0).abs() < 1e-12, "deviation was {sd}");
+    }
+
+    #[test]
+    fn moments_of_a_constant_sample_have_no_spread() {
+        let (mean, sd) = moments(&[5.0, 5.0, 5.0]);
+        assert!((mean - 5.0).abs() < 1e-12);
+        assert!(sd < 1e-6, "deviation was {sd}");
+    }
+
+    #[test]
+    fn moments_of_nothing_are_nothing() {
+        assert_eq!(moments(&[]), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_english_table_is_a_distribution() {
+        let total: f64 = ENGLISH.iter().sum();
+        assert!((total - 1.0).abs() < 1e-3, "it summed to {total}");
+        assert!(ENGLISH.iter().all(|&p| p > 0.0));
+    }
+
+    #[test]
+    fn ic_by_period_falls_back_to_zero_when_no_column_is_usable() {
+        assert_eq!(ic_by_period(&to_letters("ABC"), 10), 0.0);
     }
 
     #[test]

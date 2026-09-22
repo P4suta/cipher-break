@@ -131,6 +131,112 @@ mod tests {
         assert!((best - 0.0).abs() < 1e-9, "best was {best}");
     }
 
+    /// A landscape with a trap: one peak beside the start and a taller one across a valley.
+    fn trapped() -> (impl Fn(&i32) -> f64, impl FnMut(&mut i32, &mut Rng)) {
+        let score = |x: &i32| match x {
+            0 => 0.0,
+            1 => 5.0,   // the near peak
+            2 => -10.0, // the valley
+            3 => 9.0,   // the far peak
+            _ => -50.0,
+        };
+        let mv = |x: &mut i32, rng: &mut Rng| {
+            *x = (*x + if rng.below(2) == 0 { 1 } else { 3 }) % 4;
+        };
+        (score, mv)
+    }
+
+    #[test]
+    fn a_cold_schedule_never_leaves_the_first_peak() {
+        // With no temperature there is no way across the valley, which is the whole reason a schedule starts hot.
+        let (score, mv) = trapped();
+        let plan = Schedule {
+            steps: 500,
+            restarts: 1,
+            hot: 0.0,
+            cold: 0.0,
+        };
+        let (_, best) = anneal(1, score, mv, plan, &mut Rng::new(2));
+        assert!((best - 5.0).abs() < 1e-9, "a cold run reached {best}");
+    }
+
+    #[test]
+    fn a_hot_schedule_crosses_the_valley() {
+        let (score, mv) = trapped();
+        let plan = Schedule {
+            steps: 2000,
+            restarts: 1,
+            hot: 20.0,
+            cold: 0.01,
+        };
+        let (_, best) = anneal(1, score, mv, plan, &mut Rng::new(2));
+        assert!((best - 9.0).abs() < 1e-9, "a hot run reached {best}");
+    }
+
+    #[test]
+    fn the_best_seen_is_returned_even_when_the_walk_wanders_off() {
+        // The state at the end is not the answer; the best state ever visited is.
+        // A run that ends in the valley must still report the peak.
+        let (score, mv) = trapped();
+        let plan = Schedule {
+            steps: 3000,
+            restarts: 1,
+            hot: 50.0,
+            cold: 40.0,
+        };
+        let (state, best) = anneal(0, &score, mv, plan, &mut Rng::new(5));
+        assert!(best >= 5.0, "the best seen was {best}");
+        assert!(
+            (score(&state) - best).abs() < 1e-9,
+            "the state and its score disagree"
+        );
+    }
+
+    #[test]
+    fn a_single_step_proposes_once() {
+        let calls = std::cell::Cell::new(0usize);
+        let score = |_: &i32| 0.0;
+        let mv = |_: &mut i32, _: &mut Rng| calls.set(calls.get() + 1);
+        let plan = Schedule {
+            steps: 1,
+            restarts: 1,
+            hot: 1.0,
+            cold: 1.0,
+        };
+        let _ = anneal(0, score, mv, plan, &mut Rng::new(1));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn no_steps_proposes_nothing_and_keeps_the_start() {
+        let score = |x: &i32| f64::from(*x);
+        let mv = |x: &mut i32, _: &mut Rng| *x += 100;
+        let plan = Schedule {
+            steps: 0,
+            restarts: 1,
+            hot: 1.0,
+            cold: 1.0,
+        };
+        let (state, best) = anneal(7, score, mv, plan, &mut Rng::new(1));
+        assert_eq!(state, 7);
+        assert!((best - 7.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn scaling_multiplies_steps_and_restarts_and_leaves_the_temperatures() {
+        let base = Schedule {
+            steps: 100,
+            restarts: 4,
+            hot: 3.0,
+            cold: 0.5,
+        };
+        let doubled = base.scaled(2.0);
+        assert_eq!(doubled.steps, 200);
+        assert_eq!(doubled.restarts, 8);
+        assert!((doubled.hot - 3.0).abs() < 1e-12);
+        assert!((doubled.cold - 0.5).abs() < 1e-12);
+    }
+
     #[test]
     fn a_scaled_schedule_keeps_at_least_one_restart() {
         assert_eq!(Schedule::default().scaled(0.0).restarts, 1);

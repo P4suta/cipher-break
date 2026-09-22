@@ -94,6 +94,54 @@ mod tests {
     }
 
     #[test]
+    fn below_stays_below_and_moves() {
+        let mut rng = Rng::new(11);
+        let draws: Vec<usize> = (0..200).map(|_| rng.below(7)).collect();
+        assert!(draws.iter().all(|&d| d < 7), "a draw escaped its bound");
+        assert!(
+            draws.iter().any(|&d| d != draws[0]),
+            "every draw was the same"
+        );
+        assert!(
+            draws.contains(&0) && draws.contains(&6),
+            "the ends were never drawn"
+        );
+    }
+
+    #[test]
+    fn below_zero_is_zero() {
+        assert_eq!(Rng::new(3).below(0), 0);
+    }
+
+    #[test]
+    fn a_unit_draw_is_a_unit_draw() {
+        let mut rng = Rng::new(13);
+        let draws: Vec<f64> = (0..200).map(|_| rng.unit()).collect();
+        assert!(
+            draws.iter().all(|&u| (0.0..=1.0).contains(&u)),
+            "a draw left the interval"
+        );
+        let mean = draws.iter().sum::<f64>() / draws.len() as f64;
+        assert!((mean - 0.5).abs() < 0.1, "the mean was {mean}");
+    }
+
+    #[test]
+    fn a_shuffle_of_one_or_none_is_itself() {
+        assert_eq!(Rng::new(1).shuffled(&[7u8]), vec![7]);
+        assert!(Rng::new(1).shuffled::<u8>(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_shuffle_actually_moves_things() {
+        let xs: Vec<u8> = (0..30).collect();
+        assert_ne!(
+            Rng::new(19).shuffled(&xs),
+            xs,
+            "the shuffle was the identity"
+        );
+    }
+
+    #[test]
     fn zero_is_not_a_fixed_point() {
         assert_ne!(Rng::new(0).next_u64(), 0);
     }

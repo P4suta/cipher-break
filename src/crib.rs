@@ -160,6 +160,29 @@ mod tests {
     }
 
     #[test]
+    fn a_crib_the_length_of_the_text_has_one_offset_to_test() {
+        let ct = to_letters("ABC");
+        assert_eq!(placements(&ct, &to_letters("BCA")).len(), 1);
+        assert!(placements(&ct, &to_letters("ABC")).is_empty());
+    }
+
+    #[test]
+    fn a_crib_that_fits_nowhere_cuts_everything() {
+        let ct = to_letters("AAAA");
+        let crib = Crib::against(&ct, &to_letters("A"));
+        assert!(crib.offsets.is_empty());
+        assert!((crib.cut(ct.len()) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_crib_that_fits_everywhere_cuts_nothing() {
+        let ct = to_letters("AAAA");
+        let crib = Crib::against(&ct, &to_letters("B"));
+        assert_eq!(crib.offsets.len(), 4);
+        assert!(crib.cut(ct.len()).abs() < 1e-12);
+    }
+
+    #[test]
     fn the_naval_cribs_are_letters_only() {
         for word in KRIEGSMARINE.iter().chain(KRIEGSMARINE_LONG) {
             assert_eq!(to_letters(word).len(), word.len(), "{word}");

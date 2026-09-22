@@ -178,6 +178,65 @@ mod tests {
     }
 
     #[test]
+    fn the_three_rules_are_three_different_rules() {
+        // A square in reading order, so the geometry is readable in the test.
+        let sq = omitting(9); // omits J, so the square is ABCDE FGHIK ...
+        // Same row: each letter moves one right, wrapping.
+        assert_eq!(encipher(&sq, &to_letters("AB")), to_letters("BC"));
+        assert_eq!(encipher(&sq, &to_letters("DE")), to_letters("EA"));
+        // Same column: each moves one down, wrapping.
+        assert_eq!(encipher(&sq, &to_letters("AF")), to_letters("FL"));
+        // A rectangle: each takes the other's column.
+        assert_eq!(encipher(&sq, &to_letters("AG")), to_letters("BF"));
+    }
+
+    #[test]
+    fn deciphering_reverses_each_rule() {
+        let sq = omitting(9);
+        for pair in ["AB", "DE", "AF", "AG"] {
+            let ls = to_letters(pair);
+            assert_eq!(decipher(&sq, &encipher(&sq, &ls)), ls, "{pair}");
+        }
+    }
+
+    #[test]
+    fn an_odd_trailing_letter_passes_through() {
+        let sq = omitting(9);
+        let ls = to_letters("ABC");
+        let out = encipher(&sq, &ls);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[2], ls[2]);
+    }
+
+    #[test]
+    fn a_text_of_one_letter_is_left_alone() {
+        let sq = omitting(9);
+        assert_eq!(encipher(&sq, &to_letters("A")), to_letters("A"));
+        assert!(encipher(&sq, &[]).is_empty());
+    }
+
+    #[test]
+    fn possible_looks_at_pairs_and_not_at_neighbours() {
+        assert!(possible(&[]));
+        assert!(possible(&to_letters("A")));
+        assert!(!possible(&to_letters("AA")));
+        assert!(
+            possible(&to_letters("ABB")),
+            "the odd letter is not in a pair"
+        );
+    }
+
+    #[test]
+    fn four_square_leaves_an_odd_letter_alone() {
+        let tr = random(8, &mut Rng::new(11));
+        let bl = random(8, &mut Rng::new(12));
+        let plain = omitting(8);
+        let out = encipher_four(&tr, &bl, &plain, &to_letters("ABC"));
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[2], to_letters("C")[0]);
+    }
+
+    #[test]
     fn four_square_round_trips() {
         let tr = random(8, &mut Rng::new(11));
         let bl = random(8, &mut Rng::new(12));

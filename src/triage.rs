@@ -121,6 +121,23 @@ pub fn qwerty_neighbours(ls: &[Letter]) -> f64 {
         .count() as f64
 }
 
+/// The longest stretch of one repeated letter.
+///
+/// The Haskell reference has carried this since the first day and the Rust implementation did not, which a test written against the reference is what found.
+/// Two implementations are only worth having while they answer alike.
+#[must_use]
+pub fn longest_run(ls: &[Letter]) -> f64 {
+    let mut best = 0usize;
+    let mut run = 0usize;
+    let mut previous: Option<Letter> = None;
+    for &l in ls {
+        run = if previous == Some(l) { run + 1 } else { 1 };
+        previous = Some(l);
+        best = best.max(run);
+    }
+    best as f64
+}
+
 /// The battery, in the order a report reads best.
 #[must_use]
 pub fn statistics(bank: Option<&Polyglot>) -> Vec<Statistic> {
@@ -164,6 +181,11 @@ pub fn statistics(bank: Option<&Polyglot>) -> Vec<Statistic> {
             name: "QWERTY neighbours",
             tail: Tail::Upper,
             of: Box::new(qwerty_neighbours),
+        },
+        Statistic {
+            name: "longest run",
+            tail: Tail::Upper,
+            of: Box::new(longest_run),
         },
     ];
     if let Some(bank) = bank {
@@ -272,6 +294,119 @@ mod tests {
     #[test]
     fn a_text_of_one_letter_is_flagged_by_coverage() {
         assert_eq!(coverage(&to_letters("AAAA")), 1.0);
+    }
+
+    #[test]
+    fn repetition_needs_a_text_longer_than_the_gram() {
+        assert_eq!(repetition(3, &to_letters("AB")), 0.0);
+        assert_eq!(repetition(3, &to_letters("ABC")), 0.0);
+        assert_eq!(repetition(2, &to_letters("AAA")), 1.0);
+    }
+
+    #[test]
+    fn the_digraph_index_counts_repeated_pairs() {
+        // Three identical pairs: three of them, three ordered matches out of the six ordered draws, so one half.
+        assert_eq!(digraph_ic(&to_letters("ABABAB")), 1.0);
+        assert_eq!(digraph_ic(&to_letters("ABCDEF")), 0.0);
+        assert_eq!(digraph_ic(&to_letters("AB")), 0.0);
+        assert_eq!(digraph_ic(&[]), 0.0);
+    }
+
+    #[test]
+    fn an_odd_trailing_letter_is_not_a_pair() {
+        assert_eq!(
+            digraph_ic(&to_letters("ABABX")),
+            digraph_ic(&to_letters("ABAB"))
+        );
+    }
+
+    #[test]
+    fn coverage_counts_letters_once_each() {
+        assert_eq!(coverage(&to_letters("ABCABC")), 3.0);
+        assert_eq!(coverage(&[]), 0.0);
+    }
+
+    #[test]
+    fn the_longest_run_is_the_longest_run() {
+        assert_eq!(longest_run(&to_letters("AABBBC")), 3.0);
+        assert_eq!(longest_run(&to_letters("ABCDEF")), 1.0);
+        assert_eq!(longest_run(&[]), 0.0);
+    }
+
+    #[test]
+    fn qwerty_neighbours_are_symmetric_and_exclude_repeats() {
+        assert_eq!(qwerty_neighbours(&to_letters("WQ")), 1.0);
+        assert_eq!(
+            qwerty_neighbours(&to_letters("QQ")),
+            0.0,
+            "a letter is not its own neighbour"
+        );
+        assert_eq!(
+            qwerty_neighbours(&to_letters("QA")),
+            1.0,
+            "rows below count"
+        );
+        assert_eq!(
+            qwerty_neighbours(&to_letters("QZ")),
+            0.0,
+            "two rows away do not"
+        );
+    }
+
+    #[test]
+    fn a_lower_tailed_statistic_is_judged_from_below() {
+        let mut rng = Rng::new(9);
+        let population = random_population(60, 200, &mut rng);
+        let lower = Statistic {
+            name: "vowels",
+            tail: Tail::Lower,
+            of: Box::new(vowels),
+        };
+        // A text with no vowels at all is extreme at the low end.
+        let none: Vec<Letter> = vec![1; 60];
+        assert!(assess(&lower, &none, &population).p < 0.01);
+        // And a text stuffed with them is not, on that tail.
+        let all: Vec<Letter> = vec![0; 60];
+        assert!(assess(&lower, &all, &population).p > 0.99);
+    }
+
+    #[test]
+    fn assess_reports_the_observation_it_was_given() {
+        let mut rng = Rng::new(2);
+        let population = random_population(40, 50, &mut rng);
+        let text = vec![0u8; 40];
+        let st = &statistics(None)[1];
+        let v = assess(st, &text, &population);
+        assert_eq!(v.name, "adjacent doubles");
+        assert_eq!(v.observed, 39.0);
+        assert!(v.z > 0.0);
+    }
+
+    #[test]
+    fn the_battery_grows_when_a_bank_is_offered() {
+        let without = statistics(None).len();
+        let bank = crate::polyglot::Polyglot::default();
+        assert_eq!(statistics(Some(&bank)).len(), without + 1);
+    }
+
+    #[test]
+    fn windows_refuse_what_they_cannot_cut() {
+        let corpus: Vec<u8> = (0..10).collect();
+        assert!(windows(0, 4, &corpus).is_empty());
+        assert!(windows(4, 0, &corpus).is_empty());
+        assert!(windows(20, 4, &corpus).is_empty());
+    }
+
+    #[test]
+    fn windows_never_overlap() {
+        let corpus: Vec<u8> = (0..100).map(|i| i as u8).collect();
+        let w = windows(10, 10, &corpus);
+        assert_eq!(w.len(), 10);
+        let flat: Vec<u8> = w.concat();
+        let mut sorted = flat.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), flat.len(), "a letter appeared in two windows");
     }
 
     #[test]

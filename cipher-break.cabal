@@ -1,0 +1,49 @@
+cabal-version:   3.0
+name:            cipher-break
+version:         0.1.0.0
+synopsis:        A cryptanalysis workbench for classical polyalphabetic ciphers
+description:
+  Diagnostics and attacks for the Vigenere family: index of coincidence by
+  period, Kasiski examination, chi-squared column solving and a dictionary
+  attack on the key, all ranked by a dictionary-driven fitness function.
+license:         MIT OR Apache-2.0
+license-files:   LICENSE-MIT LICENSE-APACHE
+author:          Yasunobu
+maintainer:      42543015+P4suta@users.noreply.github.com
+build-type:      Simple
+extra-doc-files: README.md
+
+common lang
+  default-language: GHC2021
+  ghc-options:      -Wall -Wcompat -Wincomplete-uni-patterns -Wredundant-constraints
+
+library
+  import:          lang
+  hs-source-dirs:  src
+  exposed-modules:
+      Cipher.Alphabet
+      Cipher.Stats
+      Cipher.Periodic
+      Cipher.Kasiski
+      Cipher.Fitness
+      Cipher.Ngram
+      Cipher.Superpose
+      Cipher.Triage
+      Cipher.Random
+      Cipher.Attack
+  build-depends:   base >=4.18 && <5, containers, array
+  ghc-options:     -O2
+
+executable cipher-break
+  import:         lang
+  hs-source-dirs: app
+  main-is:        Main.hs
+  build-depends:  base, cipher-break, containers
+  ghc-options:    -O2
+
+test-suite spec
+  import:         lang
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Spec.hs
+  build-depends:  base, cipher-break

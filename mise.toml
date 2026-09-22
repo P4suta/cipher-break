@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[tools]
+ghc = "9.14.1"
+cabal = "3.16.1.0"
+
+[tasks.build]
+description = "Build the library and the executable"
+run = "cabal build all"
+
+[tasks.test]
+description = "Run the test suite"
+run = "cabal test --test-show-details=direct"
+
+[tasks.lint]
+description = "Build with warnings denied"
+run = "cabal build all --ghc-options=-Werror"
+
+[tasks.check]
+description = "Build, lint and test"
+depends = ["build", "lint", "test"]
+
+[tasks.solve]
+description = "Run the solver over the committed ciphertext"
+run = "cabal run -v0 cipher-break -- solve data/ciphertext.txt"
+
+[tasks.analyze]
+description = "Run the diagnostics over the committed ciphertext"
+run = "cabal run -v0 cipher-break -- analyze data/ciphertext.txt"

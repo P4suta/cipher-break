@@ -19,6 +19,9 @@ module Cipher.Superpose
   , nullDistribution
   , Significance (..)
   , significance
+  , significanceOf
+  , FamilyWise (..)
+  , familywise
   ) where
 
 import Cipher.Alphabet (Letter, alphabetSize)
@@ -110,11 +113,66 @@ data Significance = Significance
 -- | How far above chance the merged index of coincidence is, in standard
 -- deviations of the null.
 significance :: Int -> Int -> [Letter] -> Seed -> Significance
-significance trials p ct s0 = Significance observed mean sd z
+significance = significanceOf mergedIC
+
+-- | 'significance' for any statistic that takes a text and a period.
+--
+-- Superposition is not the only way a period shows itself, and it only sees
+-- periods built from shifts. A cipher that gives each column its own mixed
+-- alphabet — Porta, or any of the Quagmires — leaves superposition nothing to
+-- align, but still leaves every column a monoalphabetic substitution, and so
+-- still raises the plain index of coincidence within the columns. Whichever
+-- statistic is used, it needs the same null.
+significanceOf :: ([Letter] -> Int -> Double) -> Int -> Int -> [Letter] -> Seed -> Significance
+significanceOf statistic trials p ct s0 = Significance observed mean sd z
   where
-    observed = mergedIC ct p
-    sample = nullDistribution trials p ct s0
+    observed = statistic ct p
+    sample = [statistic shuffled p | shuffled <- take trials (shuffles ct s0)]
     n = fromIntegral (max 1 (length sample))
     mean = sum sample / n
     sd = sqrt (max 1e-12 (sum [(x - mean) ^ (2 :: Int) | x <- sample] / n))
     z = (observed - mean) / sd
+
+-- | The largest z across a range of periods, tested as one claim.
+--
+-- Reporting sixteen z scores and then pointing at the biggest is how a
+-- one-in-twenty coincidence gets mistaken for a finding. The statistic that
+-- was actually chosen is "the largest of sixteen", so that is the statistic
+-- that has to be calibrated: the same maximum is taken over noise, and the
+-- observed maximum is read against those.
+--
+-- The two halves of the shuffle stream are kept apart on purpose. Calibrating
+-- the per-period means and deviations on the same draws that are then scored
+-- against them would pull every null maximum towards zero and make the
+-- observation look better than it is.
+data FamilyWise = FamilyWise
+  { fwPeriod :: Int
+  , fwZ :: Double
+  , fwNullMean :: Double
+  , fwP :: Double
+  }
+  deriving (Eq, Show)
+
+familywise :: ([Letter] -> Int -> Double) -> Int -> [Int] -> [Letter] -> Seed -> FamilyWise
+familywise statistic trials periods ct s0 = FamilyWise chosenPeriod chosenZ nullMean pValue
+  where
+    stream = shuffles ct s0
+    (calibration, scored) = splitAt trials stream
+    reference =
+      [ (p, moments [statistic text p | text <- calibration])
+      | p <- periods
+      ]
+    moments xs =
+      let n = fromIntegral (max 1 (length xs))
+          m = sum xs / n
+       in (m, sqrt (max 1e-15 (sum [(x - m) ^ (2 :: Int) | x <- xs] / n)))
+    zAt text p = case lookup p reference of
+      Just (m, sd) -> (statistic text p - m) / sd
+      Nothing -> 0
+    peak text = maximum [(zAt text p, p) | p <- periods]
+    (chosenZ, chosenPeriod) = peak ct
+    nullPeaks = [fst (peak text) | text <- take trials scored]
+    nullMean = sum nullPeaks / fromIntegral (max 1 (length nullPeaks))
+    pValue =
+      fromIntegral (length (filter (>= chosenZ) nullPeaks))
+        / fromIntegral (max 1 (length nullPeaks))

@@ -10,6 +10,8 @@ module Cipher.Periodic
   , families
   , encipher
   , decipher
+  , encipherLetter
+  , decipherLetter
   , columns
   , every
   ) where
@@ -31,23 +33,29 @@ families = [minBound .. maxBound]
 
 -- | Encipher under a repeating key; an empty key is the identity.
 encipher :: Family -> [Letter] -> [Letter] -> [Letter]
-encipher fam key = zipWith step (cycle key') 
+encipher fam key = zipWith (encipherLetter fam) (cycle key')
   where
     key' = if null key then [0] else key
-    step k p = case fam of
-      Vigenere -> (p + k) `mod` alphabetSize
-      Beaufort -> (k - p) `mod` alphabetSize
-      VariantBeaufort -> (p - k) `mod` alphabetSize
+
+-- | One plaintext letter under one key letter.
+encipherLetter :: Family -> Letter -> Letter -> Letter
+encipherLetter fam k p = case fam of
+  Vigenere -> (p + k) `mod` alphabetSize
+  Beaufort -> (k - p) `mod` alphabetSize
+  VariantBeaufort -> (p - k) `mod` alphabetSize
 
 -- | The inverse of 'encipher' for the same family and key.
 decipher :: Family -> [Letter] -> [Letter] -> [Letter]
-decipher fam key = zipWith step (cycle key')
+decipher fam key = zipWith (decipherLetter fam) (cycle key')
   where
     key' = if null key then [0] else key
-    step k c = case fam of
-      Vigenere -> (c - k) `mod` alphabetSize
-      Beaufort -> (k - c) `mod` alphabetSize
-      VariantBeaufort -> (c + k) `mod` alphabetSize
+
+-- | One ciphertext letter under one key letter.
+decipherLetter :: Family -> Letter -> Letter -> Letter
+decipherLetter fam k c = case fam of
+  Vigenere -> (c - k) `mod` alphabetSize
+  Beaufort -> (k - c) `mod` alphabetSize
+  VariantBeaufort -> (c + k) `mod` alphabetSize
 
 -- | Every @n@-th element, starting with the first.
 every :: Int -> [a] -> [a]

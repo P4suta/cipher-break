@@ -11,10 +11,12 @@
 -- not evidence, however suggestive it looks on its own.
 module Cipher.Triage
   ( Statistic (..)
+  , Tail (..)
   , statistics
   , Verdict (..)
   , assess
   , triage
+  , windows
   ) where
 
 import Cipher.Alphabet (Letter)
@@ -44,8 +46,8 @@ doubles ls = fromIntegral (length (filter id (zipWith (==) ls (drop 1 ls))))
 repetition :: Int -> [Letter] -> Double
 repetition n ls = fromIntegral (total - M.size table)
   where
-    grams = [take n s | s <- windows, length s >= n]
-    windows = takeWhile (not . null) (iterate (drop 1) ls)
+    grams = [take n s | s <- suffixes, length s >= n]
+    suffixes = takeWhile (not . null) (iterate (drop 1) ls)
     table = M.fromListWith (+) [(g, 1 :: Int) | g <- grams]
     total = length grams
 
@@ -114,3 +116,23 @@ triage :: Int -> [Letter] -> Seed -> [Verdict]
 triage trials ls s0 = [assess st ls samples | st <- statistics]
   where
     samples = take trials (randomKeys (length ls) s0)
+
+-- | Evenly spaced, non-overlapping windows of a corpus.
+--
+-- Triage compares the text against noise, which says whether it is structured.
+-- The other half of the question needs the opposite comparison: against real
+-- language, cut to the same length. A cipher that preserves letter counts —
+-- any simple substitution, any transposition, and any stack of the two — hands
+-- these statistics through untouched, so a text that cannot pass for language
+-- here cannot have come from one of those.
+windows :: Int -> Int -> [Letter] -> [[Letter]]
+windows width count corpus
+  | width <= 0 || count <= 0 = []
+  | otherwise = take count [c | (i, c) <- zip [0 :: Int ..] chunks, i `mod` stride == 0]
+  where
+    chunks = chunksOf width corpus
+    stride = max 1 (length chunks `div` count)
+    chunksOf n xs = case splitAt n xs of
+      (chunk, rest)
+        | length chunk < n -> []
+        | otherwise -> chunk : chunksOf n rest

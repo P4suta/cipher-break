@@ -5,6 +5,7 @@
 module Main (main) where
 
 import Cipher.Alphabet (Letter, alphabetSize, fromLetters, letterChar, toLetters)
+import Cipher.Autokey (decipherAuto, primings)
 import Cipher.Attack
   ( Candidate (..)
   , chiKey
@@ -16,14 +17,22 @@ import Cipher.Attack
   , searchKeys
   )
 import Cipher.Fitness (Lexicon (..), loadLexicon, segment, wordCover)
+import qualified Cipher.Bifid as Bifid
+import qualified Cipher.Hill as Hill
+import qualified Cipher.Porta as Porta
+import qualified Cipher.Polyglot
+import Cipher.Polyglot (Polyglot, identify, loadPolyglot, polyglotScore)
+import Cipher.Sweep (Outcome (..), Search (..), Trial (..), sweepTwoStage)
 import Cipher.Kasiski (Repeat (..), factorTally, repeats)
 import Cipher.Ngram (Model (..), loadModel, render, score, train)
 import Cipher.Periodic (Family (..), decipher, families)
 import Cipher.Stats (chiSquared, counts, indexOfCoincidence)
-import Cipher.Random (seed)
-import Cipher.Superpose (Significance (..), alignment, significance)
-import Cipher.Triage (Verdict (..), triage)
-import Data.List (sortOn)
+import Cipher.Random (randomKeys, seed)
+import Cipher.Superpose (FamilyWise (..), Significance (..), alignment, familywise, mergedIC, significance, significanceOf)
+import Cipher.Triage (Statistic (..), Tail (..), Verdict (..), assess, statistics, windows)
+import Control.Monad (replicateM)
+import Data.List (isPrefixOf, sortOn)
+import Data.Maybe (listToMaybe)
 import qualified Data.Set as S
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
@@ -35,6 +44,9 @@ defaultDict = "/usr/share/dict/words"
 
 defaultModel :: FilePath
 defaultModel = "data/english-quadgrams.txt"
+
+defaultModels :: FilePath
+defaultModels = "data/models"
 
 -- | Periods worth trying: past a quarter of the text a column holds too few
 -- letters for any statistic to mean anything.
@@ -52,6 +64,8 @@ usage =
     [ "usage: cipher-break analyze FILE [--null N]"
     , "       cipher-break solve FILE [--dict PATH] [--model PATH] [--top N]"
     , "       cipher-break triage FILE [--trials N]"
+    , "       cipher-break calibrate FILE [--samples N]   (corpus on stdin)"
+    , "       cipher-break sweep FILE [--which NAME] [--nulls N] [--keep N]"
     , "       cipher-break reduce FILE --period N"
     , "       cipher-break train [--order N] [--cutoff N]   (corpus on stdin)"
     ]
@@ -68,7 +82,23 @@ main = do
       solve opts ct
     ("triage" : path : opts) -> do
       ct <- readLetters path
-      report' (triage (readOption "--trials" 20000 opts) ct (seed 0xC0FFEE))
+      bank <- loadPolyglot (option "--models" defaultModels opts)
+      let sample = take (readOption "--trials" 20000 opts) (randomKeys (length ct) (seed 0xC0FFEE))
+      report' [assess st ct sample | st <- statistics ++ [languageFit bank]]
+    ("sweep" : path : opts) -> do
+      ct <- readLetters path
+      bank <- loadPolyglot (option "--models" defaultModels opts)
+      printf "models: %s\n" (unwords (Cipher.Polyglot.languages bank))
+      mapM_
+        (runSweep bank (readOption "--nulls" 20 opts) (readOption "--shortlist" 400 opts) (readOption "--keep" 3 opts) ct)
+        (chosen (polyglotScore bank) (option "--which" "all" opts))
+    ("calibrate" : path : opts) -> do
+      ct <- readLetters path
+      bank <- loadPolyglot (option "--models" defaultModels opts)
+      corpus <- toLetters <$> getContents
+      let sample = windows (length ct) (readOption "--samples" 4000 opts) corpus
+      printf "%d windows of %d letters\n" (length sample) (length ct)
+      report' [assess st ct sample | st <- statistics ++ [languageFit bank]]
     ("reduce" : path : opts) -> do
       ct <- readLetters path
       reduce (readOption "--period" 4 opts) ct
@@ -106,9 +136,16 @@ analyze trials ct = do
   putStrLn "\nindex of coincidence by period"
   mapM_ reportPeriod [1 .. maxPeriod]
 
+  printf "\ncolumn IC by period, against %d shuffles: any periodic cipher at all\n" trials
+  putStrLn "  p      IC   null mean    sd       z"
+  mapM_ reportColumns [2 .. maxPeriod]
+
   printf "\nsuperposition: IC once the columns are aligned, against %d shuffles\n" trials
   putStrLn "  p      IC   null mean    sd       z  relative key"
   mapM_ reportMerged [1 .. maxPeriod]
+
+  putStrLn "\nthe largest of those, tested as the one claim it is"
+  mapM_ reportFamilywise [("column IC", icByPeriod), ("superposition IC", \t p -> mergedIC t p)]
 
   putStrLn "\nrepeated substrings"
   let found = concatMap (`repeats` ct) [4, 3, 2]
@@ -125,6 +162,15 @@ analyze trials ct = do
     reportPeriod n = do
       let v = icByPeriod ct n
       printf "  %2d  %.4f  %s\n" n v (replicate (round (v * 400)) '#')
+    reportColumns n =
+      let sig = significanceOf icByPeriod trials n ct (seed (0x2545F4914F6CDD1D + fromIntegral n))
+       in printf
+            "  %2d  %.4f     %.4f  %.4f  %+6.2f\n"
+            n
+            (sigObserved sig)
+            (sigNullMean sig)
+            (sigNullSd sig)
+            (sigZ sig)
     reportMerged n =
       let sig = significance trials n ct (seed (0x9E3779B97F4A7C15 + fromIntegral n))
        in printf
@@ -135,6 +181,15 @@ analyze trials ct = do
             (sigNullSd sig)
             (sigZ sig)
             (fromLetters (alignment n ct))
+    reportFamilywise (label, statistic) =
+      let fw = familywise statistic trials [2 .. maxPeriod] ct (seed 0x14057B7EF767814F)
+       in printf
+            "  %-18s peaks at period %2d, z %+.2f; noise peaks at %+.2f on average, P = %.3f\n"
+            label
+            (fwPeriod fw)
+            (fwZ fw)
+            (fwNullMean fw)
+            (fwP fw)
     reportRepeat r =
       printf
         "  %-4s at %s  distances %s\n"
@@ -228,3 +283,85 @@ report' vs = do
         (verdictMean v)
         (verdictZ v)
         (verdictP v)
+
+-- | Every key space this tool can exhaust.
+--
+-- Each of these ciphers fails completely under a wrong key, with no partial
+-- credit to muddle a judge, which is what makes exhausting them worthwhile at
+-- all. The judge itself is passed in: the index of coincidence filters, and
+-- the bank of language models decides.
+searches :: ([Letter] -> Double) -> [Search]
+searches judge =
+  [ Search ("vigenere period " ++ show n) $ \ct ->
+      [ (show fam ++ " " ++ fromLetters key, decipher fam key ct)
+      | fam <- families
+      , key <- replicateM n [0 .. alphabetSize - 1]
+      ]
+  | n <- [1 .. 3]
+  ]
+    ++ [ Search ("autokey primer " ++ show n) $ \ct ->
+          [ (show priming ++ " " ++ show fam ++ " " ++ fromLetters primer, decipherAuto priming fam primer ct)
+          | priming <- primings
+          , fam <- families
+          , primer <- replicateM n [0 .. alphabetSize - 1]
+          ]
+       | n <- [1 .. 4]
+       ]
+    ++ [ Search ("porta period " ++ show n) $ \ct ->
+          [ (unwords (map show tables), Porta.apply tables ct)
+          | tables <- replicateM n [0 .. Porta.tableCount - 1]
+          ]
+       | n <- [1 .. 5]
+       ]
+    ++ [ Search "hill 2x2" $ \ct ->
+          [(show m, Hill.apply m ct) | m <- Hill.matrices]
+       ]
+    ++ [ Search ("vigenere hill climb, periods 1 to " ++ show maxPeriod) $ \ct ->
+          [ (show (candFamily c) ++ " " ++ fromLetters (candKey c), candPlain c)
+          | c <- climbAttack judge restarts [1 .. maxPeriod] ct
+          ]
+       ]
+    ++ [ Search "bifid unkeyed square" $ \ct ->
+          [ ("omits " ++ [letterChar missing] ++ ", period " ++ show n, Bifid.decipherBifid n sq ct)
+          | (missing, sq) <- Bifid.standardSquares
+          , n <- [1 .. 24]
+          ]
+       ]
+
+-- | Pick searches by name, or all of them.
+chosen :: ([Letter] -> Double) -> String -> [Search]
+chosen judge "all" = searches judge
+chosen judge name = filter ((name `isPrefixOf`) . searchName) (searches judge)
+
+runSweep :: Polyglot -> Int -> Int -> Int -> [Letter] -> Search -> IO ()
+runSweep bank nulls shortlist keep ct search = do
+  let outcome =
+        sweepTwoStage keep shortlist nulls indexOfCoincidence (polyglotScore bank) search ct (seed 0x5DEECE66D)
+      nullBest = outcomeNull outcome
+      nullMax = if null nullBest then 0 else maximum nullBest
+      nullMean = if null nullBest then 0 else sum nullBest / fromIntegral (length nullBest)
+  printf "\n=== %s ===\n" (outcomeName outcome)
+  printf
+    "best fit %+.3f    shuffled text reaches %+.3f on average, %+.3f at most, over %d runs\n"
+    (maybe 0 trialScore (listToMaybe (outcomeBest outcome)))
+    nullMean
+    nullMax
+    (length nullBest)
+  mapM_ showTrial (outcomeBest outcome)
+  where
+    showTrial t =
+      printf
+        "  %+.3f %-3s IC %.4f  %-26s %s\n"
+        (trialScore t)
+        (fst (identify bank (trialPlain t)))
+        (indexOfCoincidence (trialPlain t))
+        (trialLabel t)
+        (fromLetters (trialPlain t))
+
+-- | How well a text fits the best of the languages on hand.
+--
+-- Carried as a statistic like any other, so that it too is reported against
+-- what random letters and real prose score on it, rather than as a number to
+-- be judged by eye.
+languageFit :: Polyglot -> Statistic
+languageFit bank = Statistic "language fit" Upper (polyglotScore bank)

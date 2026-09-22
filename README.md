@@ -16,36 +16,47 @@ That last gap drives the design: an attack that needs a table of English letter 
 ## Commands
 
 ```
-cipher-break triage  FILE [--trials N]                     is this even structured?
-cipher-break analyze FILE [--null N]                       periods, repeats, superposition
-cipher-break reduce  FILE --period N                       undo a period, show every reading
-cipher-break solve   FILE [--dict PATH] [--model PATH]     attacks that assume English
-cipher-break train   [--order N] [--cutoff N]              learn an n-gram model from stdin
+cipher-break triage    FILE [--trials N]                    is this even structured?
+cipher-break calibrate FILE [--samples N]                   how does real language look, cut to this length?
+cipher-break analyze   FILE [--null N]                      periods, repeats, superposition, all against their nulls
+cipher-break sweep     FILE [--which NAME] [--nulls N]      exhaust a key space, and calibrate the exhausting
+cipher-break reduce    FILE --period N                      undo a period, show every reading
+cipher-break solve     FILE [--dict PATH] [--model PATH]    the attacks that assume English
+cipher-break train     [--order N] [--cutoff N]             learn an n-gram model from stdin
 ```
 
 `mise run check` builds with warnings denied and runs the suite.
 
-## What each command is for
+## The two ideas the tool is built on
 
-`triage` compares the text against a large sample of uniform random letters, one statistic at a time, and reports the share of the sample that matched or beat it.
-It assumes nothing whatever, which is why it runs first.
+**Nothing is evidence until its null is known.** Aligning columns, choosing the best of sixteen periods, keeping the best of 157,248 keys — each of those maximises a statistic, and maximising raises a statistic on any text whatever.
+So every number here is reported beside the same procedure run on text that is known to hide nothing: shuffles of the same letters, or uniform random letters.
+The margin between them is the finding; the number on its own is not.
 
-`analyze` looks for a period.
-The index of coincidence per period is the familiar measure and is reported, but it rises with the period whether or not a period is there, so the number that decides anything is the one beside it: the same statistic recomputed after Kerckhoffs' superposition, and compared against the same procedure run on shuffles of the same letters.
-Aligning columns means choosing shifts that maximise a statistic, and a shuffled text offers that choice just as readily; only the margin between them is evidence.
+**The judge must not assume a language.** The index of coincidence is the one measure that says "this is a language" without saying which, and it is weak: it counts letters and ignores their order, so it cannot tell a plaintext from an anagram of one.
+Swapping the rows of a Hill deciphering matrix swaps the letters within every digraph and leaves it untouched, which is exactly how a true key can fail to come first in a sweep that trusts it.
+`Cipher.Polyglot` is the answer: a bank of n-gram models, one per language, scoring each candidate under all of them and keeping the best fit.
+Eighteen are committed in `data/models`, from Czech to Japanese romaji, trained on comparable amounts of text.
 
-`reduce` applies the alignment and prints all 52 readings the remaining unknown allows — 26 shifts, and 26 more for the families that reverse the alphabet.
-Superposition recovers a key only up to its first letter, and no further statistic can close that gap, but 52 lines can simply be read, in any language.
+That bank is calibrated, and the calibration is what makes every result below readable:
 
-`solve` is the part that does assume English: a dictionary attack over every key in the system word list, a chi-squared fit per column, and hill climbing against a quadgram model, all ranked by the best split of the plaintext into dictionary words.
+| text | language fit |
+| --- | --- |
+| real prose, 72 letters, any of the 18 languages | **−6.4 to −7.8** |
+| uniform random letters | −14.0 |
+| this ciphertext | −14.4 |
 
-`train` builds the quadgram model.
-The committed `data/english-quadgrams.txt` was trained on 7.9 million letters of English prose; its counts agree exactly with an independent count made in Python.
+Real language and noise are eleven points apart, which on these samples is between 11 and 29 standard deviations.
+There is no middle ground to be confused by.
 
 ## What the tools say about this ciphertext
 
-The suite is known to work: its tests plant a period-4 and a period-5 key in English text and require every attack to recover it.
+The suite is known to work: it plants keys in known plaintext and requires every attack to recover them — a Vigenere period, a Porta key, an autokey primer, a Hill matrix, a bifid square.
 On this ciphertext all of them come back empty.
+
+### It is not distinguishable from random letters
+
+Against 20,000 random texts of the same length:
 
 | statistic | observed | random mean | P |
 | --- | --- | --- | --- |
@@ -55,20 +66,61 @@ On this ciphertext all of them come back empty.
 | repeated trigrams | 0 | 0.13 | 1.00 |
 | digraph IC | 0.0032 | 0.0015 | 0.23 |
 | distinct letters | 23 | 24.5 | 0.18 |
+| language fit | −14.41 | −14.00 | 0.85 |
 
-Against 50,000 random texts of the same length, nothing separates this one from them.
+### Everything that preserves letter counts is excluded
 
-Superposition is the one place a signal appears.
-Periods 4, 8, 12 and 16 all sit about 2.5 standard deviations above their null while every other period sits at zero, and a period-4 key is also a period-8, -12 and -16 key, so those four are one observation rather than four.
-One observation at z = 2.5, chosen as the largest of sixteen, is roughly a one-in-twenty coincidence.
-It is worth recording and it is not worth believing.
-The relative key it proposes is `ACYZ`, and none of the 52 readings that follow from it resembles a language.
+A simple substitution and a transposition both hand the plaintext's index of coincidence straight through, so whatever produced this text must have a plaintext with an index of coincidence of 0.0438.
+Cut 3,000 windows of 72 letters from each of eighteen languages and ask how many are that flat:
 
-The English-assuming attacks add nothing: 221,705 dictionary keys across three families, a chi-squared fit at every period up to 16, and hill climbing with fourteen restarts per family and period all return text that scores far below English on the quadgram model.
+| | en | de | fr | es | it | nl | pl | fi | ja |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| mean IC | 0.067 | 0.073 | 0.077 | 0.074 | 0.075 | 0.079 | 0.057 | 0.084 | 0.077 |
+| z of 0.0438 | −2.6 | −2.3 | −3.1 | −4.0 | −4.0 | −2.4 | −1.8 | −3.2 | −4.3 |
+
+Essentially none.
+That rules out every monoalphabetic substitution — Caesar, affine, keyword, arbitrary — every transposition — columnar, double, rail fence, route — and any stack of the two.
+Playfair is excluded separately and structurally: it can never emit a doubled letter within a digraph, and this text has `PP`, `VV` and `BB` on even boundaries.
+
+### Nothing in the searchable key spaces is a language
+
+| search | key space | exhaustive? | best fit | noise reaches |
+| --- | --- | --- | --- | --- |
+| Vigenere, Beaufort, variant Beaufort, period 1–3 | 54,834 | yes | −12.06 | −11.57 |
+| the same, period 1–16 | hill climbing, 14 restarts each | no | −9.03 | −8.83 |
+| Porta, period 1–5 | 402,233 | yes | −11.98 | −11.32 |
+| autokey, both primings, three families, primer 1–4 | 2,851,524 | yes | −11.83 | −11.71 |
+| Hill 2×2 | 157,248 | yes | −11.39 | −11.63 |
+| bifid, unkeyed square, every omitted letter | 624 | yes | −12.07 | −12.34 |
+| dictionary keys over the system word list | 665,115 | yes | — | — |
+
+Every one of them lands where noise lands, and eleven points short of any language.
+
+The hill-climbing row is the instructive one.
+It scores best of all at −9.03, and it is the emptiest result in the table: shuffled text, climbed the same way, reaches −9.02 on average and −8.83 at its best.
+Sixteen free key letters over 72 positions can force any text into that shape, and the null is what says so.
+
+### The one signal, and why it is not one
+
+Two statistics that measure it differently — the plain index of coincidence within the columns, and the index of coincidence after the columns are aligned by superposition — both single out periods 4, 8, 12 and 16 at about z = +2.5, with every other period at zero.
+A period-4 key is also a period-8, -12 and -16 key, so those four are one observation.
+
+Tested as the one claim it is, with the maximum over sixteen periods calibrated against the maximum over sixteen periods in shuffled text:
+
+| statistic | peak | z | noise peaks at | P |
+| --- | --- | --- | --- | --- |
+| column IC | period 8 | +2.80 | +1.86 | 0.110 |
+| superposition IC | period 8 | +3.08 | +1.93 | 0.097 |
+
+One time in ten, noise does this.
+The relative key superposition proposes at period 4 is `ACYZ`, and none of the 52 readings that follow from it resembles a language in any of the eighteen.
+
+## What is left
+
+Not everything can be exhausted, and what remains is what a short message protects best: a Vigenere key of eight letters or more, which leaves nine letters per column and nothing for a statistic to hold; a keyed bifid or four-square square, at 25 factorial; a running key; a one-time pad; anything modern.
 
 The honest reading is that 72 letters is short.
-A Vigenere key of eight letters leaves nine letters per column, which no statistic can work with; a running key, an autokey, a one-time pad or any modern cipher leaves nothing at all.
-"Indistinguishable from random" is a statement about the reach of these methods at this length, not about the text.
+"Indistinguishable from random" is a statement about the reach of these methods at this length, and not about the text.
 
 ## Licence
 

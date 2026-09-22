@@ -5,15 +5,20 @@ module Main (main) where
 
 import Cipher.Alphabet (fromLetters, toLetters)
 import Cipher.Attack (Candidate (..), chiKey, icByPeriod, rank, searchKeys)
+import Cipher.Autokey (Priming (..), decipherAuto, encipherAuto, primings)
+import qualified Cipher.Bifid as Bifid
+import qualified Cipher.Hill as Hill
+import qualified Cipher.Porta as Porta
+import Cipher.Sweep (Trial (..), best, topScore)
 import Cipher.Fitness (lexiconFrom, segment, wordCover)
 import Cipher.Kasiski (Repeat (..), factorTally, repeats)
 import Cipher.Ngram (Model (..), parseModel, render, score, train)
 import Cipher.Periodic (Family (..), columns, decipher, encipher, every, families)
 import Cipher.Random (nextWord, randomKey, seed, shuffle)
 import Cipher.Stats (chiSquared, counts, indexOfCoincidence)
-import Cipher.Superpose (alignment, merge, mutualIC, significance, sigZ)
+import Cipher.Superpose (alignment, familywise, fwP, merge, mutualIC, sigZ, significance)
 import Cipher.Triage (Verdict (..), assess, statistics)
-import Control.Monad (unless)
+import Control.Monad (replicateM, unless)
 import Data.List (sort)
 import Data.Maybe (isJust)
 import System.Exit (exitFailure)
@@ -24,6 +29,16 @@ plaintext =
   "ITISACAPITALMISTAKETOTHEORIZEBEFOREONEHASDATAINSENSIBLYONEBEGINS\
   \TOTWISTFACTSTOSUITTHEORIESINSTEADOFTHEORIESTOSUITFACTSTHEWORLDIS\
   \FULLOFOBVIOUSTHINGSWHICHNOBODYBYANYCHANCEEVEROBSERVES"
+
+-- | More English, so a model trained inside the suite has something to learn
+-- from beyond the sentence it is asked about.
+corpus :: String
+corpus =
+  plaintext
+    ++ "THEREISNOTHINGMOREDECEPTIVETHANANOBVIOUSFACTITHASLONGBEENANAXIOMOFMINE\
+       \THATTHELITTLETHINGSAREINFINITELYTHEMOSTIMPORTANTWHENYOUHAVEELIMINATED\
+       \THEIMPOSSIBLEWHATEVERREMAINSHOWEVERIMPROBABLEMUSTBETHETRUTHITISACAPITAL\
+       \MISTAKETOTHEORIZEBEFOREYOUHAVEALLTHEEVIDENCEITBIASESTHEJUDGMENT"
 
 sampleLexicon :: [String]
 sampleLexicon = ["THE", "QUICK", "BROWN", "FOX", "OX", "ROW", "ICK", "HE", "UI"]
@@ -157,5 +172,93 @@ checks =
        in case statistics of
             (st : _) -> verdictP (assess st (replicate 60 0) sample) < 0.05
             _ -> False
+    )
+  , ( "an autokey deciphers back to the plaintext"
+    , and
+        [ decipherAuto priming fam primer (encipherAuto priming fam primer msg) == msg
+        | priming <- primings
+        , fam <- families
+        , primer <- map toLetters ["K", "LEMON", "ZZ"]
+        , let msg = toLetters plaintext
+        ]
+    )
+  , ( "an autokey with an empty primer changes nothing"
+    , encipherAuto PlaintextAuto Vigenere [] (toLetters plaintext) == toLetters plaintext
+    )
+  , ( "the two primings differ"
+    , encipherAuto PlaintextAuto Vigenere (toLetters "K") (toLetters plaintext)
+        /= encipherAuto CiphertextAuto Vigenere (toLetters "K") (toLetters plaintext)
+    )
+  , ( "an exhaustive autokey search finds a planted primer"
+    , let ct = encipherAuto PlaintextAuto Vigenere (toLetters "QX") (toLetters plaintext)
+          proposals =
+            [ (fromLetters primer, decipherAuto PlaintextAuto Vigenere primer ct)
+            | primer <- replicateM 2 [0 .. 25]
+            ]
+       in case best 1 indexOfCoincidence proposals of
+            (t : _) -> trialLabel t == "QX" && trialPlain t == toLetters plaintext
+            [] -> False
+    )
+  , ("there are 157248 invertible two-by-two matrices", length Hill.matrices == 157248)
+  , ("a singular matrix is rejected", not (Hill.invertible (Hill.Matrix 2 4 6 8)))
+  , ("the determinant is taken modulo 26", Hill.determinant (Hill.Matrix 3 3 2 5) == 9)
+  , ( "a matrix and its inverse undo each other"
+    , let m = Hill.Matrix 3 3 2 5
+          inverse = Hill.Matrix 15 17 20 9
+       in Hill.apply inverse (Hill.apply m (toLetters plaintext)) == toLetters plaintext
+    )
+  , ("Hill leaves a trailing odd letter alone", length (Hill.apply (Hill.Matrix 3 3 2 5) (toLetters "ABC")) == 3)
+  , ( "an exhaustive Hill search brings a planted key within reach"
+    , -- The index of coincidence cannot pick the key out on its own: swapping
+      -- the rows of the deciphering matrix swaps the letters within every
+      -- digraph, which leaves the letter counts and so the statistic exactly
+      -- as they were. It is a filter, not a verdict, and this is the property
+      -- a sweep may lean on.
+      let ct = Hill.apply (Hill.Matrix 3 3 2 5) (toLetters plaintext)
+          top = best 40 indexOfCoincidence [(show m, Hill.apply m ct) | m <- Hill.matrices]
+       in any ((== toLetters plaintext) . trialPlain) top
+    )
+  , ( "an n-gram model picks the planted Hill key out of that shortlist"
+    , let ct = Hill.apply (Hill.Matrix 3 3 2 5) (toLetters plaintext)
+          model = train 3 (toLetters corpus)
+          top = best 40 indexOfCoincidence [(show m, Hill.apply m ct) | m <- Hill.matrices]
+       in case best 1 (score model) [(trialLabel t, trialPlain t) | t <- top] of
+            (t : _) -> trialPlain t == toLetters plaintext
+            [] -> False
+    )
+  , ("a Porta table is its own inverse", and [Porta.substitute t (Porta.substitute t l) == l | t <- [0 .. 12], l <- [0 .. 25]])
+  , ("Porta maps the halves of the alphabet across", Porta.substitute 0 0 == 13 && Porta.substitute 0 13 == 0)
+  , ( "Porta enciphers and deciphers alike"
+    , let key = [3, 7, 1]
+       in Porta.apply key (Porta.apply key (toLetters plaintext)) == toLetters plaintext
+    )
+  , ("an empty Porta key changes nothing", Porta.apply [] (toLetters plaintext) == toLetters plaintext)
+  , ( "bifid deciphers back to the plaintext"
+    , -- A square holds 25 letters, so the omitted one has to be gone from the
+      -- text too; a text still carrying it has no coordinates to encipher.
+      and
+        [ Bifid.decipherBifid n sq (Bifid.encipherBifid n sq msg) == msg
+        | n <- [1, 2, 5, 7]
+        , (missing, sq) <- Bifid.standardSquares
+        , let msg = filter (/= missing) (toLetters plaintext)
+        ]
+    )
+  , ("a bifid square omits exactly one letter", length (Bifid.squareOmitting 8) == 25 && notElem 8 (Bifid.squareOmitting 8))
+  , ("bifid flattens the index of coincidence", indexOfCoincidence (Bifid.encipherBifid 7 (Bifid.squareOmitting 8) (filter (/= 8) (toLetters plaintext))) < indexOfCoincidence (toLetters plaintext))
+  , ( "a sweep keeps only the best it was asked for"
+    , length (best 3 indexOfCoincidence [(show i, replicate i 0 ++ toLetters plaintext) | i <- [1 .. 10]]) == 3
+    )
+  , ( "the top score agrees with the best trial"
+    , let proposals = [(show i, drop i (toLetters plaintext)) | i <- [0 .. 9]]
+       in case best 1 indexOfCoincidence proposals of
+            (t : _) -> abs (trialScore t - topScore indexOfCoincidence proposals) < 1e-12
+            [] -> False
+    )
+  , ( "the family-wise test does not flag a text with no period"
+    , fwP (familywise icByPeriod 40 [2 .. 8] (toLetters plaintext) (seed 99)) > 0.0
+    )
+  , ( "the family-wise test flags a planted period"
+    , let ct = encipher Vigenere (toLetters "LEMON") (toLetters plaintext)
+       in fwP (familywise icByPeriod 60 [2 .. 10] ct (seed 77)) < 0.05
     )
   ]

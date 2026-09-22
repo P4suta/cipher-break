@@ -14,8 +14,9 @@ exclude = ["src/gpu.rs", "src/gpu/**"]
 
 [execution]
 timeout = "20m"
-# Target ids, as `njutest plan` prints them.
-# A bare test name is not matched and is silently ignored, which starts a run that takes hours.
+# Target ids in the `package/kind/name` form `njutest plan` prints.
+# An entry that matches nothing is rejected with RM5004, which lists every id the workspace declares — but the check runs after the baseline, so on a project whose baseline takes ten minutes the rejection arrives after ten minutes.
+# `njutest plan` does not read this key at all, so there is no cheap way to confirm it before committing to a run.
 skip_targets = ["cipher-break/test/solves", "cipher-break/test/enigma"]
 
 [mutation]

@@ -26,6 +26,10 @@ description = "Run the Haskell reference suite"
 dir = "reference"
 run = "cabal test --test-show-details=direct"
 
+[tasks.assure]
+description = "Run the njutest assurance gate and report its verdict"
+run = "njutest verify"
+
 [tasks.lint]
 description = "Formatting and clippy, with warnings denied"
 run = ["cargo fmt --check", "cargo clippy --all-targets --features gpu -- -D warnings"]

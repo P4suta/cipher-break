@@ -12,6 +12,7 @@ pub mod alphabet;
 pub mod anneal;
 pub mod attack;
 pub mod ciphers;
+pub mod crib;
 pub mod enigma_types;
 #[cfg(feature = "gpu")]
 pub mod gpu;

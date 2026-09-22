@@ -7,6 +7,7 @@
 use cipher_break::alphabet::{Letter, from_letters, to_letters};
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Context, registry};
+use cipher_break::crib::{Crib, KRIEGSMARINE};
 use cipher_break::ngram::Model;
 use cipher_break::polyglot::{Polyglot, Scale};
 use cipher_break::report::{self, Conclusion};
@@ -65,6 +66,7 @@ USAGE
   cb solve   <input> [options]          the same, spelled out
   cb report  <input> [options]          diagnostics only: what the text is
   cb try     <attack> <input>           run one attack by name
+  cb crib    <input> [--word W]         where a guessed word could sit, and could not
   cb list                               every attack in the catalogue
   cb train   [--order N] [--cutoff N]   learn a model from a corpus on stdin
   cb devices                            what this machine can compute with
@@ -102,6 +104,10 @@ fn run(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     match args[0].as_str() {
+        "crib" => {
+            cribs(&input_from(args.get(1))?, args);
+            Ok(())
+        }
         "list" => {
             list();
             Ok(())
@@ -329,6 +335,33 @@ fn with_gpu(
     _depth: usize,
 ) -> Vec<Box<dyn cipher_break::attack::Attack>> {
     attacks
+}
+
+/// Say where each crib could sit, and how much of the search that removes.
+///
+/// No key is tried and no language assumed.
+/// A placement that puts a letter over itself is impossible under any Enigma there has ever been, so what this prints is not a ranking but a list of what remains.
+fn cribs(ct: &[Letter], args: &[String]) {
+    let words: Vec<String> = match option(args, "--word") {
+        Some(word) => vec![word.to_string()],
+        None => KRIEGSMARINE.iter().map(|w| (*w).to_string()).collect(),
+    };
+    println!("  {:<18} {:>9} {:>8}  offsets", "crib", "placements", "ruled out");
+    for word in words {
+        let letters = to_letters(&word);
+        let crib = Crib::against(ct, &letters);
+        let shown: Vec<String> =
+            crib.offsets.iter().take(12).map(ToString::to_string).collect();
+        let more = if crib.offsets.len() > 12 { ", ..." } else { "" };
+        println!(
+            "  {:<18} {:>9} {:>7.0}%  {}{}",
+            word,
+            crib.offsets.len(),
+            crib.cut(ct.len()) * 100.0,
+            shown.join(", "),
+            more
+        );
+    }
 }
 
 fn list() {

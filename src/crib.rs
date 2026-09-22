@@ -58,6 +58,33 @@ impl Crib {
 ///
 /// Naval Enigma traffic was formulaic, which is what made it readable at all:
 /// reports opened and closed the same way, numbers were spelled out, and `X` stood in for the punctuation the machine had no keys for.
+/// The shortest crib a bombe can use.
+///
+/// A menu contradicts only where it forces a letter twice, which needs a cycle
+/// in its graph. Sixteen edges over twenty-odd letters is a forest, and a
+/// forest refutes nothing. Bletchley's cribs ran to twenty and thirty letters
+/// for this reason and not for want of shorter guesses.
+pub const BOMBE_MINIMUM: usize = 20;
+
+/// Long formulaic stretches, for a bombe rather than for a placement test.
+///
+/// Short words are enough to ask where something could sit; they are not enough to ask what sitting there would imply.
+/// These are the openings and closings naval traffic repeated verbatim, which is the only way a guess this long is ever right.
+pub const KRIEGSMARINE_LONG: &[&str] = &[
+    "VONVONJAWEGENDERSITUATION",
+    "ANBDUXXFEINDKONVOIINSICHT",
+    "KEINEBESONDERENVORKOMMNISSE",
+    "NICHTSZUMELDENXXENDEXX",
+    "WETTERBERICHTXXWINDXX",
+    "STANDORTMARQUADRATXX",
+    "FEINDKONVOIINSICHTXXGREIFEAN",
+    "MELDEICHXXSTANDORTXX",
+    "ANALLEBOOTEXXBEFEHLXX",
+    "FUNKSPRUCHNUMMEREINS",
+    "BEIMORGENGRAUENANGRIFF",
+    "ERBITTEUNTERSTUETZUNG",
+];
+
 pub const KRIEGSMARINE: &[&str] = &[
     "VONVON",
     "ANBDU",
@@ -134,8 +161,25 @@ mod tests {
 
     #[test]
     fn the_naval_cribs_are_letters_only() {
-        for word in KRIEGSMARINE {
+        for word in KRIEGSMARINE.iter().chain(KRIEGSMARINE_LONG) {
             assert_eq!(to_letters(word).len(), word.len(), "{word}");
         }
+    }
+
+    #[test]
+    fn the_long_cribs_are_long_enough_for_a_bombe() {
+        for word in KRIEGSMARINE_LONG {
+            assert!(
+                word.len() >= BOMBE_MINIMUM,
+                "{word} is {} letters, below the {BOMBE_MINIMUM} a menu needs to close",
+                word.len()
+            );
+        }
+    }
+
+    #[test]
+    fn the_short_cribs_are_below_that_bar() {
+        // Stated so the two lists cannot quietly merge: the short ones are for asking where something could sit, and a bombe on them would refute nothing.
+        assert!(KRIEGSMARINE.iter().all(|w| w.len() < BOMBE_MINIMUM));
     }
 }

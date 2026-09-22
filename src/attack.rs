@@ -10,6 +10,7 @@
 
 use crate::alphabet::{ALPHABET, Letter, from_letters};
 use crate::anneal::{Schedule, anneal};
+use crate::bombe::{Menu, Positions, Stop, scan};
 use crate::ciphers::enigma::{self, Enigma, Plugboard, Settings};
 use crate::ciphers::{
     autokey, bifid, hill, periodic, playfair, porta, substitution, transposition,
@@ -1663,6 +1664,136 @@ impl Attack for GpuEnigmaNaval {
                 .join(" | ")
         });
         ranked
+    }
+}
+
+/// Enigma attacked through a crib, with a bombe rather than a judge.
+///
+/// Every other Enigma attack here needs the decipherment to look like a language, and with a full plugboard on a short message it never does: the board sends twenty of twenty-six letters somewhere else, and what comes out is not German in any form a model recognises.
+///
+/// A bombe does not look at the decipherment.
+/// It asks whether any plugboard at all could turn this ciphertext into the crib under this rotor setting, and answers by contradiction — which is exact, and which does not weaken as the board grows.
+/// That is the only tool that reaches a message like this, and it is the one the war used.
+///
+/// It needs a crib that is actually there, and a crib whose letters repeat enough to close loops.
+/// A menu with no closures forces nothing twice, so nothing can ever disagree, and the attack accepts every setting it is shown; [`crate::bombe::Menu::closures`] is what says whether a crib is worth running.
+pub struct BombeAttack {
+    /// The guessed plaintext.
+    pub crib: Vec<Letter>,
+    /// What to call it in the report.
+    pub label: String,
+    /// How many of the eight rotors to draw from.
+    pub rotors_available: usize,
+    /// Whether to fold in the Greek rotor and thin reflectors.
+    pub naval: bool,
+}
+
+impl Attack for BombeAttack {
+    fn name(&self) -> String {
+        format!("bombe on {}", self.label)
+    }
+
+    fn family(&self) -> &'static str {
+        "rotor"
+    }
+
+    fn coverage(&self, ct: &[Letter]) -> Coverage {
+        let placements = crate::crib::placements(ct, &self.crib).len() as u64;
+        if placements == 0 {
+            return Coverage::Impossible("the crib meets its own image at every offset");
+        }
+        let orders = enigma::rotor_orders(self.rotors_available).len() as u64;
+        let reflectors = if self.naval {
+            enigma::NAVAL_REFLECTOR_COUNT as u64
+        } else {
+            enigma::REFLECTOR_COUNT as u64
+        };
+        Coverage::Exhaustive(placements * orders * reflectors * (ALPHABET as u64).pow(3))
+    }
+
+    fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate> {
+        let placements = crate::crib::placements(ct, &self.crib);
+        if placements.is_empty() {
+            return Vec::new();
+        }
+        let orders = enigma::rotor_orders(self.rotors_available);
+        let reflectors: Vec<(String, [u8; ALPHABET])> = if self.naval {
+            enigma::naval_reflectors()
+        } else {
+            (0..enigma::REFLECTOR_COUNT)
+                .map(|i| {
+                    (
+                        if i == 0 {
+                            "B".to_string()
+                        } else {
+                            "C".to_string()
+                        },
+                        enigma::reflector_wiring(i),
+                    )
+                })
+                .collect()
+        };
+        let span = (ALPHABET as u64).pow(3);
+
+        let reflector_count = reflectors.len();
+        let order_count = orders.len();
+        let jobs: Vec<(usize, usize, usize)> = placements
+            .iter()
+            .flat_map(|&offset| {
+                (0..order_count)
+                    .flat_map(move |o| (0..reflector_count).map(move |r| (offset, o, r)))
+            })
+            .collect();
+
+        let mut found: Vec<(Candidate, usize)> = jobs
+            .par_iter()
+            .flat_map(|&(offset, order, reflector)| {
+                let Some(menu) = Menu::place(ct, &self.crib, offset) else {
+                    return Vec::new();
+                };
+                let reach = offset + self.crib.len();
+                let mut stops: Vec<(Candidate, usize)> = Vec::new();
+                let base = Settings::at(orders[order], 0, [0; 3], [0; 3]);
+                let mut positions = Positions::of(base, reflectors[reflector].1, reach);
+                for index in 0..span {
+                    let settings = Settings::at(
+                        orders[order],
+                        0,
+                        [0; 3],
+                        [
+                            (index / (ALPHABET as u64 * ALPHABET as u64)) as u8,
+                            ((index / ALPHABET as u64) % ALPHABET as u64) as u8,
+                            (index % ALPHABET as u64) as u8,
+                        ],
+                    );
+                    positions.aim(settings, reflectors[reflector].1, reach);
+                    let Stop::Survived { board, .. } = scan(&menu, &positions) else {
+                        continue;
+                    };
+                    let plain =
+                        Enigma::with_reflector(settings, reflectors[reflector].1, board).run(ct);
+                    stops.push((
+                        Candidate {
+                            score: ctx.score(&plain),
+                            key: format!(
+                                "rotors {:?} {} start {} crib at {offset} plugs {}",
+                                settings.rotors.map(|r| r + 1),
+                                reflectors[reflector].0,
+                                from_letters(&settings.position_letters()),
+                                describe_leads(&board)
+                            ),
+                            plain,
+                        },
+                        board.pairs().len(),
+                    ));
+                }
+                stops.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
+                stops.truncate(ctx.keep.max(1));
+                stops
+            })
+            .collect();
+        found.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
+        rank_enigma(found, ct.len().saturating_sub(2).max(1), ctx.keep)
     }
 }
 

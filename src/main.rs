@@ -7,7 +7,7 @@
 use cipher_break::alphabet::{Letter, from_letters, to_letters};
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Context, registry};
-use cipher_break::crib::{Crib, KRIEGSMARINE};
+use cipher_break::crib::{Crib, KRIEGSMARINE, KRIEGSMARINE_LONG};
 use cipher_break::ngram::Model;
 use cipher_break::polyglot::{Polyglot, Scale};
 use cipher_break::report::{self, Conclusion};
@@ -70,6 +70,7 @@ USAGE
   cb report  <input> [options]          diagnostics only: what the text is
   cb try     <attack> <input>           run one attack by name
   cb crib    <input> [--word W]         where a guessed word could sit, and could not
+  cb bombe   <input> [--word W] [--m3]  attack an Enigma message through a crib
   cb list                               every attack in the catalogue
   cb train   [--order N] [--cutoff N]   learn a model from a corpus on stdin
   cb devices                            what this machine can compute with
@@ -107,6 +108,7 @@ fn run(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     match args[0].as_str() {
+        "bombe" => bombe(&input_from(args.get(1))?, args),
         "crib" => {
             cribs(&input_from(args.get(1))?, args);
             Ok(())
@@ -376,6 +378,88 @@ fn cribs(ct: &[Letter], args: &[String]) {
             more
         );
     }
+}
+
+/// Attack an Enigma message through a crib, with a bombe.
+///
+/// The one attack here that does not need the decipherment to look like a language, and so the only one that reaches a short message with a full plugboard.
+/// It needs a crib that is really there and whose letters repeat enough to close loops; `cb crib` says where a crib could sit, and this says what sitting there would imply.
+fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
+    let bank = models(args)?;
+    let effort = effort_from(args);
+    let seed = number(args, "--seed", 1u64);
+    let scale = Scale::build(
+        &bank,
+        ct.len(),
+        SCALE_SAMPLES,
+        &mut Rng::new(seed ^ 0x5CA1E),
+    );
+    let focus = focus_model(args);
+    let focus_scale = focus
+        .as_ref()
+        .map(|m| Scale::for_model(m, ct.len(), SCALE_SAMPLES, &mut Rng::new(seed ^ 0xF0C05)));
+    let trace = cipher_break::trace::Trace::new(flag(args, "--trace"));
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: effort.plan,
+        seed,
+        keep: number(args, "--top", 5usize),
+        focus: focus.as_ref(),
+        focus_scale: focus_scale.as_ref(),
+        trace: &trace,
+    };
+
+    let words: Vec<String> = match option(args, "--word") {
+        Some(word) => vec![word.to_string()],
+        None => KRIEGSMARINE_LONG.iter().map(|w| (*w).to_string()).collect(),
+    };
+    let naval = !flag(args, "--m3");
+    let rotors = number(args, "--rotors", cipher_break::ciphers::enigma::ROTOR_COUNT);
+
+    for word in words {
+        let letters = to_letters(&word);
+        let crib = Crib::against(ct, &letters);
+        let closures = crib
+            .offsets
+            .first()
+            .and_then(|&o| cipher_break::bombe::Menu::place(ct, &letters, o))
+            .map_or(0, |m| m.closures());
+        if crib.offsets.is_empty() {
+            println!("  {word:<18} impossible at every offset");
+            continue;
+        }
+        if closures == 0 {
+            // Stated rather than run: a menu with no loops forces nothing twice, so it cannot contradict anything and would accept every setting it was shown.
+            println!("  {word:<18} no closures; a bombe on it would refute nothing");
+            continue;
+        }
+        let attack = cipher_break::attack::BombeAttack {
+            crib: letters,
+            label: word.clone(),
+            rotors_available: rotors,
+            naval,
+        };
+        let outcome = sweep::run(&attack, ct, &ctx, effort.nulls);
+        print!("{}", paint(args, &report::heading(&outcome.name)));
+        print!("{}", paint(args, &report::outcome_row(&outcome)));
+        for candidate in &outcome.best {
+            println!(
+                "{}",
+                paint(
+                    args,
+                    &format!(
+                        "  {:+6.1}s {:<3} {}\n       {}",
+                        candidate.score,
+                        bank.identify(&candidate.plain).0,
+                        candidate.key,
+                        from_letters(&candidate.plain)
+                    )
+                )
+            );
+        }
+    }
+    Ok(())
 }
 
 fn list() {

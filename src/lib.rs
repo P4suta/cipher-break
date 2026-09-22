@@ -11,6 +11,7 @@
 pub mod alphabet;
 pub mod anneal;
 pub mod attack;
+pub mod bombe;
 pub mod ciphers;
 pub mod crib;
 pub mod enigma_types;

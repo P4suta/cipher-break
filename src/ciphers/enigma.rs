@@ -101,7 +101,7 @@ impl Rotor {
 }
 
 /// A plugboard: an involution on the alphabet.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Plugboard([u8; ALPHABET]);
 
 impl Default for Plugboard {
@@ -280,6 +280,37 @@ impl Enigma {
             c = offset.through(&rotor.backward, c);
         }
         self.plugboard.map(c)
+    }
+
+    /// The wiring offsets the machine is at, position by position.
+    ///
+    /// A bombe needs to ask what one position does to one letter, tens of times per rotor setting and for letters it does not know in advance.
+    /// Building the whole 26-letter permutation at every position to answer that would cost more than deciphering the message; recording where the rotors stand and evaluating on demand costs seven lookups an answer.
+    #[must_use]
+    pub fn offset_trace(&mut self, n: usize) -> Vec<[Offset; 3]> {
+        (0..n)
+            .map(|_| {
+                self.step();
+                self.offsets()
+            })
+            .collect()
+    }
+
+    /// What the rotors and reflector do to one letter at given offsets.
+    ///
+    /// The plugboard is not applied: a bombe reasons about the machine with the board taken off, which is the whole reason it can reason about a board it does not know.
+    #[inline]
+    #[must_use]
+    pub fn transform_at(&self, offsets: [Offset; 3], l: Letter) -> Letter {
+        let mut c = l;
+        for (offset, rotor) in offsets.iter().zip(&self.rotors).rev() {
+            c = offset.through(&rotor.forward, c);
+        }
+        c = self.reflector[c as usize];
+        for (offset, rotor) in offsets.iter().zip(&self.rotors) {
+            c = offset.through(&rotor.backward, c);
+        }
+        c
     }
 
     /// Run a whole message.

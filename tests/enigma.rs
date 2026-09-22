@@ -441,3 +441,64 @@ mod device {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }
+
+/// The bombe, shown breaking a message it was given the words to.
+///
+/// A three-rotor machine with five plugboard leads and a thirty-seven letter crib, carrying a plugboard no amount of n-gram scoring would see through on this length.
+///
+/// The crib is long on purpose.
+/// A menu contradicts only where it forces a letter twice, which needs a cycle in its graph, and a graph of sixteen edges over twenty-odd letters is a forest.
+/// Bletchley's cribs ran to twenty and thirty letters for this reason and not for want of shorter guesses.
+#[test]
+#[ignore = "a rotor sweep per crib placement; run with --ignored"]
+fn the_bombe_breaks_a_message_it_has_a_crib_for() {
+    use cipher_break::attack::BombeAttack;
+    use cipher_break::bombe::Menu;
+
+    let settings = Settings::at([2, 0, 4], 0, [0; 3], [7, 19, 3]);
+    let mut board = Plugboard::empty();
+    for (a, b) in [(0u8, 20u8), (4, 12), (8, 15), (17, 2), (24, 9)] {
+        board.connect(a, b);
+    }
+    let plain = to_letters(SIGNAL);
+    let ct = Enigma::new(settings, board).run(&plain);
+
+    let crib = to_letters("VONVONJAWEGENDERSITUATIONXXMELDEICHXX");
+    let menu = Menu::place(&ct, &crib, 0).expect("the true placement is never refuted");
+    assert!(
+        menu.closures() > 0,
+        "the crib closes no loops and would refute nothing"
+    );
+
+    let bank = bank();
+    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+    let focus = german();
+    let focus_scale = focus
+        .as_ref()
+        .map(|m| Scale::for_model(m, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2)));
+    let trace = Trace::new(false);
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: Schedule::default(),
+        seed: 1,
+        keep: PLANTED_KEEP,
+        focus: focus.as_ref(),
+        focus_scale: focus_scale.as_ref(),
+        trace: &trace,
+    };
+    let attack = BombeAttack {
+        crib,
+        label: "VONVONJAWEGENDERSITUATIONXXMELDEICHXX".to_string(),
+        rotors_available: 5,
+        naval: false,
+    };
+    let found = attack.best(&ct, &ctx);
+    assert!(
+        found.iter().any(|c| c.plain == plain),
+        "best {:+.1}s {} -> {}",
+        found[0].score,
+        found[0].key,
+        from_letters(&found[0].plain)
+    );
+}

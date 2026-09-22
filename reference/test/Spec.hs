@@ -14,6 +14,22 @@ import qualified Cipher.Hill as Hill
 import qualified Cipher.Porta as Porta
 import Cipher.Sweep (Trial (..), best, topScore)
 import Cipher.Fitness (lexiconFrom, segment, wordCover)
+import Cipher.Enigma
+  ( Triple (..)
+  , compatible
+  , compositeReflector
+  , connect
+  , emptyBoard
+  , machine
+  , machineWith
+  , navalReflectorCount
+  , navalReflectors
+  , plugPairs
+  , rotorCount
+  , rotorOrders
+  , run
+  , settingsAt
+  )
 import Cipher.Kasiski (Repeat (..), factorTally, repeats)
 import Cipher.Ngram (Model (..), parseModel, render, score, train)
 import Cipher.Polyglot (loadPolyglot, polyglotScore)
@@ -23,6 +39,7 @@ import Cipher.Stats (chiSquared, counts, indexOfCoincidence)
 import Cipher.Superpose (alignment, familywise, fwP, merge, mutualIC, sigZ, significance)
 import Cipher.Triage (Verdict (..), assess, statistics)
 import Control.Monad (replicateM, unless)
+import Data.Array ((!))
 import Data.List (sort)
 import Data.Maybe (isJust)
 import System.Exit (exitFailure)
@@ -75,8 +92,8 @@ plantedBifid = do
       (key, _) = randomSquare missing (seed 12345)
       ct = Bifid.encipherBifid 7 key pt
       attempts =
-        [ anneal (\sq -> polyglotScore bank (Bifid.decipherBifid 7 sq ct)) perturb 40000 (4.0, 0.05) start s1
-        | r <- [0 .. 5 :: Int]
+        [ anneal (\sq -> polyglotScore bank (Bifid.decipherBifid 7 sq ct)) perturb 60000 (4.0, 0.05) start s1
+        | r <- [0 .. 15 :: Int]
         , let (start, s1) = randomSquare missing (seed (fromIntegral r * 0x9E3779B97F4A7C15 + 7))
         ]
   pure
@@ -307,5 +324,53 @@ checks =
           fit xs = negate (fromIntegral (sum (zipWith (\a b -> abs (a - b)) xs target)))
           step s xs = let (w, s') = nextWord s in (take 5 (drop (fromIntegral (w `mod` 5)) (cycle target)), s')
        in snd (anneal fit step 400 (1.0, 0.01) [0, 0, 0, 0, 0] (seed 8)) >= fit target - 1e-9
+    )
+  , ( "the Enigma matches the textbook vector"
+    , -- The same vector the Rust implementation asserts, so a drift between
+      -- the two shows up as one of them failing rather than as a mystery.
+      fromLetters (run (machine (settingsAt (Triple 0 1 2) 0 (Triple 0 0 0) (Triple 0 0 0)) emptyBoard) (toLetters "AAAAA"))
+        == "BDZGO"
+    )
+  , ( "the Enigma is its own inverse"
+    , let settings = settingsAt (Triple 2 0 3) 1 (Triple 4 17 9) (Triple 11 2 25)
+          board = connect 4 12 (connect 0 20 emptyBoard)
+          plain = toLetters "DASISTEINGEHEIMERTEXTFUERDIEPRUEFUNGDERMASCHINE"
+          ct = run (machine settings board) plain
+       in run (machine settings board) ct == plain
+    )
+  , ( "no letter is ever enciphered as itself"
+    , let settings = settingsAt (Triple 0 1 2) 0 (Triple 0 0 0) (Triple 0 0 0)
+          plain = map (`mod` 26) [0 .. 199]
+       in compatible (run (machine settings emptyBoard) plain) plain
+    )
+  , ( "the middle rotor takes the left one with it from its own notch"
+    , -- Rotor II notches at E, so a middle rotor resting there carries the
+      -- left rotor on the very next keypress.
+      let moved = settingsAt (Triple 0 1 2) 0 (Triple 0 0 0) (Triple 0 4 0)
+          still = settingsAt (Triple 0 1 2) 0 (Triple 0 0 0) (Triple 0 0 0)
+          firstFew s = take 3 (run (machine s emptyBoard) (replicate 3 0))
+       in firstFew moved /= firstFew still
+    )
+  , ( "a plugboard lead is reciprocal and replaceable"
+    , let board = connect 0 9 (connect 0 5 emptyBoard)
+       in plugPairs board == [(0, 9)]
+    )
+  , ("there are sixty Wehrmacht rotor orders", length (rotorOrders 5) == 60)
+  , ("there are 336 orders once the Naval rotors are counted", length (rotorOrders rotorCount) == 336)
+  , ("the Naval reflector count follows the tables", length navalReflectors == navalReflectorCount)
+  , ( "a composite reflector is still an involution without fixed points"
+    , and
+        [ reflector ! (reflector ! c) == c && reflector ! c /= c
+        | (_, reflector) <- navalReflectors
+        , c <- [0 .. 25]
+        ]
+    )
+  , ( "the Naval machine is its own inverse"
+    , let settings = settingsAt (Triple 0 3 6) 0 (Triple 2 5 11) (Triple 7 19 3)
+          reflector = compositeReflector 0 12 0
+          board = connect 8 15 (connect 1 20 emptyBoard)
+          plain = toLetters "VONVONJAWEGENDERSITUATIONXXMELDEICHXX"
+          ct = run (machineWith settings reflector board) plain
+       in run (machineWith settings reflector board) ct == plain && compatible ct plain
     )
   ]

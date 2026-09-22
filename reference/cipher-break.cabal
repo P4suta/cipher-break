@@ -7,11 +7,10 @@ description:
   period, Kasiski examination, chi-squared column solving and a dictionary
   attack on the key, all ranked by a dictionary-driven fitness function.
 license:         MIT OR Apache-2.0
-license-files:   LICENSE-MIT LICENSE-APACHE
+license-files:   ../LICENSE-MIT ../LICENSE-APACHE
 author:          Yasunobu
 maintainer:      42543015+P4suta@users.noreply.github.com
 build-type:      Simple
-extra-doc-files: ../README.md
 
 common lang
   default-language: GHC2021
@@ -27,6 +26,8 @@ library
       Cipher.Autokey
       Cipher.Porta
       Cipher.Hill
+      Cipher.EnigmaTypes
+      Cipher.Enigma
       Cipher.Square
       Cipher.Anneal
       Cipher.Bifid
@@ -57,4 +58,4 @@ test-suite spec
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Spec.hs
-  build-depends:  base, cipher-break-reference
+  build-depends:  base, cipher-break-reference, array

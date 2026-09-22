@@ -14,6 +14,7 @@
 //! Nothing in this module needs that, but an attack does, and it is exact rather than statistical, which makes it worth more than any amount of frequency work.
 
 use crate::alphabet::{ALPHABET, Letter};
+use crate::enigma_types::{Indicator, Offset, Ring};
 
 /// The five Wehrmacht rotors and the three Naval ones, with the notch positions at which each turns the rotor to its left.
 pub const ROTORS: [(&str, &str); 8] = [
@@ -29,6 +30,19 @@ pub const ROTORS: [(&str, &str); 8] = [
 
 /// Reflectors B and C.
 pub const REFLECTORS: [&str; 2] = ["YRUHQSLDPXNGOKMIEBFZCWVJAT", "FVPJIAOYEDRZXWGCTKUQSBNMHL"];
+
+/// How many historical rotors there are.
+pub const ROTOR_COUNT: usize = ROTORS.len();
+
+/// How many rotors a machine holds, Greek rotor aside.
+pub const SLOTS: usize = 3;
+
+/// How many reflectors a three-rotor machine can be fitted with.
+pub const REFLECTOR_COUNT: usize = REFLECTORS.len();
+
+/// How many reflectors a four-rotor machine presents once its Greek rotor and thin reflector are folded together: each Greek rotor, at each setting,
+/// behind each thin reflector.
+pub const NAVAL_REFLECTOR_COUNT: usize = GREEK.len() * THIN.len() * ALPHABET;
 
 fn wiring(s: &str) -> [u8; ALPHABET] {
     let mut out = [0u8; ALPHABET];
@@ -58,7 +72,7 @@ pub struct Rotor {
 ///
 /// A sweep builds a machine for every setting it tries, and a naval sweep tries six hundred million of them.
 /// Parsing a wiring out of a string that many times is most of the cost of the attack and none of the work; the table is built once and copied from.
-static WIRED: std::sync::LazyLock<[Rotor; 8]> = std::sync::LazyLock::new(|| {
+static WIRED: std::sync::LazyLock<[Rotor; ROTOR_COUNT]> = std::sync::LazyLock::new(|| {
     std::array::from_fn(|index| {
         let (spec, notch) = ROTORS[index];
         let forward = wiring(spec);
@@ -75,7 +89,7 @@ static WIRED: std::sync::LazyLock<[Rotor; 8]> = std::sync::LazyLock::new(|| {
 });
 
 /// The reflectors, wired once.
-static REFLECTED: std::sync::LazyLock<[[u8; ALPHABET]; 2]> =
+static REFLECTED: std::sync::LazyLock<[[u8; ALPHABET]; REFLECTOR_COUNT]> =
     std::sync::LazyLock::new(|| std::array::from_fn(|i| wiring(REFLECTORS[i])));
 
 impl Rotor {
@@ -101,6 +115,12 @@ impl Plugboard {
     #[must_use]
     pub fn empty() -> Self {
         Plugboard::default()
+    }
+
+    /// A board from a mapping a device computed.
+    #[must_use]
+    pub fn from_mapping(mapping: [u8; ALPHABET]) -> Self {
+        Plugboard(mapping)
     }
 
     /// Add a lead, removing whatever either letter was joined to.
@@ -146,9 +166,9 @@ pub struct Settings {
     /// Which reflector is fitted.
     pub reflector: usize,
     /// The ring setting of each rotor, left to right.
-    pub rings: [u8; 3],
+    pub rings: [Ring; 3],
     /// Where each rotor starts, left to right.
-    pub positions: [u8; 3],
+    pub positions: [Indicator; 3],
 }
 
 impl Settings {
@@ -158,9 +178,37 @@ impl Settings {
         Settings {
             rotors,
             reflector,
-            rings: [0; 3],
-            positions: [0; 3],
+            rings: [Ring::new(0); 3],
+            positions: [Indicator::new(0); 3],
         }
+    }
+
+    /// Settings written the way a key sheet writes them, as letters.
+    #[must_use]
+    pub fn at(
+        rotors: [usize; 3],
+        reflector: usize,
+        rings: [u8; 3],
+        positions: [u8; 3],
+    ) -> Settings {
+        Settings {
+            rotors,
+            reflector,
+            rings: rings.map(Ring::new),
+            positions: positions.map(Indicator::new),
+        }
+    }
+
+    /// The ring settings as plain letters, for printing.
+    #[must_use]
+    pub fn ring_letters(&self) -> [Letter; 3] {
+        self.rings.map(Ring::value)
+    }
+
+    /// The starting positions as plain letters, for printing.
+    #[must_use]
+    pub fn position_letters(&self) -> [Letter; 3] {
+        self.positions.map(Indicator::value)
     }
 }
 
@@ -169,8 +217,8 @@ impl Settings {
 pub struct Enigma {
     rotors: [Rotor; 3],
     reflector: [u8; ALPHABET],
-    rings: [u8; 3],
-    positions: [u8; 3],
+    rings: [Ring; 3],
+    positions: [Indicator; 3],
     plugboard: Plugboard,
 }
 
@@ -193,22 +241,27 @@ impl Enigma {
 
     /// Advance the rotors, including the double step the middle one makes when it is sitting on its own notch.
     fn step(&mut self) {
-        let middle_at_notch = self.rotors[1].notches[self.positions[1] as usize];
-        let right_at_notch = self.rotors[2].notches[self.positions[2] as usize];
+        // A notch fires on the indicator, never on the ring or the offset.
+        // The type of the argument is the whole guard.
+        let middle_at_notch = self.rotors[1].notches[self.positions[1].index()];
+        let right_at_notch = self.rotors[2].notches[self.positions[2].index()];
         if middle_at_notch {
-            self.positions[1] = (self.positions[1] + 1) % ALPHABET as u8;
-            self.positions[0] = (self.positions[0] + 1) % ALPHABET as u8;
+            self.positions[1] = self.positions[1].step();
+            self.positions[0] = self.positions[0].step();
         } else if right_at_notch {
-            self.positions[1] = (self.positions[1] + 1) % ALPHABET as u8;
+            self.positions[1] = self.positions[1].step();
         }
-        self.positions[2] = (self.positions[2] + 1) % ALPHABET as u8;
+        self.positions[2] = self.positions[2].step();
     }
 
+    /// Where each rotor's wiring is entered, right now.
     #[inline]
-    fn through(wire: &[u8; ALPHABET], l: Letter, position: u8, ring: u8) -> Letter {
-        let shift = (position + ALPHABET as u8 - ring) % ALPHABET as u8;
-        let entered = (l + shift) % ALPHABET as u8;
-        (wire[entered as usize] + ALPHABET as u8 - shift) % ALPHABET as u8
+    fn offsets(&self) -> [Offset; 3] {
+        [
+            self.positions[0].against(self.rings[0]),
+            self.positions[1].against(self.rings[1]),
+            self.positions[2].against(self.rings[2]),
+        ]
     }
 
     /// Encipher one letter, advancing the machine first as a keypress does.
@@ -217,18 +270,14 @@ impl Enigma {
     #[must_use]
     pub fn press(&mut self, l: Letter) -> Letter {
         self.step();
+        let offsets = self.offsets();
         let mut c = self.plugboard.map(l);
-        for i in (0..3).rev() {
-            c = Self::through(&self.rotors[i].forward, c, self.positions[i], self.rings[i]);
+        for (offset, rotor) in offsets.iter().zip(&self.rotors).rev() {
+            c = offset.through(&rotor.forward, c);
         }
         c = self.reflector[c as usize];
-        for i in 0..3 {
-            c = Self::through(
-                &self.rotors[i].backward,
-                c,
-                self.positions[i],
-                self.rings[i],
-            );
+        for (offset, rotor) in offsets.iter().zip(&self.rotors) {
+            c = offset.through(&rotor.backward, c);
         }
         self.plugboard.map(c)
     }
@@ -262,7 +311,7 @@ impl Enigma {
     ///
     /// The inner loop of a sweep walks the starting positions with everything else fixed, and this is that loop's whole cost: three bytes.
     #[inline]
-    pub fn restart(&mut self, positions: [u8; 3]) {
+    pub fn restart(&mut self, positions: [Indicator; 3]) {
         self.positions = positions;
     }
 
@@ -282,9 +331,9 @@ impl Enigma {
 /// The rotor wirings, flattened for a device: forward, backward, and one notch bitmask per rotor.
 #[must_use]
 pub fn rotor_tables() -> (Vec<u8>, Vec<u8>, Vec<u32>) {
-    let mut forward = Vec::with_capacity(8 * ALPHABET);
-    let mut backward = Vec::with_capacity(8 * ALPHABET);
-    let mut notches = Vec::with_capacity(8);
+    let mut forward = Vec::with_capacity(ROTOR_COUNT * ALPHABET);
+    let mut backward = Vec::with_capacity(ROTOR_COUNT * ALPHABET);
+    let mut notches = Vec::with_capacity(ROTOR_COUNT);
     for r in &*WIRED {
         forward.extend_from_slice(&r.forward);
         backward.extend_from_slice(&r.backward);
@@ -349,12 +398,7 @@ mod tests {
 
     #[test]
     fn it_is_its_own_inverse() {
-        let settings = Settings {
-            rotors: [2, 0, 3],
-            reflector: 1,
-            rings: [4, 17, 9],
-            positions: [11, 2, 25],
-        };
+        let settings = Settings::at([2, 0, 3], 1, [4, 17, 9], [11, 2, 25]);
         let mut board = Plugboard::empty();
         board.connect(0, 20);
         board.connect(4, 12);
@@ -366,12 +410,7 @@ mod tests {
 
     #[test]
     fn no_letter_is_ever_itself() {
-        let settings = Settings {
-            rotors: [0, 1, 2],
-            reflector: 0,
-            rings: [0; 3],
-            positions: [0; 3],
-        };
+        let settings = Settings::at([0, 1, 2], 0, [0; 3], [0; 3]);
         let plain: Vec<u8> = (0..200).map(|i| (i % 26) as u8).collect();
         let ct = Enigma::new(settings, Plugboard::empty()).run(&plain);
         assert!(compatible(&ct, &plain));
@@ -382,31 +421,26 @@ mod tests {
         // The famous anomaly: a rotor sitting on its own notch takes the one to its left with it, and moves again itself.
         // Rotor II notches at E,
         // so a middle rotor resting there carries the left rotor on the very next keypress.
-        let settings = Settings {
-            rotors: [0, 1, 2],
-            reflector: 0,
-            rings: [0; 3],
-            positions: [0, 4, 0],
-        };
+        let settings = Settings::at([0, 1, 2], 0, [0; 3], [0, 4, 0]);
         let mut m = Enigma::new(settings, Plugboard::empty());
         let _ = m.press(0);
-        assert_eq!(m.positions[0], 1, "the left rotor should have moved");
         assert_eq!(
-            m.positions[1], 5,
+            m.positions[0],
+            Indicator::new(1),
+            "the left rotor should have moved"
+        );
+        assert_eq!(
+            m.positions[1],
+            Indicator::new(5),
             "the middle rotor should have moved with it"
         );
 
         // And without the middle rotor on its notch, the left one stays put.
-        let quiet = Settings {
-            rotors: [0, 1, 2],
-            reflector: 0,
-            rings: [0; 3],
-            positions: [0, 0, 0],
-        };
+        let quiet = Settings::at([0, 1, 2], 0, [0; 3], [0, 0, 0]);
         let mut still = Enigma::new(quiet, Plugboard::empty());
         let _ = still.press(0);
-        assert_eq!(still.positions[0], 0);
-        assert_eq!(still.positions[1], 0);
+        assert_eq!(still.positions[0], Indicator::new(0));
+        assert_eq!(still.positions[1], Indicator::new(0));
     }
 
     #[test]
@@ -432,8 +466,15 @@ mod tests {
 
     #[test]
     fn there_are_sixty_wehrmacht_rotor_orders() {
-        assert_eq!(rotor_orders(5).len(), 60);
-        assert_eq!(rotor_orders(8).len(), 336);
+        assert_eq!(rotor_orders(5).len(), 5 * 4 * 3);
+        assert_eq!(rotor_orders(ROTOR_COUNT).len(), 8 * 7 * 6);
+    }
+
+    #[test]
+    fn the_counts_follow_the_tables() {
+        assert_eq!(ROTOR_COUNT, 8);
+        assert_eq!(REFLECTOR_COUNT, 2);
+        assert_eq!(NAVAL_REFLECTOR_COUNT, naval_reflectors().len());
     }
 }
 
@@ -531,17 +572,12 @@ mod naval_tests {
 
     #[test]
     fn there_are_104_naval_reflectors() {
-        assert_eq!(naval_reflectors().len(), 104);
+        assert_eq!(naval_reflectors().len(), NAVAL_REFLECTOR_COUNT);
     }
 
     #[test]
     fn the_naval_machine_is_its_own_inverse() {
-        let settings = Settings {
-            rotors: [0, 3, 6],
-            reflector: 0,
-            rings: [2, 5, 11],
-            positions: [7, 19, 3],
-        };
+        let settings = Settings::at([0, 3, 6], 0, [2, 5, 11], [7, 19, 3]);
         let reflector = composite_reflector(0, 12, 0);
         let mut board = Plugboard::empty();
         board.connect(1, 20);

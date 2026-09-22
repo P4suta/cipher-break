@@ -92,6 +92,8 @@ pub fn run(attack: &dyn Attack, ct: &[Letter], ctx: &Context, nulls: usize) -> O
                 seed: ctx.seed,
                 keep: 1,
                 focus: ctx.focus,
+                focus_scale: ctx.focus_scale,
+                trace: &crate::trace::QUIET,
             };
             attack
                 .best(s, &noise)
@@ -136,6 +138,8 @@ mod tests {
             seed: 1,
             keep: 3,
             focus: None,
+            focus_scale: None,
+            trace: &crate::trace::QUIET,
         };
         let outcome = run(&AffineSweep, &ct, &ctx, 0);
         assert_eq!(
@@ -157,6 +161,8 @@ mod tests {
             seed: 1,
             keep: 1,
             focus: None,
+            focus_scale: None,
+            trace: &crate::trace::QUIET,
         };
         let ct = to_letters("ABPPCD");
         let outcome = run(&crate::attack::PlayfairAnneal, &ct, &ctx, 4);

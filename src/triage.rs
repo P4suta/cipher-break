@@ -16,6 +16,12 @@ use crate::rng::Rng;
 use crate::stats::{index_of_coincidence, moments};
 use std::collections::HashMap;
 
+/// The vowels, as letters.
+const VOWELS: [Letter; 5] = [0, 4, 8, 14, 20];
+
+/// The three rows of a QWERTY keyboard.
+const QWERTY: [&str; 3] = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
+
 /// Which end of a null distribution counts as surprising.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tail {
@@ -92,9 +98,7 @@ pub fn coverage(ls: &[Letter]) -> f64 {
 /// A cipher has no such preference.
 #[must_use]
 pub fn vowels(ls: &[Letter]) -> f64 {
-    ls.iter()
-        .filter(|&&l| matches!(l, 0 | 4 | 8 | 14 | 20))
-        .count() as f64
+    ls.iter().filter(|l| VOWELS.contains(l)).count() as f64
 }
 
 /// Adjacent letters that neighbour each other on a QWERTY keyboard.
@@ -102,10 +106,10 @@ pub fn vowels(ls: &[Letter]) -> f64 {
 /// The other half of the same suspicion: a mashed keyboard leaves its own geometry behind, and this is what that looks like when counted.
 #[must_use]
 pub fn qwerty_neighbours(ls: &[Letter]) -> f64 {
-    const ROWS: [&str; 3] = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
     let place = |l: Letter| -> Option<(i32, i32)> {
         let c = letter_char(l);
-        ROWS.iter()
+        QWERTY
+            .iter()
             .enumerate()
             .find_map(|(r, row)| row.find(c).map(|i| (r as i32, i as i32)))
     };

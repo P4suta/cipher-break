@@ -15,6 +15,7 @@
 use crate::alphabet::{ALPHABET, Letter};
 use crate::ciphers::enigma;
 use crate::ciphers::periodic::{self, Family};
+use crate::enigma_types::{Indicator, Ring};
 
 /// The compute shader, in WGSL so the same source runs on Metal, Vulkan and DirectX.
 const SHADER: &str = include_str!("gpu/periodic.wgsl");
@@ -22,12 +23,19 @@ const SHADER: &str = include_str!("gpu/periodic.wgsl");
 /// The Enigma rotor sweep.
 const ENIGMA_SHADER: &str = include_str!("gpu/enigma.wgsl");
 
+/// The plugboard climb.
+const PLUGBOARD_SHADER: &str = include_str!("gpu/plugboard.wgsl");
+
 /// Where each block of the packed Enigma table starts, in words.
+///
+/// Derived from the tables rather than written out: the shader has the same
+/// offsets spelled as literals, and the test below is what keeps the two in
+/// step. A packed table whose blocks the shader reads at the wrong offsets
+/// produces a machine that runs and deciphers nothing.
 const T_FORWARD: usize = 0;
-const T_BACKWARD: usize = 208;
-const T_NOTCH: usize = 416;
-const T_REFLECTOR: usize = 424;
-const T_ORDERS: usize = 424 + 104 * 26;
+const T_BACKWARD: usize = T_FORWARD + enigma::ROTOR_COUNT * ALPHABET;
+const T_NOTCH: usize = T_BACKWARD + enigma::ROTOR_COUNT * ALPHABET;
+const T_REFLECTOR: usize = T_NOTCH + enigma::ROTOR_COUNT;
 
 /// Threads per dispatch.
 /// Each strides through the key range.
@@ -39,6 +47,149 @@ const WORKGROUP: u32 = 256;
 /// The most key digits a single dispatch enumerates, so the count fits a `u32`.
 const MAX_LOW_DIGITS: usize = 6;
 
+/// Everything a rotor sweep or a plugboard climb needs, named rather than ordered.
+///
+/// These calls used to take eight positional arguments of which three were `usize`, and swapping two of them compiles.
+/// A struct with named fields costs nothing and cannot be filled in the wrong order.
+pub struct EnigmaJob<'a> {
+    /// The ciphertext.
+    pub ct: &'a [Letter],
+    /// The log-probability table of the steering language.
+    pub logp: &'a [f32],
+    /// The order of the model that table came from.
+    pub order: usize,
+    /// The rotor orders to try.
+    pub orders: &'a [[usize; 3]],
+    /// The reflectors to try.
+    pub reflectors: &'a [[u8; ALPHABET]],
+    /// How many right-rotor ring settings to sweep.
+    pub rings: usize,
+    /// How many settings to keep.
+    pub keep: usize,
+}
+
+/// One rotor setting the device liked.
+#[derive(Clone, Copy, Debug)]
+pub struct EnigmaHit {
+    /// How well it scored under the steering language.
+    pub score: f64,
+    /// Which rotor order, as an index into the list the caller passed.
+    pub order: usize,
+    /// Which reflector, likewise.
+    pub reflector: usize,
+    /// The right rotor's ring setting.
+    pub ring: Ring,
+    /// Where the three rotors started.
+    pub positions: [Indicator; 3],
+}
+
+/// Build one compute pipeline with `bindings` storage buffers, the first `read_only` of them read-only.
+///
+/// Three pipelines were written out longhand before this existed, and the differences between them were four tokens each.
+fn compute_pipeline(
+    device: &wgpu::Device,
+    label: &str,
+    source: &str,
+    entry: &str,
+    bindings: u32,
+    read_only: u32,
+) -> (wgpu::ComputePipeline, wgpu::BindGroupLayout) {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(label),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let entries: Vec<wgpu::BindGroupLayoutEntry> = (0..bindings)
+        .map(|i| wgpu::BindGroupLayoutEntry {
+            binding: i,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage {
+                    read_only: i < read_only,
+                },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        })
+        .collect();
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(label),
+        entries: &entries,
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some(label),
+        bind_group_layouts: &[&layout],
+        push_constant_ranges: &[],
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some(label),
+        layout: Some(&pipeline_layout),
+        module: &module,
+        entry_point: Some(entry),
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    });
+    (pipeline, layout)
+}
+
+/// Turn a dispatch's raw answers back into settings.
+fn decode_hits(packed: &[u32], order: usize, rings: u32, positions: u32) -> Vec<EnigmaHit> {
+    let per_reflector = rings * positions;
+    packed
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .filter_map(|&pair| {
+            let score = f32::from_bits(pair[0]);
+            if !score.is_finite() || score < -1.0e29 {
+                return None;
+            }
+            let index = pair[1];
+            let within = index % per_reflector;
+            let p = within % positions;
+            Some(EnigmaHit {
+                score: f64::from(score),
+                order,
+                reflector: (index / per_reflector) as usize,
+                ring: Ring::new((within / positions) as u8),
+                positions: [
+                    Indicator::new((p / (ALPHABET as u32 * ALPHABET as u32)) as u8),
+                    Indicator::new(((p / ALPHABET as u32) % ALPHABET as u32) as u8),
+                    Indicator::new((p % ALPHABET as u32) as u8),
+                ],
+            })
+        })
+        .collect()
+}
+
+/// Lay the rotor wirings, their notches and the reflectors out for a device.
+///
+/// Both Enigma kernels read the same table at the same offsets, so they share the code that builds it; two copies of this that drifted apart would be a shader reading a reflector where a notch mask is.
+fn pack_enigma_tables(reflectors: &[[u8; ALPHABET]]) -> Vec<u32> {
+    let (forward, backward, notches) = enigma::rotor_tables();
+    let mut tables = vec![0u32; T_REFLECTOR + reflectors.len() * ALPHABET];
+    for (i, &v) in forward.iter().enumerate() {
+        tables[T_FORWARD + i] = u32::from(v);
+    }
+    for (i, &v) in backward.iter().enumerate() {
+        tables[T_BACKWARD + i] = u32::from(v);
+    }
+    for (i, &v) in notches.iter().enumerate() {
+        tables[T_NOTCH + i] = v;
+    }
+    for (r, reflector) in reflectors.iter().enumerate() {
+        for (i, &v) in reflector.iter().enumerate() {
+            tables[T_REFLECTOR + r * ALPHABET + i] = u32::from(v);
+        }
+    }
+    tables
+}
+
+/// The ciphertext as words, for a device that has no bytes.
+fn ct_words(ct: &[Letter]) -> Vec<u32> {
+    ct.iter().map(|&l| u32::from(l)).collect()
+}
+
 /// A device, ready to sweep.
 pub struct Gpu {
     device: wgpu::Device,
@@ -47,6 +198,8 @@ pub struct Gpu {
     layout: wgpu::BindGroupLayout,
     enigma_pipeline: wgpu::ComputePipeline,
     enigma_layout: wgpu::BindGroupLayout,
+    plug_pipeline: wgpu::ComputePipeline,
+    plug_layout: wgpu::BindGroupLayout,
     /// What the adapter calls itself, for the report.
     pub name: String,
 }
@@ -192,41 +345,10 @@ impl Gpu {
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
-        let enigma_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("enigma"),
-            source: wgpu::ShaderSource::Wgsl(ENIGMA_SHADER.into()),
-        });
-        let enigma_entries: Vec<wgpu::BindGroupLayoutEntry> = (0..5u32)
-            .map(|i| wgpu::BindGroupLayoutEntry {
-                binding: i,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: i < 4 },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            })
-            .collect();
-        let enigma_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("enigma"),
-            entries: &enigma_entries,
-        });
-        let enigma_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("enigma"),
-                bind_group_layouts: &[&enigma_layout],
-                push_constant_ranges: &[],
-            });
-        let enigma_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("enigma"),
-            layout: Some(&enigma_pipeline_layout),
-            module: &enigma_module,
-            entry_point: Some("sweep"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-
+        let (enigma_pipeline, enigma_layout) =
+            compute_pipeline(&device, "enigma", ENIGMA_SHADER, "sweep", 5, 4);
+        let (plug_pipeline, plug_layout) =
+            compute_pipeline(&device, "plugboard", PLUGBOARD_SHADER, "climb", 6, 5);
         Ok(Gpu {
             device,
             queue,
@@ -234,6 +356,8 @@ impl Gpu {
             layout,
             enigma_pipeline,
             enigma_layout,
+            plug_pipeline,
+            plug_layout,
             name,
         })
     }
@@ -241,73 +365,174 @@ impl Gpu {
     /// Sweep the rotor half of an Enigma key on the device.
     ///
     /// Steered by one language rather than a bank of them.
-    /// The sweep's job is to find the rotors, the plugboard is grown afterwards on the processor, and a single accumulator is what keeps a thread's working set small enough to stay in registers.
+    /// The sweep's job is to find the rotors; the plugboard is grown afterwards on the processor, and a single accumulator is what keeps a thread's working set small enough to stay in registers.
     ///
-    /// Returns `(score, index)` pairs, where the index decomposes as `order * reflectors * 17576 + reflector * 17576 + position`.
+    /// `rings` says how many right-rotor ring settings to try. One means the
+    /// wiring only, which finds a message whose right ring happens to be at A
+    /// and nothing else; 26 means every notch timing, which is 26 times the
+    /// work and the difference between an attack that works on real traffic
+    /// and one that works on examples.
+    ///
+    /// The host dispatches once per rotor order, because the key space with
+    /// ring settings in it runs past what a `u32` index can address and one
+    /// order at a time keeps every count inside one.
     #[must_use]
-    pub fn sweep_enigma(
-        &self,
-        ct: &[Letter],
-        logp: &[f32],
-        order: usize,
-        orders: &[[usize; 3]],
-        reflectors: &[[u8; ALPHABET]],
-        keep: usize,
-    ) -> Vec<(f64, u64)> {
-        let (forward, backward, notches) = enigma::rotor_tables();
-        let mut tables = vec![0u32; T_ORDERS + orders.len() * 3];
-        for (i, &v) in forward.iter().enumerate() {
-            tables[T_FORWARD + i] = u32::from(v);
-        }
-        for (i, &v) in backward.iter().enumerate() {
-            tables[T_BACKWARD + i] = u32::from(v);
-        }
-        for (i, &v) in notches.iter().enumerate() {
-            tables[T_NOTCH + i] = v;
-        }
-        for (r, reflector) in reflectors.iter().enumerate() {
-            for (i, &v) in reflector.iter().enumerate() {
-                tables[T_REFLECTOR + r * ALPHABET + i] = u32::from(v);
-            }
-        }
-        for (o, rotors) in orders.iter().enumerate() {
-            for (i, &v) in rotors.iter().enumerate() {
-                tables[T_ORDERS + o * 3 + i] = v as u32;
-            }
-        }
+    pub fn sweep_enigma(&self, job: &EnigmaJob) -> Vec<EnigmaHit> {
+        let EnigmaJob {
+            ct,
+            logp,
+            order,
+            orders,
+            reflectors,
+            rings,
+            keep,
+        } = *job;
+        let tables = pack_enigma_tables(reflectors);
 
-        let positions = (ALPHABET as u64).pow(3);
-        let count = orders.len() as u64 * reflectors.len() as u64 * positions;
-        let chunk = count.div_ceil(u64::from(THREADS));
-        let params = vec![
-            ct.len() as u32,
-            count as u32,
-            THREADS,
-            orders.len() as u32,
-            reflectors.len() as u32,
-            positions as u32,
-            (ALPHABET as u32).pow(order as u32 - 1),
-            order as u32,
-            chunk as u32,
-            0,
-            0,
-            0,
-        ];
+        let positions = (ALPHABET as u32).pow(3);
+        let count = reflectors.len() as u32 * rings as u32 * positions;
+        let chunk = count.div_ceil(THREADS);
 
-        let ct_buffer = self.storage(
-            "ct",
-            &words_to_bytes(&ct.iter().map(|&l| u32::from(l)).collect::<Vec<_>>()),
-        );
+        let ct_buffer = self.storage("ct", &words_to_bytes(&ct_words(ct)));
         let tables_buffer = self.storage("tables", &words_to_bytes(&tables));
         let logp_buffer = self.storage("logp", &floats_to_bytes(logp));
-        let params_buffer = self.storage("params", &words_to_bytes(&params));
         let out_len = THREADS as usize * 2;
         let out_buffer = self.readable("out", (out_len * 4) as u64);
         let out_staging = self.staging("out-read", (out_len * 4) as u64);
 
+        let mut found: Vec<EnigmaHit> = Vec::new();
+        for (o, rotors) in orders.iter().enumerate() {
+            let params = vec![
+                ct.len() as u32,
+                count,
+                THREADS,
+                rings as u32,
+                reflectors.len() as u32,
+                positions,
+                (ALPHABET as u32).pow(order as u32 - 1),
+                order as u32,
+                chunk,
+                rotors[0] as u32,
+                rotors[1] as u32,
+                rotors[2] as u32,
+            ];
+            let params_buffer = self.storage("params", &words_to_bytes(&params));
+            let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("enigma"),
+                layout: &self.enigma_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: ct_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: tables_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: logp_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: params_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: out_buffer.as_entire_binding(),
+                    },
+                ],
+            });
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+                pass.set_pipeline(&self.enigma_pipeline);
+                pass.set_bind_group(0, &bind, &[]);
+                pass.dispatch_workgroups(THREADS / WORKGROUP, 1, 1);
+            }
+            encoder.copy_buffer_to_buffer(&out_buffer, 0, &out_staging, 0, (out_len * 4) as u64);
+            self.queue.submit(Some(encoder.finish()));
+
+            let packed = bytes_to_words(&self.read(&out_staging));
+            found.extend(decode_hits(&packed, o, rings as u32, positions));
+            found.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
+            found.dedup_by(|a, b| {
+                a.order == b.order
+                    && a.reflector == b.reflector
+                    && a.ring == b.ring
+                    && a.positions == b.positions
+            });
+            found.truncate(keep.max(1));
+        }
+        found
+    }
+
+    /// Grow a plugboard for every candidate setting, on the device.
+    ///
+    /// This is what a long shortlist costs, moved somewhere it costs little.
+    /// A greedy climb is 325 candidate leads times ten rounds times the length of the message, and on a processor that is affordable for a few hundred settings; here it is affordable for a hundred thousand.
+    ///
+    /// Returns, for each candidate in order, the score its board reached and the board itself as a permutation of the alphabet.
+    #[must_use]
+    pub fn climb_plugboards(
+        &self,
+        job: &EnigmaJob,
+        candidates: &[EnigmaHit],
+        leads: usize,
+        margin: f32,
+    ) -> Vec<(f64, [u8; ALPHABET])> {
+        let EnigmaJob {
+            ct,
+            logp,
+            order,
+            orders: rotor_orders,
+            reflectors,
+            ..
+        } = *job;
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+        let tables = pack_enigma_tables(reflectors);
+
+        let mut packed = Vec::with_capacity(candidates.len() * 8);
+        for hit in candidates {
+            let rotors = rotor_orders[hit.order];
+            packed.push(rotors[0] as u32);
+            packed.push(rotors[1] as u32);
+            packed.push(rotors[2] as u32);
+            packed.push(hit.reflector as u32);
+            packed.push(u32::from(hit.ring.value()));
+            packed.push(u32::from(hit.positions[0].value()));
+            packed.push(u32::from(hit.positions[1].value()));
+            packed.push(u32::from(hit.positions[2].value()));
+        }
+
+        let threads = (candidates.len() as u32).div_ceil(WORKGROUP) * WORKGROUP;
+        let params = vec![
+            ct.len() as u32,
+            candidates.len() as u32,
+            threads,
+            leads as u32,
+            (ALPHABET as u32).pow(order as u32 - 1),
+            order as u32,
+            reflectors.len() as u32,
+            margin.to_bits(),
+        ];
+
+        let ct_buffer = self.storage("ct", &words_to_bytes(&ct_words(ct)));
+        let tables_buffer = self.storage("tables", &words_to_bytes(&tables));
+        let logp_buffer = self.storage("logp", &floats_to_bytes(logp));
+        let params_buffer = self.storage("params", &words_to_bytes(&params));
+        let settings_buffer = self.storage("settings", &words_to_bytes(&packed));
+        let out_len = candidates.len() * 6;
+        let out_buffer = self.readable("out", (out_len * 4) as u64);
+        let out_staging = self.staging("out-read", (out_len * 4) as u64);
+
         let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("enigma"),
-            layout: &self.enigma_layout,
+            label: Some("plugboard"),
+            layout: &self.plug_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -327,6 +552,10 @@ impl Gpu {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
+                    resource: settings_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
                     resource: out_buffer.as_entire_binding(),
                 },
             ],
@@ -336,25 +565,28 @@ impl Gpu {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            pass.set_pipeline(&self.enigma_pipeline);
+            pass.set_pipeline(&self.plug_pipeline);
             pass.set_bind_group(0, &bind, &[]);
-            pass.dispatch_workgroups(THREADS / WORKGROUP, 1, 1);
+            pass.dispatch_workgroups(threads / WORKGROUP, 1, 1);
         }
         encoder.copy_buffer_to_buffer(&out_buffer, 0, &out_staging, 0, (out_len * 4) as u64);
         self.queue.submit(Some(encoder.finish()));
 
-        let packed = bytes_to_words(&self.read(&out_staging));
-        let mut found: Vec<(f64, u64)> = packed
-            .as_chunks::<2>()
+        let words = bytes_to_words(&self.read(&out_staging));
+        words
+            .as_chunks::<6>()
             .0
             .iter()
-            .filter(|c| f32::from_bits(c[0]).is_finite() && f32::from_bits(c[0]) > -1.0e29)
-            .map(|c| (f64::from(f32::from_bits(c[0])), u64::from(c[1])))
-            .collect();
-        found.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
-        found.dedup_by(|a, b| a.1 == b.1);
-        found.truncate(keep.max(1));
-        found
+            .map(|&c| {
+                let score = f64::from(f32::from_bits(c[0]));
+                let mut board = [0u8; ALPHABET];
+                for (i, slot) in board.iter_mut().enumerate() {
+                    let word = c[1 + i / 6];
+                    *slot = ((word >> ((i % 6) * 5)) & 31) as u8;
+                }
+                (score, board)
+            })
+            .collect()
     }
 
     /// Exhaust every key of a given period across the Vigenere family.
@@ -377,10 +609,7 @@ impl Gpu {
         let prefixes = (ALPHABET as u64).pow(prefix_len as u32);
         let padded = langs.div_ceil(4) * 4;
 
-        let ct_buffer = self.storage(
-            "ct",
-            &words_to_bytes(&ct.iter().map(|&l| u32::from(l)).collect::<Vec<_>>()),
-        );
+        let ct_buffer = self.storage("ct", &words_to_bytes(&ct_words(ct)));
         let table_buffer = self.storage("table", &floats_to_bytes(&widen(table, langs, padded)));
         let out_len = THREADS as usize * 2;
         let out_buffer = self.readable("out", (out_len * 4) as u64);
@@ -524,6 +753,31 @@ impl Gpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_table_offsets_match_the_ones_the_shaders_use() {
+        // Both Enigma shaders spell these out as literals, because WGSL has no way to derive them.
+        // If the tables ever change shape, this is what says so before a run quietly reads a notch mask as a wiring.
+        assert_eq!(T_FORWARD, 0);
+        assert_eq!(T_BACKWARD, 208);
+        assert_eq!(T_NOTCH, 416);
+        assert_eq!(T_REFLECTOR, 424);
+        assert!(ENIGMA_SHADER.contains("const BACKWARD: u32 = 208u;"));
+        assert!(ENIGMA_SHADER.contains("const NOTCH: u32 = 416u;"));
+        assert!(ENIGMA_SHADER.contains("const REFLECTOR: u32 = 424u;"));
+        assert!(PLUGBOARD_SHADER.contains("const BACKWARD: u32 = 208u;"));
+        assert!(PLUGBOARD_SHADER.contains("const REFLECTOR: u32 = 424u;"));
+    }
+
+    #[test]
+    fn the_shaders_size_their_shared_tables_for_the_real_ones() {
+        let reflector_words = enigma::NAVAL_REFLECTOR_COUNT * ALPHABET;
+        assert_eq!(reflector_words, 2704);
+        for shader in [ENIGMA_SHADER, PLUGBOARD_SHADER] {
+            assert!(shader.contains("array<u32, 2704>"), "reflector table size");
+            assert!(shader.contains("array<u32, 208>"), "rotor table size");
+        }
+    }
 
     #[test]
     fn opening_a_device_either_works_or_says_why() {

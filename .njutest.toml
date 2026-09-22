@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Mutation testing runs the suite once per mutant, so what the suite costs decides what can be assured.
+# The library's own tests run in hundredths of a second and are where the behaviour is pinned down; the integration suites plant keys in real ciphers and take minutes, which is right for them and wrong for a mutation loop.
+# They are skipped here and reported as the limitation they are, rather than quietly making a run untenable.
+version = 1
+contract = "standard-v1"
+
+[project]
+# The device backend cannot be mutated usefully: its behaviour lives in WGSL,
+# which no Rust mutation reaches, and the tests that would catch a change need a GPU.
+# It is covered instead by the cross-checks in tests/enigma.rs, which require the device and the processor to agree exactly.
+exclude = ["src/gpu.rs", "src/gpu/**"]
+
+[execution]
+timeout = "20m"
+skip_targets = ["solves", "enigma"]
+
+[mutation]
+equivalence = true

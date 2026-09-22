@@ -6,6 +6,14 @@
 //! so randomness is needed everywhere.
 //! It is carried here rather than taken from the system, so that a run which breaks a cipher can be replayed exactly — and so that a null computed today is the null computed tomorrow.
 
+/// The three shifts that define xorshift64, in Marsaglia's order.
+const SHIFT_A: u32 = 13;
+const SHIFT_B: u32 = 7;
+const SHIFT_C: u32 = 17;
+
+/// What a zero seed is replaced with, zero being the generator's fixed point.
+const NONZERO_SEED: u64 = 0x2545_F491_4F6C_DD1D;
+
 /// An xorshift64 generator.
 #[derive(Clone, Copy, Debug)]
 pub struct Rng(u64);
@@ -14,20 +22,16 @@ impl Rng {
     /// A generator from any number; zero would be a fixed point, so it is replaced.
     #[must_use]
     pub fn new(seed: u64) -> Self {
-        Rng(if seed == 0 {
-            0x2545_F491_4F6C_DD1D
-        } else {
-            seed
-        })
+        Rng(if seed == 0 { NONZERO_SEED } else { seed })
     }
 
     /// One step.
     #[inline]
     pub fn next_u64(&mut self) -> u64 {
         let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
+        x ^= x << SHIFT_A;
+        x ^= x >> SHIFT_B;
+        x ^= x << SHIFT_C;
         self.0 = x;
         x
     }

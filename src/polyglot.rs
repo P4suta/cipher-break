@@ -23,6 +23,21 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+/// How far below the mean of model-drawn text the bar may sit.
+const LANGUAGE_DEVIATIONS: f64 = 3.0;
+
+/// How much of the way from noise to language the bar sits, when the models are tighter than real prose.
+///
+/// Text drawn from a model scores higher under that model than real writing does — it is generated from exactly the distribution it is judged by, and real writing never is.
+/// This is what keeps the bar below real prose.
+const LANGUAGE_SPAN: f64 = 0.6;
+
+/// Which position in a sorted sample the reported floor is taken from, as a divisor: twenty means the fifth percentile.
+const FLOOR_PERCENTILE: usize = 20;
+
+/// The smallest deviation the scale will report, so a length whose sample happens to be constant cannot divide by zero.
+const MIN_DEVIATION: f64 = 1e-6;
+
 /// Texts up to this length are scored without allocating.
 const INLINE: usize = 512;
 
@@ -276,7 +291,7 @@ impl Polyglot {
         let floor = if language.is_empty() {
             f64::NEG_INFINITY
         } else {
-            language[language.len() / 20]
+            language[language.len() / FLOOR_PERCENTILE]
         };
         let (language_mean, language_sd) = crate::stats::moments(&language);
         Calibration {
@@ -349,6 +364,15 @@ pub struct Scale {
 }
 
 impl Scale {
+    /// Measure random letters against a single model.
+    ///
+    /// The same measurement as [`Scale::build`], for the case where a caller has named the language and the bank is not the judge.
+    #[must_use]
+    pub fn for_model(model: &Model, max_len: usize, samples: usize, rng: &mut Rng) -> Self {
+        let one = Polyglot::new(vec![(String::from("focus"), model.clone())]);
+        Scale::build(&one, max_len, samples, rng)
+    }
+
     /// Measure random letters at every length up to `max_len`.
     #[must_use]
     pub fn build(bank: &Polyglot, max_len: usize, samples: usize, rng: &mut Rng) -> Self {
@@ -365,7 +389,7 @@ impl Scale {
                 .collect();
             let (m, s) = crate::stats::moments(&values);
             mean[len] = m;
-            sd[len] = s.max(1e-6);
+            sd[len] = s.max(MIN_DEVIATION);
         }
         Scale { mean, sd }
     }
@@ -415,8 +439,8 @@ impl Calibration {
     /// The bar is the lower of "three deviations below sampled text" and "most of the way from noise to language", so it tracks the models where they are tight and the gap where they are not.
     #[must_use]
     pub fn floor(&self) -> f64 {
-        let optimistic = self.language_mean - 3.0 * self.language_sd;
-        let spanning = self.noise_mean + 0.6 * (self.language_mean - self.noise_mean);
+        let optimistic = self.language_mean - LANGUAGE_DEVIATIONS * self.language_sd;
+        let spanning = self.noise_mean + LANGUAGE_SPAN * (self.language_mean - self.noise_mean);
         optimistic.min(spanning)
     }
 

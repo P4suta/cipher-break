@@ -34,6 +34,8 @@ fn solve(ct: &[Letter]) -> Conclusion {
         seed: 1,
         keep: 1,
         focus: None,
+        focus_scale: None,
+        trace: &cipher_break::trace::QUIET,
     };
     let outcomes: Vec<_> = registry(4)
         .iter()

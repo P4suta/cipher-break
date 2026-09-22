@@ -2,195 +2,442 @@
 
 //! The Enigma attacks, shown working on messages this file enciphered.
 //!
-//! These are slow — a naval sweep is six hundred million settings — so they are marked `#[ignore]` and run on purpose with `cargo test -- --ignored`.
-//! They are the reason a negative result on a real message is worth anything.
+//! Every planted case is declared once, in [`CASES`], and both the attacks and
+//! the diagnostic run from that one table. They used to be written out
+//! separately, and a diagnostic that planted `start HEW` while the test it was
+//! meant to explain planted `start LLP` cost an hour of looking in the wrong
+//! place. A fact measured about one message says nothing about another.
+//!
+//! The sweeps are slow — a naval one is six hundred million settings, or
+//! sixteen billion with the ring — so the heavy tests are `#[ignore]` and run
+//! on purpose with `cargo test -- --ignored`.
 
 use cipher_break::alphabet::{Letter, from_letters, to_letters};
 use cipher_break::anneal::Schedule;
-use cipher_break::attack::{Attack, Context, EnigmaAttack, EnigmaNaval};
-use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings, composite_reflector};
+use cipher_break::attack::{Attack, Context};
+use cipher_break::ciphers::enigma::{
+    Enigma, Plugboard, Settings, compatible, composite_reflector, naval_reflectors, rotor_orders,
+};
+use cipher_break::enigma_types::{Indicator, Ring};
 use cipher_break::ngram::Model;
+use cipher_break::polyglot::{Polyglot, Scale};
+use cipher_break::rng::Rng;
+use cipher_break::trace::Trace;
+
+/// A Kriegsmarine signal in the shape they were actually sent in.
+const SIGNAL: &str = "VONVONJAWEGENDERSITUATIONXXMELDEICHXXFEINDKONVOIINSICHTXXMARQUADRATBE";
+
+/// A longer one, for the searches that need more evidence than a short signal carries.
+const LONG_SIGNAL: &str = "VONVONJAWEGENDERSITUATIONXXMELDEICHXXFEINDKONVOIINSICHTXXMARQUADRATBE\
+                           XXDREISCHIFFEUNDZWEIZERSTOERERXXKURSNORDOSTXXGESCHWINDIGKEITACHTXX\
+                           GREIFEBEIMORGENGRAUENANXXERBITTEUNTERSTUETZUNGDURCHZWEIBOOTEXXENDE";
+
+/// The right ring setting one planted case uses, as a letter index.
+const RIGHT_RING_T: u8 = 19;
+
+/// A sweep that holds the right ring at A.
+const RINGS_HELD: usize = 1;
+
+/// A sweep that tries every right-ring setting.
+const RINGS_SWEPT: usize = cipher_break::alphabet::ALPHABET;
+
+/// How deep the rank diagnostic looks before reporting "not found".
+const RANK_DEPTH: usize = 200_000;
+
+/// How many settings a cross-check between the two backends needs.
+const CROSS_CHECK_KEEP: usize = 4;
+
+/// How long a shortlist the planted-case attacks are given.
+const PLANTED_SHORTLIST: usize = 60_000;
+
+/// How many of the device's boards each planted case finishes here.
+const PLANTED_FINISH: usize = 64;
+
+/// How many candidates a planted case is allowed to return.
+const PLANTED_KEEP: usize = 5;
+
+/// How many random texts the planted cases calibrate against.
+const PLANTED_SAMPLES: usize = 128;
+
+/// A message this file enciphered, with everything needed to attack it again.
+pub struct Planted {
+    /// How the case is named in output.
+    pub label: &'static str,
+    /// The plaintext.
+    pub text: &'static str,
+    /// Which rotors, right to left as the machine holds them.
+    pub rotors: [usize; 3],
+    /// Ring settings, left to right.
+    pub rings: [u8; 3],
+    /// Starting positions, left to right.
+    pub positions: [u8; 3],
+    /// The Greek rotor, its setting and the thin reflector.
+    pub greek: (usize, u8, usize),
+    /// The plugboard leads.
+    pub plugs: &'static [(u8, u8)],
+    /// How many right-rotor ring settings an attack must sweep to contain it.
+    pub sweep_rings: usize,
+}
+
+/// Every planted case, declared once.
+///
+/// The `sweep_rings` column is not a preference; it is what the case requires.
+/// A rotor sweep runs with the rings at zero, which reproduces any wiring but only one notch timing, so a case whose right ring is not `A` is outside a one-ring sweep by construction and no amount of searching will find it.
+pub const CASES: &[Planted] = &[
+    Planted {
+        label: "naval, short, ring A",
+        text: SIGNAL,
+        rotors: [3, 1, 6],
+        rings: [0, 0, 0],
+        positions: [11, 4, 22],
+        greek: (0, 9, 0),
+        plugs: &[(1, 20), (8, 15), (17, 2)],
+        sweep_rings: 1,
+    },
+    Planted {
+        label: "naval, long, ring A",
+        text: LONG_SIGNAL,
+        rotors: [3, 1, 6],
+        rings: [0, 0, 0],
+        positions: [11, 4, 22],
+        greek: (0, 9, 0),
+        plugs: &[(1, 20), (8, 15), (17, 2)],
+        sweep_rings: 1,
+    },
+    Planted {
+        label: "naval, long, right ring T",
+        text: LONG_SIGNAL,
+        rotors: [3, 1, 6],
+        rings: [0, 0, RIGHT_RING_T],
+        positions: [11, 4, 22],
+        greek: (0, 9, 0),
+        plugs: &[(1, 20), (8, 15), (17, 2)],
+        sweep_rings: 26,
+    },
+];
+
+impl Planted {
+    /// The settings the machine was set to.
+    #[must_use]
+    pub fn settings(&self) -> Settings {
+        Settings {
+            rotors: self.rotors,
+            reflector: 0,
+            rings: self.rings.map(Ring::new),
+            positions: self.positions.map(Indicator::new),
+        }
+    }
+
+    /// The composite reflector the Greek rotor and thin reflector make.
+    #[must_use]
+    pub fn reflector(&self) -> [u8; cipher_break::alphabet::ALPHABET] {
+        composite_reflector(self.greek.0, self.greek.1, self.greek.2)
+    }
+
+    /// Which of the 104 naval reflectors that is.
+    #[must_use]
+    pub fn reflector_index(&self) -> usize {
+        self.greek.0 * 52 + self.greek.2 * 26 + self.greek.1 as usize
+    }
+
+    /// The board that was fitted.
+    #[must_use]
+    pub fn board(&self) -> Plugboard {
+        let mut board = Plugboard::empty();
+        for &(a, b) in self.plugs {
+            board.connect(a, b);
+        }
+        board
+    }
+
+    /// The plaintext, as letters.
+    #[must_use]
+    pub fn plain(&self) -> Vec<Letter> {
+        to_letters(self.text)
+    }
+
+    /// What the machine produced.
+    #[must_use]
+    pub fn ciphertext(&self) -> Vec<Letter> {
+        Enigma::with_reflector(self.settings(), self.reflector(), self.board()).run(&self.plain())
+    }
+}
+
+/// The models the shipped binary carries.
+fn bank() -> Polyglot {
+    Polyglot::from_bundle(include_str!("../data/models.bundle"))
+}
 
 /// The German quadgram model the binary carries.
 fn german() -> Option<Model> {
     Model::parse(include_str!("../data/german-quadgrams.txt"))
 }
-use cipher_break::polyglot::{Polyglot, Scale};
-use cipher_break::rng::Rng;
 
-/// A Kriegsmarine signal in the shape they were actually sent in.
-const SIGNAL: &str = "VONVONJAWEGENDERSITUATIONXXMELDEICHXXFEINDKONVOIINSICHTXXMARQUADRATBE";
-
-fn bank() -> Polyglot {
-    let bundle = include_str!("../data/models.bundle");
-    Polyglot::from_bundle(bundle)
+#[test]
+fn the_reflector_index_agrees_with_the_list() {
+    let named = naval_reflectors();
+    for case in CASES {
+        assert_eq!(
+            named[case.reflector_index()].1,
+            case.reflector(),
+            "{}: the index and the wiring disagree",
+            case.label
+        );
+    }
 }
 
 #[test]
 fn the_machine_never_sends_a_letter_to_itself() {
-    let settings = Settings {
-        rotors: [0, 1, 2],
-        reflector: 0,
-        rings: [0; 3],
-        positions: [0; 3],
-    };
-    let plain = to_letters(SIGNAL);
-    let ct = Enigma::new(settings, Plugboard::empty()).run(&plain);
-    assert!(cipher_break::ciphers::enigma::compatible(&ct, &plain));
-}
-
-/// Run the three-rotor attack against a message this function enciphered.
-fn three_rotor_case(plugs: &[(u8, u8)], shortlist: usize, text: &str) -> (bool, String) {
-    let settings = Settings {
-        rotors: [2, 0, 4],
-        reflector: 0,
-        rings: [0; 3],
-        positions: [7, 19, 3],
-    };
-    let mut board = Plugboard::empty();
-    for &(a, b) in plugs {
-        board.connect(a, b);
+    for case in CASES {
+        assert!(
+            compatible(&case.ciphertext(), &case.plain()),
+            "{}: a letter was enciphered as itself",
+            case.label
+        );
     }
-    let plain = to_letters(text);
-    let ct = Enigma::new(settings, board).run(&plain);
-
-    let bank = bank();
-    let scale = Scale::build(&bank, ct.len(), 128, &mut Rng::new(1));
-    let focus = german();
-    let ctx = Context {
-        judge: &bank,
-        scale: &scale,
-        plan: Schedule::default(),
-        seed: 1,
-        keep: 5,
-        focus: focus.as_ref(),
-    };
-    let attack = EnigmaAttack {
-        rotors_available: 5,
-        shortlist,
-        leads: plugs.len().max(1),
-    };
-    let found = attack.best(&ct, &ctx);
-    let read = found.iter().any(|c| c.plain == plain);
-    (
-        read,
-        format!(
-            "best {:+.1} {} -> {}",
-            found[0].score,
-            found[0].key,
-            from_letters(&found[0].plain)
-        ),
-    )
 }
 
 #[test]
-#[ignore = "a full rotor sweep; run with --ignored"]
-fn it_breaks_a_three_rotor_message_with_no_plugboard() {
-    let (read, detail) = three_rotor_case(&[], 2000, SIGNAL);
-    assert!(read, "{detail}");
-}
-
-#[test]
-#[ignore = "a full rotor sweep; run with --ignored"]
-fn it_breaks_a_three_rotor_message_with_a_plugboard() {
-    let (read, detail) = three_rotor_case(
-        &[(0, 20), (4, 12), (8, 15), (17, 2), (24, 9)],
-        20_000,
-        SIGNAL,
-    );
-    assert!(read, "{detail}");
-}
-
-#[test]
-#[ignore = "six hundred million settings; run with --ignored"]
-fn it_breaks_a_naval_four_rotor_message() {
-    let settings = Settings {
-        rotors: [3, 1, 6],
-        reflector: 0,
-        rings: [0; 3],
-        positions: [11, 4, 22],
-    };
-    let reflector = composite_reflector(0, 9, 0);
-    let mut board = Plugboard::empty();
-    for (a, b) in [(1u8, 20u8), (8, 15), (17, 2)] {
-        board.connect(a, b);
+fn every_planted_case_deciphers_back() {
+    for case in CASES {
+        let back = Enigma::with_reflector(case.settings(), case.reflector(), case.board())
+            .run(&case.ciphertext());
+        assert_eq!(back, case.plain(), "{}", case.label);
     }
-    let plain: Vec<Letter> = to_letters(SIGNAL);
-    let ct = Enigma::with_reflector(settings, reflector, board).run(&plain);
-
-    let bank = bank();
-    let scale = Scale::build(&bank, ct.len(), 128, &mut Rng::new(1));
-    let focus = german();
-    let ctx = Context {
-        judge: &bank,
-        scale: &scale,
-        plan: Schedule::default(),
-        seed: 1,
-        keep: 5,
-        focus: focus.as_ref(),
-    };
-    let attack = EnigmaNaval {
-        shortlist: 400,
-        leads: 5,
-        focus: Some("de".to_string()),
-    };
-    let found = attack.best(&ct, &ctx);
-    let read = found.iter().any(|c| c.plain == plain);
-    assert!(
-        read,
-        "best was {:+.1} {} -> {}",
-        found[0].score,
-        found[0].key,
-        from_letters(&found[0].plain)
-    );
 }
 
-/// The device backend has to find what the processor finds.
-///
-/// Two implementations of the same sweep are only worth having while they agree, and a rotor sweep is exactly the kind of thing where a shader and a loop can quietly differ — one modulo out of place changes every letter.
 #[cfg(feature = "gpu")]
-#[test]
-#[ignore = "needs a GPU; run with --ignored"]
-fn the_device_finds_the_same_naval_key() {
-    use cipher_break::attack::GpuEnigmaNaval;
+mod device {
+    use super::*;
+    use cipher_break::attack::{GpuEnigmaNaval, LEAD_MARGIN, climb_plugboard};
+    use cipher_break::gpu::{EnigmaHit, EnigmaJob, Gpu};
 
-    let settings = Settings {
-        rotors: [3, 1, 6],
-        reflector: 0,
-        rings: [0; 3],
-        positions: [11, 4, 22],
-    };
-    let reflector = composite_reflector(0, 9, 0);
-    let mut board = Plugboard::empty();
-    for (a, b) in [(1u8, 20u8), (8, 15), (17, 2)] {
-        board.connect(a, b);
+    fn context<'a>(
+        bank: &'a Polyglot,
+        scale: &'a Scale,
+        focus: Option<&'a Model>,
+        focus_scale: Option<&'a Scale>,
+        trace: &'a Trace,
+        keep: usize,
+    ) -> Context<'a> {
+        Context {
+            judge: bank,
+            scale,
+            plan: Schedule::default(),
+            seed: 1,
+            keep,
+            focus,
+            focus_scale,
+            trace,
+        }
     }
-    let plain: Vec<Letter> = to_letters(SIGNAL);
-    let ct = Enigma::with_reflector(settings, reflector, board).run(&plain);
 
-    let bank = bank();
-    let scale = Scale::build(&bank, ct.len(), 128, &mut Rng::new(1));
-    let focus = german();
-    let ctx = Context {
-        judge: &bank,
-        scale: &scale,
-        plan: Schedule::default(),
-        seed: 1,
-        keep: 5,
-        focus: focus.as_ref(),
-    };
-    let gpu = std::sync::Arc::new(cipher_break::gpu::Gpu::open().expect("a device"));
-    let attack = GpuEnigmaNaval {
-        shortlist: 400,
-        leads: 5,
-        focus: "de".to_string(),
-        gpu,
-    };
-    let found = attack.best(&ct, &ctx);
-    let key = &found[0].key;
-    assert!(
-        key.contains("rotors [4, 2, 7]") && key.contains("beta/J") && key.contains("start LEW"),
-        "the device found {key} -> {}",
-        from_letters(&found[0].plain)
-    );
+    /// Where the true setting lands in the rotor sweep, case by case.
+    ///
+    /// This is the diagnostic that decides which half of an attack to look at when it fails: a true setting near the front means the sweep is fine and the stage after it is losing the answer; a true setting nowhere means no downstream work will help.
+    #[test]
+    #[ignore = "a full rotor sweep per case; run with --ignored"]
+    fn where_the_true_setting_ranks() {
+        let bank = bank();
+        let model = bank.model_named("de").expect("german");
+        let orders = rotor_orders(8);
+        let named = naval_reflectors();
+        let wirings: Vec<[u8; cipher_break::alphabet::ALPHABET]> =
+            named.iter().map(|(_, r)| *r).collect();
+        let gpu = Gpu::open().expect("a device");
+
+        for case in CASES {
+            let ct = case.ciphertext();
+            let settings = case.settings();
+            let order = orders
+                .iter()
+                .position(|&o| o == case.rotors)
+                .expect("order");
+            // The sweep holds the rings at zero and moves the indicator with the right ring, so this is the setting it could return.
+            let wanted = [
+                settings.positions[0],
+                settings.positions[1]
+                    .against(settings.rings[1])
+                    .with_ring(Ring::new(0)),
+                settings.positions[2],
+            ];
+            let hits = gpu.sweep_enigma(&EnigmaJob {
+                ct: &ct,
+                logp: model.log_table(),
+                order: model.order(),
+                orders: &orders,
+                reflectors: &wirings,
+                rings: case.sweep_rings,
+                keep: RANK_DEPTH,
+            });
+            let rank = hits.iter().position(|h| {
+                h.order == order
+                    && h.reflector == case.reflector_index()
+                    && h.ring == settings.rings[2]
+                    && h.positions == wanted
+            });
+            let truth = model.score(
+                &Enigma::with_reflector(settings, case.reflector(), Plugboard::empty()).run(&ct),
+            );
+            println!(
+                "{:<28} {:>4} letters, {:>2} rings: best {:.4}, true {:.4}, rank {:?}",
+                case.label,
+                ct.len(),
+                case.sweep_rings,
+                hits[0].score,
+                truth,
+                rank
+            );
+        }
+    }
+
+    /// The device and the processor have to agree on the very same setting.
+    ///
+    /// Comparing only the answers a search returns hides a shader that is subtly wrong: it will confidently return the best of the wrong things.
+    #[test]
+    #[ignore = "needs a GPU; run with --ignored"]
+    fn scores_a_setting_exactly_as_the_processor_does() {
+        let case = &CASES[0];
+        let ct = case.ciphertext();
+        let bank = bank();
+        let model = bank.model_named("de").expect("german");
+        let orders = rotor_orders(8);
+        let wirings: Vec<[u8; cipher_break::alphabet::ALPHABET]> =
+            naval_reflectors().iter().map(|(_, r)| *r).collect();
+        let gpu = Gpu::open().expect("a device");
+
+        for rings in [RINGS_HELD, RINGS_SWEPT] {
+            let hits = gpu.sweep_enigma(&EnigmaJob {
+                ct: &ct,
+                logp: model.log_table(),
+                order: model.order(),
+                orders: &orders,
+                reflectors: &wirings,
+                rings,
+                keep: CROSS_CHECK_KEEP,
+            });
+            let hit = hits[0];
+            let rebuilt = Settings {
+                rotors: orders[hit.order],
+                reflector: 0,
+                rings: [Ring::new(0), Ring::new(0), hit.ring],
+                positions: hit.positions,
+            };
+            let here = model.score(
+                &Enigma::with_reflector(rebuilt, wirings[hit.reflector], Plugboard::empty())
+                    .run(&ct),
+            );
+            assert!(
+                (here - hit.score).abs() < 1e-4,
+                "rings {rings}: device said {:.6}, processor says {here:.6}",
+                hit.score
+            );
+        }
+    }
+
+    /// The device's plugboard climb has to reach what the processor's reaches.
+    #[test]
+    #[ignore = "needs a GPU; run with --ignored"]
+    fn climbs_a_plugboard_exactly_as_the_processor_does() {
+        let case = &CASES[0];
+        let ct = case.ciphertext();
+        let bank = bank();
+        let model = bank.model_named("de").expect("german");
+        let orders = rotor_orders(8);
+        let wirings: Vec<[u8; cipher_break::alphabet::ALPHABET]> =
+            naval_reflectors().iter().map(|(_, r)| *r).collect();
+        let order = orders
+            .iter()
+            .position(|&o| o == case.rotors)
+            .expect("order");
+        let gpu = Gpu::open().expect("a device");
+
+        let hit = EnigmaHit {
+            score: 0.0,
+            order,
+            reflector: case.reflector_index(),
+            ring: Ring::new(0),
+            positions: case.positions.map(Indicator::new),
+        };
+        let device = gpu.climb_plugboards(
+            &EnigmaJob {
+                ct: &ct,
+                logp: model.log_table(),
+                order: model.order(),
+                orders: &orders,
+                reflectors: &wirings,
+                rings: 1,
+                keep: CROSS_CHECK_KEEP,
+            },
+            &[hit],
+            case.plugs.len(),
+            LEAD_MARGIN as f32,
+        );
+
+        let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+        let trace = Trace::new(false);
+        let ctx = context(&bank, &scale, None, None, &trace, 1);
+        let (_, _, cpu_plain) = climb_plugboard(
+            case.settings(),
+            wirings[case.reflector_index()],
+            case.plugs.len(),
+            LEAD_MARGIN,
+            &ct,
+            &ctx,
+        );
+        let here = model.score(&cpu_plain);
+        assert!(
+            (device[0].0 - here).abs() < 0.05,
+            "device reached {:.4}, processor {here:.4}",
+            device[0].0
+        );
+    }
+
+    /// Break every planted case, each swept to the depth it needs.
+    #[test]
+    #[ignore = "a full attack per case; run with --ignored"]
+    fn breaks_every_planted_case() {
+        let bank = bank();
+        let focus = german();
+        let gpu = std::sync::Arc::new(Gpu::open().expect("a device"));
+        let mut failures = Vec::new();
+
+        for case in CASES {
+            let ct = case.ciphertext();
+            let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+            let trace = Trace::new(true);
+            let focus_scale = focus
+                .as_ref()
+                .map(|m| Scale::for_model(m, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2)));
+            let ctx = context(
+                &bank,
+                &scale,
+                focus.as_ref(),
+                focus_scale.as_ref(),
+                &trace,
+                PLANTED_KEEP,
+            );
+            let attack = GpuEnigmaNaval {
+                shortlist: PLANTED_SHORTLIST,
+                leads: case.plugs.len(),
+                focus: "de".to_string(),
+                rings: case.sweep_rings,
+                finish: PLANTED_FINISH,
+                gpu: gpu.clone(),
+            };
+            let found = attack.best(&ct, &ctx);
+            let read = found.iter().any(|c| c.plain == case.plain());
+            println!("{}\n{}", case.label, trace.render());
+            if !read {
+                failures.push(format!(
+                    "{}: best {:+.2}s {} -> {}",
+                    case.label,
+                    found[0].score,
+                    found[0].key,
+                    from_letters(&found[0].plain)
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 }

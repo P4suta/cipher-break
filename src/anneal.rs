@@ -12,6 +12,23 @@
 
 use crate::rng::Rng;
 
+/// Moves a default run proposes.
+///
+/// Measured rather than chosen: a keyed bifid square over three hundred letters is recovered reliably at this many and unreliably at a quarter of it.
+const DEFAULT_STEPS: usize = 40_000;
+
+/// How many times a default run starts over.
+const DEFAULT_RESTARTS: usize = 6;
+
+/// The temperature a default run starts at.
+///
+/// It has to match the scale of the score, not look plausible on its own.
+/// One swap in a square moves a bifid plaintext everywhere at once, so the steps in the score are whole units; a schedule that starts near a hundredth never accepts an uphill move and is a greedy climb wearing a disguise.
+const DEFAULT_HOT: f64 = 4.0;
+
+/// The temperature a default run ends at.
+const DEFAULT_COLD: f64 = 0.05;
+
 /// How long a run is, how often it starts over, and the temperatures it falls between.
 #[derive(Clone, Copy, Debug)]
 pub struct Schedule {
@@ -28,10 +45,10 @@ pub struct Schedule {
 impl Default for Schedule {
     fn default() -> Self {
         Schedule {
-            steps: 40_000,
-            restarts: 6,
-            hot: 4.0,
-            cold: 0.05,
+            steps: DEFAULT_STEPS,
+            restarts: DEFAULT_RESTARTS,
+            hot: DEFAULT_HOT,
+            cold: DEFAULT_COLD,
         }
     }
 }

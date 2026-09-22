@@ -8,6 +8,12 @@
 //! The on-disk format is shared with the Haskell reference implementation under `reference/`, so a model trained by either can be read by both.
 
 use crate::alphabet::{ALPHABET, Letter, from_letters, to_letters};
+
+/// The weight an unseen gram is given, as a share of one occurrence.
+///
+/// A gram the corpus never showed is not impossible, only unseen.
+/// Without a floor a single unlucky gram would veto an otherwise perfect plaintext; with a floor too close to one, a model stops distinguishing anything.
+const UNSEEN_WEIGHT: f64 = 0.01;
 use std::fmt::Write as _;
 
 /// Log probabilities for every gram of a fixed order.
@@ -30,7 +36,7 @@ impl Model {
     #[must_use]
     pub fn from_counts(order: usize, counts: Vec<u32>) -> Self {
         let total = counts.iter().map(|&c| f64::from(c)).sum::<f64>().max(1.0);
-        let unseen = (0.01 / total).ln() as f32;
+        let unseen = (UNSEEN_WEIGHT / total).ln() as f32;
         let logp = counts
             .iter()
             .map(|&c| {

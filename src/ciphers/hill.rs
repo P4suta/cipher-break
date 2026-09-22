@@ -87,7 +87,8 @@ mod tests {
 
     #[test]
     fn the_count_is_the_known_one() {
-        assert_eq!(matrices().len(), 157_248);
+        // The number the registry states without counting, counted.
+        assert_eq!(matrices().len() as u64, crate::attack::HILL_KEYS);
     }
 
     #[test]

@@ -25,6 +25,38 @@ const BUNDLE: &str = include_str!("../data/models.bundle");
 /// A quadgram model of German, for the one case where provenance fixes the language: a Kriegsmarine signal is in German, and a sharper judge than the shared trigram bank is what tells a real plugboard lead from a flattering one.
 const GERMAN_QUADGRAMS: &str = include_str!("../data/german-quadgrams.txt");
 
+/// How many random texts a run measures its scale against.
+const SCALE_SAMPLES: usize = 256;
+
+/// How many texts a run draws from each model to find what language scores.
+const CALIBRATION_SAMPLES: usize = 200;
+
+/// How many random texts the triage table is compared against.
+const TRIAGE_TRIALS: usize = 20_000;
+
+/// How many shuffles the period table is compared against.
+const PERIOD_SHUFFLES: usize = 200;
+
+/// The periods the report tabulates.
+const REPORT_PERIODS: std::ops::RangeInclusive<usize> = 2..=16;
+
+/// How much of a text a period may claim before its columns are too thin to say anything.
+const PERIOD_COLUMN_MINIMUM: usize = 4;
+
+/// How many rotor settings each device-side Enigma sweep keeps.
+///
+/// The sweep holding the right ring at A searches six hundred million settings; the one sweeping every ring searches sixteen billion, and needs a deeper shortlist to hold a true setting that a larger field pushed down.
+const GPU_ENIGMA_SHORTLIST_HELD: usize = 20_000;
+
+/// How many the sweep over every ring setting keeps.
+const GPU_ENIGMA_SHORTLIST_SWEPT: usize = 60_000;
+
+/// How many of the device's boards are finished on the processor.
+const GPU_ENIGMA_FINISH: usize = 64;
+
+/// The shortest key length a device sweep is worth crossing to the GPU for.
+const GPU_PERIOD_FLOOR: usize = 4;
+
 const USAGE: &str = "\
 cb — a cryptanalysis workbench for classical ciphers
 
@@ -46,6 +78,7 @@ OPTIONS
   --seed N                         make a run reproducible           (default 1)
   --language de                    a language you already know, for a sharper judge
   --gpu                            run the big exhaustive sweeps on the GPU
+  --trace                          say what each stage of each attack did
   --plain                          no colour
 
 The input may be a file, a literal run of letters, or - for standard input.
@@ -133,6 +166,11 @@ fn number<T: std::str::FromStr>(args: &[String], name: &str, fallback: T) -> T {
         .unwrap_or(fallback)
 }
 
+/// How much annealing each named effort gets, as a multiple of the default.
+const QUICK: f64 = 0.25;
+const DEEP: f64 = 2.0;
+const MAX: f64 = 4.0;
+
 /// How hard to search, as one word.
 #[derive(Clone, Copy)]
 struct Effort {
@@ -147,17 +185,17 @@ fn effort_from(args: &[String]) -> Effort {
     let mut effort = match named {
         "quick" => Effort {
             depth: 3,
-            plan: base.scaled(0.25),
+            plan: base.scaled(QUICK),
             nulls: 4,
         },
         "deep" => Effort {
             depth: 5,
-            plan: base.scaled(2.0),
+            plan: base.scaled(DEEP),
             nulls: 16,
         },
         "max" => Effort {
             depth: 6,
-            plan: base.scaled(4.0),
+            plan: base.scaled(MAX),
             nulls: 24,
         },
         _ => Effort {
@@ -253,14 +291,27 @@ fn with_gpu(
     attacks.retain(|a| {
         !a.name().starts_with("vigenere period ") && !a.name().starts_with("enigma M4 naval")
     });
+    // Two naval sweeps, because the ring setting is not free.
+    // Holding the right ring at A is six hundred million settings and finds a message whose ring is there; sweeping all 26 is sixteen billion, which is more candidates than a seventy-letter message has evidence to choose between.
+    // Both are run and both are calibrated, and the report says which is which.
     attacks.push(Box::new(cipher_break::attack::GpuEnigmaNaval {
-        shortlist: 400,
-        leads: 10,
+        shortlist: GPU_ENIGMA_SHORTLIST_HELD,
+        leads: cipher_break::attack::ENIGMA_LEADS,
         focus: "de".to_string(),
+        rings: 1,
+        finish: GPU_ENIGMA_FINISH,
+        gpu: gpu.clone(),
+    }));
+    attacks.push(Box::new(cipher_break::attack::GpuEnigmaNaval {
+        shortlist: GPU_ENIGMA_SHORTLIST_SWEPT,
+        leads: cipher_break::attack::ENIGMA_LEADS,
+        focus: "de".to_string(),
+        rings: cipher_break::alphabet::ALPHABET,
+        finish: GPU_ENIGMA_FINISH,
         gpu: gpu.clone(),
     }));
     for period in 1..=depth {
-        if period >= 4 {
+        if period >= GPU_PERIOD_FLOOR {
             attacks.push(Box::new(cipher_break::attack::GpuPeriodicSweep {
                 period,
                 gpu: gpu.clone(),
@@ -281,7 +332,7 @@ fn with_gpu(
 }
 
 fn list() {
-    for attack in registry(8) {
+    for attack in registry(cipher_break::attack::MAX_KEY) {
         println!("  {:<38} {}", attack.name(), attack.family());
     }
 }
@@ -304,7 +355,7 @@ fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
     let mut out = String::new();
     let mut rng = Rng::new(number(args, "--seed", 1u64) ^ 0xC0FF_EE00);
     let population =
-        triage::random_population(ct.len(), number(args, "--trials", 20_000usize), &mut rng);
+        triage::random_population(ct.len(), number(args, "--trials", TRIAGE_TRIALS), &mut rng);
     let verdicts: Vec<_> = triage::statistics(Some(bank))
         .iter()
         .map(|st| triage::assess(st, ct, &population))
@@ -319,8 +370,12 @@ fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
         "  {:<6} {:>8} {:>10} {:>8}",
         "period", "column IC", "shuffled", "z"
     );
-    let shuffles: Vec<Vec<Letter>> = (0..200).map(|_| rng.shuffled(ct)).collect();
-    for p in 2..=16.min(ct.len() / 4).max(2) {
+    let shuffles: Vec<Vec<Letter>> = (0..PERIOD_SHUFFLES).map(|_| rng.shuffled(ct)).collect();
+    for p in *REPORT_PERIODS.start()
+        ..=(*REPORT_PERIODS.end())
+            .min(ct.len() / PERIOD_COLUMN_MINIMUM)
+            .max(2)
+    {
         let observed = ic_by_period(ct, p);
         let null: Vec<f64> = shuffles.iter().map(|s| ic_by_period(s, p)).collect();
         let (mean, sd) = cipher_break::stats::moments(&null);
@@ -358,8 +413,17 @@ fn solve(ct: &[Letter], args: &[String]) -> Result<(), String> {
     let effort = effort_from(args);
     let seed = number(args, "--seed", 1u64);
     let keep = number(args, "--top", 1usize);
-    let scale = Scale::build(&bank, ct.len(), 256, &mut Rng::new(seed ^ 0x5CA1E));
+    let scale = Scale::build(
+        &bank,
+        ct.len(),
+        SCALE_SAMPLES,
+        &mut Rng::new(seed ^ 0x5CA1E),
+    );
     let focus = focus_model(args);
+    let focus_scale = focus
+        .as_ref()
+        .map(|m| Scale::for_model(m, ct.len(), SCALE_SAMPLES, &mut Rng::new(seed ^ 0xF0C05)));
+    let trace = cipher_break::trace::Trace::new(flag(args, "--trace"));
     let ctx = Context {
         judge: &bank,
         scale: &scale,
@@ -367,8 +431,15 @@ fn solve(ct: &[Letter], args: &[String]) -> Result<(), String> {
         seed,
         keep: keep.max(1),
         focus: focus.as_ref(),
+        focus_scale: focus_scale.as_ref(),
+        trace: &trace,
     };
-    let cal = bank.calibrate(&scale, ct.len(), 200, &mut Rng::new(seed ^ 0xCA11));
+    let cal = bank.calibrate(
+        &scale,
+        ct.len(),
+        CALIBRATION_SAMPLES,
+        &mut Rng::new(seed ^ 0xCA11),
+    );
 
     print!("{}", paint(args, &banner(ct, &bank)));
     print!("{}", paint(args, &diagnostics(ct, &bank, args)));
@@ -432,8 +503,17 @@ fn try_one(name: &str, ct: &[Letter], args: &[String]) -> Result<(), String> {
     let bank = models(args)?;
     let effort = effort_from(args);
     let seed = number(args, "--seed", 1u64);
-    let scale = Scale::build(&bank, ct.len(), 256, &mut Rng::new(seed ^ 0x5CA1E));
+    let scale = Scale::build(
+        &bank,
+        ct.len(),
+        SCALE_SAMPLES,
+        &mut Rng::new(seed ^ 0x5CA1E),
+    );
     let focus = focus_model(args);
+    let focus_scale = focus
+        .as_ref()
+        .map(|m| Scale::for_model(m, ct.len(), SCALE_SAMPLES, &mut Rng::new(seed ^ 0xF0C05)));
+    let trace = cipher_break::trace::Trace::new(flag(args, "--trace"));
     let ctx = Context {
         judge: &bank,
         scale: &scale,
@@ -441,6 +521,8 @@ fn try_one(name: &str, ct: &[Letter], args: &[String]) -> Result<(), String> {
         seed,
         keep: number(args, "--top", 5usize),
         focus: focus.as_ref(),
+        focus_scale: focus_scale.as_ref(),
+        trace: &trace,
     };
     let attacks = if flag(args, "--gpu") {
         with_gpu(registry(effort.depth), effort.depth)

@@ -12,6 +12,7 @@ pub mod alphabet;
 pub mod anneal;
 pub mod attack;
 pub mod ciphers;
+pub mod enigma_types;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod ngram;
@@ -21,6 +22,7 @@ pub mod rng;
 pub mod square;
 pub mod stats;
 pub mod sweep;
+pub mod trace;
 pub mod triage;
 
 pub use alphabet::{Letter, Text, from_letters, to_letters};

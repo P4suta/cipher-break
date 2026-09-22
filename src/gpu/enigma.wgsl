@@ -19,19 +19,22 @@ struct Params {
     n: u32,
     count: u32,          // settings in this dispatch
     threads: u32,
-    orders: u32,         // how many rotor orders
+    rings: u32,          // right-rotor ring settings to try
     reflectors: u32,     // how many reflectors
     positions: u32,      // 26^3
     modulus: u32,        // 26^(order-1)
     order: u32,          // n-gram order
     chunk: u32,          // settings per thread
-    pad0: u32,
-    pad1: u32,
-    pad2: u32,
+    r0: u32,             // the rotor order this dispatch covers
+    r1: u32,
+    r2: u32,
 };
 
-// Packed once by the host: 8*26 forward, 8*26 backward, 8 notch masks,
-// 104*26 reflectors, then 3 rotor indices per order.
+// Packed once by the host: 8*26 forward, 8*26 backward, 8 notch masks, then
+// 104*26 reflectors. The rotor order is in the parameters, because the host
+// dispatches once per order: the key space with ring settings in it runs past
+// what a u32 index can address, and one order at a time keeps every count
+// inside one.
 @group(0) @binding(0) var<storage, read> ct: array<u32>;
 @group(0) @binding(1) var<storage, read> tables: array<u32>;
 @group(0) @binding(2) var<storage, read> logp: array<f32>;
@@ -42,7 +45,6 @@ const FORWARD: u32 = 0u;
 const BACKWARD: u32 = 208u;
 const NOTCH: u32 = 416u;
 const REFLECTOR: u32 = 424u;
-const ORDERS: u32 = 424u + 104u * 26u;
 
 var<workgroup> w_forward: array<u32, 208>;
 var<workgroup> w_backward: array<u32, 208>;
@@ -86,24 +88,21 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
     var stop = start + params.chunk;
     if (stop > params.count) { stop = params.count; }
 
-    let per_order = params.reflectors * params.positions;
-    var cached_order: u32 = 0xFFFFFFFFu;
-    var r0: u32 = 0u;
-    var r1: u32 = 0u;
-    var r2: u32 = 0u;
+    let r0 = params.r0;
+    let r1 = params.r1;
+    let r2 = params.r2;
+    let per_reflector = params.rings * params.positions;
 
     for (var index = start; index < stop; index = index + 1u) {
-        let o = index / per_order;
-        if (o != cached_order) {
-            cached_order = o;
-            r0 = tables[ORDERS + o * 3u];
-            r1 = tables[ORDERS + o * 3u + 1u];
-            r2 = tables[ORDERS + o * 3u + 2u];
-        }
-        let within = index % per_order;
-        let refl = (within / params.positions) * 26u;
+        let refl = (index / per_reflector) * 26u;
+        let within = index % per_reflector;
+        let ring = within / params.positions;
         let p = within % params.positions;
 
+        // A rotor has two numbers that matter and they are not the same one.
+        // Its notch fires at an indicator position; its wiring is entered at
+        // the indicator minus the ring. Sweeping the ring with the indicator
+        // already swept is how every notch timing gets tried.
         var p0 = p / 676u;
         var p1 = (p / 26u) % 26u;
         var p2 = p % 26u;
@@ -126,13 +125,14 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
             p2 = (p2 + 1u) % 26u;
 
             var c = ct[i];
-            c = through_forward(r2, c, p2);
+            let s2 = (p2 + 26u - ring) % 26u;
+            c = through_forward(r2, c, s2);
             c = through_forward(r1, c, p1);
             c = through_forward(r0, c, p0);
             c = w_reflector[refl + c];
             c = through_backward(r0, c, p0);
             c = through_backward(r1, c, p1);
-            c = through_backward(r2, c, p2);
+            c = through_backward(r2, c, s2);
 
             g = (g % params.modulus) * 26u + c;
             if (i + 1u >= params.order) {

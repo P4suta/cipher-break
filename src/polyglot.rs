@@ -70,6 +70,35 @@ impl Polyglot {
         }
     }
 
+    /// Read a bundle: models concatenated, each headed by `### name`.
+    ///
+    /// This is the form the binary carries its languages in, so that `cb` works from any directory with nothing installed beside it.
+    #[must_use]
+    pub fn from_bundle(bundle: &str) -> Self {
+        let mut models = Vec::new();
+        let mut name = String::new();
+        let mut body = String::new();
+        let flush = |name: &mut String, body: &mut String, out: &mut Vec<(String, Model)>| {
+            if !name.is_empty()
+                && let Some(model) = Model::parse(body)
+            {
+                out.push((std::mem::take(name), model));
+            }
+            body.clear();
+        };
+        for line in bundle.lines() {
+            if let Some(rest) = line.strip_prefix("### ") {
+                flush(&mut name, &mut body, &mut models);
+                name = rest.trim().to_string();
+            } else {
+                body.push_str(line);
+                body.push('\n');
+            }
+        }
+        flush(&mut name, &mut body, &mut models);
+        Polyglot::new(models)
+    }
+
     /// Read every `.txt` model in a directory, named by its file stem.
     ///
     /// # Errors
@@ -161,6 +190,15 @@ impl Polyglot {
             self.models[best_index].0.as_str(),
             f64::from(best_value * inverse),
         )
+    }
+
+    /// One model by name, for an attack that knows which language it wants.
+    ///
+    /// Usually the tool refuses to guess a language.
+    /// Sometimes the provenance of a message settles it — a Kriegsmarine signal is in German — and then steering a search by that one model rather than by eighteen is both sharper and eighteen times faster.
+    #[must_use]
+    pub fn model_named(&self, name: &str) -> Option<&Model> {
+        self.models.iter().find(|(n, _)| n == name).map(|(_, m)| m)
     }
 
     /// The interleaved log-probability table, `gram * langs + language`.

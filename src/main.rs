@@ -22,6 +22,9 @@ use std::process::ExitCode;
 /// The language models, carried inside the binary so that `cb` works from any directory with nothing installed beside it.
 const BUNDLE: &str = include_str!("../data/models.bundle");
 
+/// A quadgram model of German, for the one case where provenance fixes the language: a Kriegsmarine signal is in German, and a sharper judge than the shared trigram bank is what tells a real plugboard lead from a flattering one.
+const GERMAN_QUADGRAMS: &str = include_str!("../data/german-quadgrams.txt");
+
 const USAGE: &str = "\
 cb — a cryptanalysis workbench for classical ciphers
 
@@ -41,6 +44,7 @@ OPTIONS
   --top N                          candidates to show per attack     (default 1)
   --models DIR                     language models to use instead of the built-in
   --seed N                         make a run reproducible           (default 1)
+  --language de                    a language you already know, for a sharper judge
   --gpu                            run the big exhaustive sweeps on the GPU
   --plain                          no colour
 
@@ -172,29 +176,22 @@ fn models(args: &[String]) -> Result<Polyglot, String> {
     if let Some(dir) = option(args, "--models") {
         return Polyglot::load(&PathBuf::from(dir)).map_err(|e| format!("{dir}: {e}"));
     }
-    let mut out = Vec::new();
-    let mut name = String::new();
-    let mut body = String::new();
-    for line in BUNDLE.lines() {
-        if let Some(rest) = line.strip_prefix("### ") {
-            if !name.is_empty()
-                && let Some(m) = Model::parse(&body)
-            {
-                out.push((name.clone(), m));
-            }
-            name = rest.trim().to_string();
-            body.clear();
-        } else {
-            body.push_str(line);
-            body.push('\n');
+    Ok(Polyglot::from_bundle(BUNDLE))
+}
+
+/// The high-order model for a language the caller says it already knows.
+///
+/// Nothing loads this unless it is asked for.
+/// The tool's whole posture is that it does not know the language, and `--language` is the caller taking responsibility for saying otherwise.
+fn focus_model(args: &[String]) -> Option<Model> {
+    match option(args, "--language") {
+        Some("de") => Model::parse(GERMAN_QUADGRAMS),
+        Some(other) => {
+            eprintln!("cb: no high-order model for {other:?}; carrying on without one");
+            None
         }
+        None => None,
     }
-    if !name.is_empty()
-        && let Some(m) = Model::parse(&body)
-    {
-        out.push((name, m));
-    }
-    Ok(Polyglot::new(out))
 }
 
 fn paint(args: &[String], text: &str) -> String {
@@ -253,7 +250,15 @@ fn with_gpu(
         return attacks;
     };
     let gpu = std::sync::Arc::new(gpu);
-    attacks.retain(|a| !a.name().starts_with("vigenere period "));
+    attacks.retain(|a| {
+        !a.name().starts_with("vigenere period ") && !a.name().starts_with("enigma M4 naval")
+    });
+    attacks.push(Box::new(cipher_break::attack::GpuEnigmaNaval {
+        shortlist: 400,
+        leads: 10,
+        focus: "de".to_string(),
+        gpu: gpu.clone(),
+    }));
     for period in 1..=depth {
         if period >= 4 {
             attacks.push(Box::new(cipher_break::attack::GpuPeriodicSweep {
@@ -354,12 +359,14 @@ fn solve(ct: &[Letter], args: &[String]) -> Result<(), String> {
     let seed = number(args, "--seed", 1u64);
     let keep = number(args, "--top", 1usize);
     let scale = Scale::build(&bank, ct.len(), 256, &mut Rng::new(seed ^ 0x5CA1E));
+    let focus = focus_model(args);
     let ctx = Context {
         judge: &bank,
         scale: &scale,
         plan: effort.plan,
         seed,
         keep: keep.max(1),
+        focus: focus.as_ref(),
     };
     let cal = bank.calibrate(&scale, ct.len(), 200, &mut Rng::new(seed ^ 0xCA11));
 
@@ -426,12 +433,14 @@ fn try_one(name: &str, ct: &[Letter], args: &[String]) -> Result<(), String> {
     let effort = effort_from(args);
     let seed = number(args, "--seed", 1u64);
     let scale = Scale::build(&bank, ct.len(), 256, &mut Rng::new(seed ^ 0x5CA1E));
+    let focus = focus_model(args);
     let ctx = Context {
         judge: &bank,
         scale: &scale,
         plan: effort.plan,
         seed,
         keep: number(args, "--top", 5usize),
+        focus: focus.as_ref(),
     };
     let attacks = if flag(args, "--gpu") {
         with_gpu(registry(effort.depth), effort.depth)

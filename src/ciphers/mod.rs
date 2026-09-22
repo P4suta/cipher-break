@@ -7,6 +7,7 @@
 
 pub mod autokey;
 pub mod bifid;
+pub mod enigma;
 pub mod hill;
 pub mod periodic;
 pub mod playfair;

@@ -91,6 +91,7 @@ pub fn run(attack: &dyn Attack, ct: &[Letter], ctx: &Context, nulls: usize) -> O
                 plan: ctx.plan,
                 seed: ctx.seed,
                 keep: 1,
+                focus: ctx.focus,
             };
             attack
                 .best(s, &noise)
@@ -134,6 +135,7 @@ mod tests {
             plan: Schedule::default(),
             seed: 1,
             keep: 3,
+            focus: None,
         };
         let outcome = run(&AffineSweep, &ct, &ctx, 0);
         assert_eq!(
@@ -154,6 +156,7 @@ mod tests {
             plan: Schedule::default(),
             seed: 1,
             keep: 1,
+            focus: None,
         };
         let ct = to_letters("ABPPCD");
         let outcome = run(&crate::attack::PlayfairAnneal, &ct, &ctx, 4);

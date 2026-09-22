@@ -128,6 +128,12 @@ impl Model {
         out
     }
 
+    /// The whole log-probability table, for a device that wants its own copy.
+    #[must_use]
+    pub fn log_table(&self) -> &[f32] {
+        &self.logp
+    }
+
     /// The model as text: a header, then one line per gram above the cutoff.
     #[must_use]
     pub fn render(&self, cutoff: u32) -> String {

@@ -9,7 +9,6 @@ use cipher_break::alphabet::{Letter, from_letters, to_letters};
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Context, registry};
 use cipher_break::ciphers::{autokey, hill, periodic, porta, substitution, transposition};
-use cipher_break::ngram::Model;
 use cipher_break::polyglot::{Polyglot, Scale};
 use cipher_break::report::{self, Conclusion};
 use cipher_break::rng::Rng;
@@ -21,27 +20,7 @@ const PLAIN: &str = "ITISACAPITALMISTAKETOTHEORIZEBEFOREONEHASDATAINSENSIBLYONEB
 /// The models the shipped binary carries.
 fn bank() -> Polyglot {
     let bundle = include_str!("../data/models.bundle");
-    let mut out = Vec::new();
-    let mut name = String::new();
-    let mut body = String::new();
-    for line in bundle.lines() {
-        if let Some(rest) = line.strip_prefix("### ") {
-            if !name.is_empty()
-                && let Some(m) = Model::parse(&body)
-            {
-                out.push((name.clone(), m));
-            }
-            name = rest.trim().to_string();
-            body.clear();
-        } else {
-            body.push_str(line);
-            body.push('\n');
-        }
-    }
-    if let Some(m) = Model::parse(&body) {
-        out.push((name, m));
-    }
-    Polyglot::new(out)
+    Polyglot::from_bundle(bundle)
 }
 
 /// Run the catalogue the way `cb` does and return what it concluded.
@@ -54,6 +33,7 @@ fn solve(ct: &[Letter]) -> Conclusion {
         plan: Schedule::default().scaled(0.5),
         seed: 1,
         keep: 1,
+        focus: None,
     };
     let outcomes: Vec<_> = registry(4)
         .iter()

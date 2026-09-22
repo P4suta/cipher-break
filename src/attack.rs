@@ -10,6 +10,7 @@
 
 use crate::alphabet::{ALPHABET, Letter, from_letters};
 use crate::anneal::{Schedule, anneal};
+use crate::ciphers::enigma::{self, Enigma, Plugboard, Settings};
 use crate::ciphers::{
     autokey, bifid, hill, periodic, playfair, porta, substitution, transposition,
 };
@@ -31,6 +32,12 @@ pub struct Context<'a> {
     pub seed: u64,
     /// How many candidates to return.
     pub keep: usize,
+    /// A higher-order model of the one language a message is known to be in.
+    ///
+    /// The tool refuses to guess a language, but sometimes provenance settles it, and then a sharper judge is available.
+    /// A plugboard is grown one lead at a time and each lead is accepted on a small improvement in score; a trigram model is not fine-grained enough to tell a real lead from a flattering one, and will invent leads that corrupt an otherwise exact decipherment.
+    /// A quadgram model of the right language will not.
+    pub focus: Option<&'a crate::ngram::Model>,
 }
 
 impl Context<'_> {
@@ -41,6 +48,18 @@ impl Context<'_> {
     #[must_use]
     pub fn score(&self, plain: &[Letter]) -> f64 {
         self.scale.standardise(plain.len(), self.judge.score(plain))
+    }
+
+    /// Score with the sharpest judge available, for choosing between candidates that are already close to each other.
+    ///
+    /// Only ever used to compare texts of the same length, so the raw number is enough and no standardising is needed.
+    #[inline]
+    #[must_use]
+    pub fn refine(&self, plain: &[Letter]) -> f64 {
+        match self.focus {
+            Some(model) => model.score(plain),
+            None => self.score(plain),
+        }
     }
 }
 
@@ -139,20 +158,39 @@ fn sweep_indices<F>(total: u64, keep: usize, width: usize, score: F) -> Vec<(f64
 where
     F: Fn(u64, &mut [Letter]) -> f64 + Sync,
 {
+    sweep_indices_with(total, keep, || vec![0u8; width], |i, buf| score(i, buf))
+}
+
+/// The same, with a scratch state each thread builds once and keeps.
+///
+/// An Enigma sweep needs a machine as well as a buffer, and building one per key costs more than running it does.
+fn sweep_indices_with<S, M, F>(total: u64, keep: usize, make: M, score: F) -> Vec<(f64, u64)>
+where
+    S: Send,
+    M: Fn() -> S + Sync + Send,
+    F: Fn(u64, &mut S) -> f64 + Sync,
+{
     (0..total)
         .into_par_iter()
         .fold(
-            || (TopScores::new(keep), vec![0u8; width]),
-            |(mut top, mut buf), i| {
-                let s = score(i, &mut buf);
+            || (TopScores::new(keep), make()),
+            |(mut top, mut state), i| {
+                let s = score(i, &mut state);
                 top.push(s, i);
-                (top, buf)
+                (top, state)
             },
         )
         .map(|(top, _)| top)
         .reduce(|| TopScores::new(keep), TopScores::merge)
         .finish()
 }
+
+/// How much a plugboard lead has to improve the score before it is believed.
+///
+/// Zero is the obvious choice and the wrong one.
+/// A lead that is not there will often improve a score by a hair — enough to be accepted, and enough to corrupt an otherwise exact decipherment.
+/// Demanding a real improvement costs nothing when the lead is real.
+pub const LEAD_MARGIN: f64 = 0.02;
 
 /// The longest key a stack-allocated sweep buffer holds.
 ///
@@ -984,6 +1022,367 @@ impl Attack for GpuPeriodicSweep {
     }
 }
 
+// --------------------------------------------------------------------------
+// Enigma
+// --------------------------------------------------------------------------
+
+/// Enigma, attacked the only way a ciphertext alone allows.
+///
+/// The key has two halves of wildly different size.
+/// The rotor order, the reflector and the three starting positions come to about twelve million combinations; the plugboard comes to a hundred and fifty trillion.
+/// Nothing can enumerate the second, but it barely needs to be: a plugboard swaps ten pairs of letters and leaves the other six alone, so a decipherment with the rotors right and the board wrong still reads as a mangled version of the language underneath — enough for a score to notice.
+///
+/// So the rotors are exhausted, and the board is then grown one lead at a time, each lead chosen as the single swap that most improves the score.
+/// This is Gillogly's attack, and it is known to need a few hundred letters to be reliable.
+/// On a short message it will still return its best answer; what says whether that answer means anything is, as everywhere here, the same search run on shuffled text.
+pub struct EnigmaAttack {
+    /// How many of the eight historical rotors to draw from.
+    pub rotors_available: usize,
+    /// How many rotor settings survive into the plugboard search.
+    pub shortlist: usize,
+    /// How many leads to try to find.
+    pub leads: usize,
+}
+
+/// Grow a plugboard one lead at a time, keeping each lead that helps.
+///
+/// The plugboard is far too large to enumerate and barely needs to be.
+/// A decipherment with the rotors right and the board empty still reads as a mangled version of the language underneath, so each lead can be found by asking which single swap most improves the score — and the leads that are really there improve it, one after another, until none is left.
+fn climb_plugboard(
+    settings: Settings,
+    reflector: [u8; ALPHABET],
+    leads: usize,
+    ct: &[Letter],
+    ctx: &Context,
+) -> (Plugboard, f64, Vec<Letter>) {
+    let mut board = Plugboard::empty();
+    let mut machine = Enigma::with_reflector(settings, reflector, board);
+    let mut buf = vec![0u8; ct.len()];
+    machine.run_into(ct, &mut buf);
+    let mut best = ctx.refine(&buf);
+    let mut best_plain = buf.clone();
+    for _ in 0..leads {
+        let mut improved = None;
+        for a in 0..ALPHABET as u8 {
+            for b in (a + 1)..ALPHABET as u8 {
+                let mut trial = board;
+                trial.connect(a, b);
+                if trial.pairs().len() > leads {
+                    continue;
+                }
+                machine.aim(settings, reflector);
+                machine.replug(trial);
+                machine.run_into(ct, &mut buf);
+                let s = ctx.refine(&buf);
+                if s > best + LEAD_MARGIN {
+                    best = s;
+                    improved = Some((a, b));
+                    best_plain.copy_from_slice(&buf);
+                }
+            }
+        }
+        match improved {
+            Some((a, b)) => board.connect(a, b),
+            None => break,
+        }
+    }
+    (board, ctx.score(&best_plain), best_plain)
+}
+
+/// How the leads a climb found are written out.
+fn describe_leads(board: &Plugboard) -> String {
+    let leads: Vec<String> = board
+        .pairs()
+        .iter()
+        .map(|&(a, b)| {
+            format!(
+                "{}{}",
+                crate::alphabet::letter_char(a),
+                crate::alphabet::letter_char(b)
+            )
+        })
+        .collect();
+    if leads.is_empty() {
+        "none".to_string()
+    } else {
+        leads.join(" ")
+    }
+}
+
+impl Attack for EnigmaAttack {
+    fn name(&self) -> String {
+        format!("enigma, {} rotors", self.rotors_available)
+    }
+
+    fn family(&self) -> &'static str {
+        "rotor"
+    }
+
+    fn coverage(&self, _ct: &[Letter]) -> Coverage {
+        let orders = enigma::rotor_orders(self.rotors_available).len() as u64;
+        // Exhaustive in the rotors, searched in the plugboard, so the honest label is the weaker of the two.
+        Coverage::Searched(orders * 2 * (ALPHABET as u64).pow(3))
+    }
+
+    fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate> {
+        let orders = enigma::rotor_orders(self.rotors_available);
+        let positions = (ALPHABET as u64).pow(3);
+        let total = orders.len() as u64 * 2 * positions;
+
+        // The rotors, exhausted with no plugboard and the rings at zero.
+        let decode = |index: u64| {
+            let order = orders[(index / (2 * positions)) as usize];
+            let reflector = ((index / positions) % 2) as usize;
+            let p = index % positions;
+            Settings {
+                rotors: order,
+                reflector,
+                rings: [0; 3],
+                positions: [
+                    (p / (ALPHABET as u64 * ALPHABET as u64)) as u8,
+                    ((p / ALPHABET as u64) % ALPHABET as u64) as u8,
+                    (p % ALPHABET as u64) as u8,
+                ],
+            }
+        };
+        let found = sweep_indices_with(
+            total,
+            self.shortlist,
+            || {
+                (
+                    Enigma::new(decode(0), Plugboard::empty()),
+                    vec![0u8; ct.len()],
+                )
+            },
+            |index, (machine, buf)| {
+                let settings = decode(index);
+                machine.aim(settings, enigma::reflector_wiring(settings.reflector));
+                machine.run_into(ct, buf);
+                ctx.score(buf)
+            },
+        );
+
+        // The plugboard, grown on the settings that survived.
+        let mut out: Vec<Candidate> = found
+            .par_iter()
+            .map(|&(_, index)| {
+                let settings = decode(index);
+                let reflector = enigma::reflector_wiring(settings.reflector);
+                let (board, score, plain) =
+                    climb_plugboard(settings, reflector, self.leads, ct, ctx);
+                Candidate {
+                    score,
+                    key: format!(
+                        "rotors {:?} reflector {} start {} plugs {}",
+                        settings.rotors.map(|r| r + 1),
+                        if settings.reflector == 0 { "B" } else { "C" },
+                        from_letters(&settings.positions),
+                        describe_leads(&board)
+                    ),
+                    plain,
+                }
+            })
+            .collect();
+        out.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
+        out.truncate(ctx.keep);
+        out
+    }
+}
+
+/// The Naval four-rotor Enigma, as the U-boats carried it.
+///
+/// The fourth rotor never turns.
+/// That is the whole of what makes this machine reachable: a rotor that never turns, together with the thin reflector behind it, is one fixed permutation for the length of a message, and still an involution.
+/// So an M4 is an M3 with one of `2 × 26 × 2` reflectors, and the rotor half of its key is 336 orders times 104 reflectors times 17,576 starting positions — six hundred million, which is a sweep rather than a dream.
+///
+/// The plugboard is then grown one lead at a time, as in the three-rotor attack.
+/// Where the provenance of a message fixes its language, the rotor sweep is steered by that one model: a Kriegsmarine signal is in German, and searching six hundred million settings under eighteen languages when seventeen of them are known to be wrong is eighteen times the work for a worse answer.
+pub struct EnigmaNaval {
+    /// How many rotor settings survive into the plugboard search.
+    pub shortlist: usize,
+    /// How many leads to try to find.
+    pub leads: usize,
+    /// The language the rotor sweep is steered by, when one is known.
+    pub focus: Option<String>,
+}
+
+impl Attack for EnigmaNaval {
+    fn name(&self) -> String {
+        match &self.focus {
+            Some(language) => format!("enigma M4 naval ({language})"),
+            None => "enigma M4 naval".to_string(),
+        }
+    }
+
+    fn family(&self) -> &'static str {
+        "rotor"
+    }
+
+    fn coverage(&self, _ct: &[Letter]) -> Coverage {
+        let orders = enigma::rotor_orders(8).len() as u64;
+        Coverage::Searched(orders * 104 * (ALPHABET as u64).pow(3))
+    }
+
+    fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate> {
+        let orders = enigma::rotor_orders(8);
+        let reflectors = enigma::naval_reflectors();
+        let positions = (ALPHABET as u64).pow(3);
+        let per_order = reflectors.len() as u64 * positions;
+        let total = orders.len() as u64 * per_order;
+
+        let decode = |index: u64| {
+            let order = orders[(index / per_order) as usize];
+            let reflector = ((index % per_order) / positions) as usize;
+            let p = index % positions;
+            (
+                reflector,
+                Settings {
+                    rotors: order,
+                    reflector: 0,
+                    rings: [0; 3],
+                    positions: [
+                        (p / (ALPHABET as u64 * ALPHABET as u64)) as u8,
+                        ((p / ALPHABET as u64) % ALPHABET as u64) as u8,
+                        (p % ALPHABET as u64) as u8,
+                    ],
+                },
+            )
+        };
+
+        let steer = self
+            .focus
+            .as_deref()
+            .and_then(|name| ctx.judge.model_named(name));
+        let found = sweep_indices_with(
+            total,
+            self.shortlist,
+            || {
+                let (r, settings) = decode(0);
+                (
+                    Enigma::with_reflector(settings, reflectors[r].1, Plugboard::empty()),
+                    vec![0u8; ct.len()],
+                )
+            },
+            |index, (machine, buf)| {
+                let (reflector, settings) = decode(index);
+                machine.aim(settings, reflectors[reflector].1);
+                machine.run_into(ct, buf);
+                match steer {
+                    Some(model) => model.score(buf),
+                    None => ctx.score(buf),
+                }
+            },
+        );
+
+        let mut out: Vec<Candidate> = found
+            .par_iter()
+            .map(|&(_, index)| {
+                let (reflector, settings) = decode(index);
+                let (board, score, plain) =
+                    climb_plugboard(settings, reflectors[reflector].1, self.leads, ct, ctx);
+                Candidate {
+                    score,
+                    key: format!(
+                        "rotors {:?} {} start {} plugs {}",
+                        settings.rotors.map(|r| r + 1),
+                        reflectors[reflector].0,
+                        from_letters(&settings.positions),
+                        describe_leads(&board)
+                    ),
+                    plain,
+                }
+            })
+            .collect();
+        out.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
+        out.truncate(ctx.keep);
+        out
+    }
+}
+
+/// The naval rotor sweep, run on a device.
+///
+/// Only the rotor half moves to the GPU.
+/// The plugboard is grown afterwards on the processor, on a few hundred settings rather than six hundred million, and it is not where the time goes.
+#[cfg(feature = "gpu")]
+pub struct GpuEnigmaNaval {
+    /// How many rotor settings survive into the plugboard search.
+    pub shortlist: usize,
+    /// How many leads to try to find.
+    pub leads: usize,
+    /// The language the rotor sweep is steered by.
+    pub focus: String,
+    /// The device to run on.
+    pub gpu: std::sync::Arc<crate::gpu::Gpu>,
+}
+
+#[cfg(feature = "gpu")]
+impl Attack for GpuEnigmaNaval {
+    fn name(&self) -> String {
+        format!("enigma M4 naval ({}) (gpu)", self.focus)
+    }
+
+    fn family(&self) -> &'static str {
+        "rotor"
+    }
+
+    fn coverage(&self, _ct: &[Letter]) -> Coverage {
+        Coverage::Searched(enigma::rotor_orders(8).len() as u64 * 104 * (ALPHABET as u64).pow(3))
+    }
+
+    fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate> {
+        let Some(model) = ctx.judge.model_named(&self.focus) else {
+            return Vec::new();
+        };
+        let orders = enigma::rotor_orders(8);
+        let named = enigma::naval_reflectors();
+        let wirings: Vec<[u8; ALPHABET]> = named.iter().map(|(_, r)| *r).collect();
+        let found = self.gpu.sweep_enigma(
+            ct,
+            model.log_table(),
+            model.order(),
+            &orders,
+            &wirings,
+            self.shortlist,
+        );
+        let positions = (ALPHABET as u64).pow(3);
+        let per_order = wirings.len() as u64 * positions;
+        let mut out: Vec<Candidate> = found
+            .par_iter()
+            .map(|&(_, index)| {
+                let order = orders[(index / per_order) as usize];
+                let reflector = ((index % per_order) / positions) as usize;
+                let p = index % positions;
+                let settings = Settings {
+                    rotors: order,
+                    reflector: 0,
+                    rings: [0; 3],
+                    positions: [
+                        (p / (ALPHABET as u64 * ALPHABET as u64)) as u8,
+                        ((p / ALPHABET as u64) % ALPHABET as u64) as u8,
+                        (p % ALPHABET as u64) as u8,
+                    ],
+                };
+                let (board, score, plain) =
+                    climb_plugboard(settings, wirings[reflector], self.leads, ct, ctx);
+                Candidate {
+                    score,
+                    key: format!(
+                        "rotors {:?} {} start {} plugs {}",
+                        settings.rotors.map(|r| r + 1),
+                        named[reflector].0,
+                        from_letters(&settings.positions),
+                        describe_leads(&board)
+                    ),
+                    plain,
+                }
+            })
+            .collect();
+        out.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
+        out.truncate(ctx.keep);
+        out
+    }
+}
+
 /// The catalogue, in the order a report reads best.
 ///
 /// `depth` decides how far the exhaustive sweeps run: the cost of the periodic and autokey sweeps is 26 to the power of the key length, so each step up is 26 times the work, and where to stop is the one thing worth choosing.
@@ -1019,6 +1418,23 @@ pub fn registry(depth: usize) -> Vec<Box<dyn Attack>> {
     }
     for period in 3..=16 {
         out.push(Box::new(BifidAnneal { period }));
+    }
+    out.push(Box::new(EnigmaAttack {
+        rotors_available: 5,
+        shortlist: 200,
+        leads: 10,
+    }));
+    if depth >= 5 {
+        out.push(Box::new(EnigmaAttack {
+            rotors_available: 8,
+            shortlist: 400,
+            leads: 10,
+        }));
+        out.push(Box::new(EnigmaNaval {
+            shortlist: 400,
+            leads: 10,
+            focus: Some("de".to_string()),
+        }));
     }
     out
 }

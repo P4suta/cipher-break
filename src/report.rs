@@ -43,6 +43,8 @@ pub enum Conclusion {
         keys: u64,
         /// How many attacks were exhaustive.
         exhaustive: usize,
+        /// Attacks whose margin could not be judged, and why.
+        unjudged: Vec<(String, usize, usize)>,
         /// Attacks ruled out with no key tried, and why.
         impossible: Vec<(String, &'static str)>,
     },
@@ -68,6 +70,27 @@ pub fn merit(outcome: &Outcome, score: f64) -> f64 {
 
 /// How far above its null a candidate must stand before it is called a reading.
 pub const MERIT_BAR: f64 = 4.0;
+
+/// How many nulls an exhausted key space needs before its margin is believed.
+///
+/// An exhaustive sweep's null answers a narrow question — what is the largest of this many draws — and a few runs pin it down.
+pub const MIN_NULLS_EXHAUSTIVE: usize = 3;
+
+/// How many nulls a searched key space needs.
+///
+/// A search that anneals over 25 factorial squares does not merely draw from a distribution, it hunts through one, and what it reaches on noise varies a great deal from run to run.
+/// A margin computed from three such runs is a margin computed from a deviation estimated on three numbers, and this tool reported a keyed bifid square as a German plaintext on exactly that: a candidate 1.3 below what real text of the length scores, five deviations above a null that three samples had put too low.
+pub const MIN_NULLS_SEARCHED: usize = 8;
+
+/// How many nulls an outcome needs before its margin means anything.
+#[must_use]
+pub fn nulls_required(coverage: Coverage) -> usize {
+    match coverage {
+        Coverage::Exhaustive(_) => MIN_NULLS_EXHAUSTIVE,
+        Coverage::Searched(_) => MIN_NULLS_SEARCHED,
+        Coverage::Impossible(_) => 0,
+    }
+}
 
 /// Decide what a set of outcomes amounts to.
 ///
@@ -147,6 +170,10 @@ pub fn conclude(
             {
                 continue;
             }
+            // A margin is only as good as the null it is measured against.
+            if outcome.null.len() < nulls_required(outcome.coverage) {
+                continue;
+            }
             let clear = match outcome.null_max() {
                 n if n.is_finite() => candidate.score > n,
                 _ => true,
@@ -201,12 +228,19 @@ pub fn conclude(
         .iter()
         .filter_map(|o| o.impossible().map(|why| (o.name.clone(), why)))
         .collect();
+    let unjudged = outcomes
+        .iter()
+        .filter(|o| o.impossible().is_none())
+        .filter(|o| o.null.len() < nulls_required(o.coverage))
+        .map(|o| (o.name.clone(), o.null.len(), nulls_required(o.coverage)))
+        .collect();
     Conclusion::Unread {
         best,
         noise,
         keys,
         exhaustive,
         impossible,
+        unjudged,
     }
 }
 
@@ -288,6 +322,7 @@ pub fn conclusion(c: &Conclusion, cal: &Calibration) -> String {
             keys,
             exhaustive,
             impossible,
+            unjudged,
         } => {
             let mut out = format!(
                 "  \x1b[1;33mUNREAD\x1b[0m  nothing tried produced a language.\n\n  \
@@ -296,6 +331,16 @@ pub fn conclusion(c: &Conclusion, cal: &Calibration) -> String {
                  real text of this length reaches {:+.1}s. (s = deviations above random letters.)\n",
                 cal.language_mean
             );
+            if !unjudged.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "\n  {} attacks could not be judged: a margin needs more shuffles than this run gave it.",
+                    unjudged.len()
+                );
+                for (name, had, wanted) in unjudged.iter().take(4) {
+                    let _ = writeln!(out, "    {name}: {had} of {wanted}");
+                }
+            }
             if !impossible.is_empty() {
                 out.push_str("\n  ruled out with no key tried:\n");
                 let mut grouped: Vec<(&'static str, Vec<&str>)> = Vec::new();
@@ -351,6 +396,41 @@ mod tests {
             }],
             null,
         }
+    }
+
+    #[test]
+    fn a_margin_from_too_few_nulls_is_not_believed() {
+        // The false positive this rule exists for: an annealing attack whose three nulls happened to fall low.
+        let mut searched = outcome(16.7, vec![15.5, 14.9, 15.2]);
+        searched.coverage = Coverage::Searched(0);
+        assert!(matches!(
+            conclude(&[searched], &mut Calibrator::fixed(cal()), |_| "de".into()),
+            Conclusion::Unread { .. }
+        ));
+    }
+
+    #[test]
+    fn an_unjudged_attack_is_named_in_the_conclusion() {
+        let mut searched = outcome(16.7, vec![15.5, 14.9, 15.2]);
+        searched.coverage = Coverage::Searched(0);
+        match conclude(&[searched], &mut Calibrator::fixed(cal()), |_| "de".into()) {
+            Conclusion::Unread { unjudged, .. } => {
+                assert_eq!(unjudged.len(), 1);
+                assert_eq!(unjudged[0].1, 3);
+                assert_eq!(unjudged[0].2, MIN_NULLS_SEARCHED);
+            }
+            Conclusion::Read { .. } => panic!("should not read"),
+        }
+    }
+
+    #[test]
+    fn the_same_margin_with_enough_nulls_is_believed() {
+        let mut searched = outcome(16.7, vec![15.5, 14.9, 15.2, 15.1, 15.3, 15.0, 15.4, 15.2]);
+        searched.coverage = Coverage::Searched(0);
+        assert!(matches!(
+            conclude(&[searched], &mut Calibrator::fixed(cal()), |_| "de".into()),
+            Conclusion::Read { .. }
+        ));
     }
 
     #[test]

@@ -55,6 +55,9 @@ const GPU_ENIGMA_SHORTLIST_SWEPT: usize = 60_000;
 /// How many of the device's boards are finished on the processor.
 const GPU_ENIGMA_FINISH: usize = 64;
 
+/// The depth at which the Enigma sweep over every ring setting joins the run.
+const RING_SWEEP_DEPTH: usize = 6;
+
 /// The shortest key length a device sweep is worth crossing to the GPU for.
 const GPU_PERIOD_FLOOR: usize = 4;
 
@@ -290,6 +293,8 @@ fn with_gpu(
     mut attacks: Vec<Box<dyn cipher_break::attack::Attack>>,
     depth: usize,
 ) -> Vec<Box<dyn cipher_break::attack::Attack>> {
+    // The sweep over every ring setting is sixteen billion settings, and a run has to afford it once for the ciphertext and once per shuffle.
+    // At the depths below `max` it would use the whole budget of nulls on one attack and leave every other one unjudged, which is a worse report than not running it.
     let Ok(gpu) = cipher_break::gpu::Gpu::open() else {
         return attacks;
     };
@@ -308,14 +313,16 @@ fn with_gpu(
         finish: GPU_ENIGMA_FINISH,
         gpu: gpu.clone(),
     }));
-    attacks.push(Box::new(cipher_break::attack::GpuEnigmaNaval {
-        shortlist: GPU_ENIGMA_SHORTLIST_SWEPT,
-        leads: cipher_break::attack::ENIGMA_LEADS,
-        focus: "de".to_string(),
-        rings: cipher_break::alphabet::ALPHABET,
-        finish: GPU_ENIGMA_FINISH,
-        gpu: gpu.clone(),
-    }));
+    if depth >= RING_SWEEP_DEPTH {
+        attacks.push(Box::new(cipher_break::attack::GpuEnigmaNaval {
+            shortlist: GPU_ENIGMA_SHORTLIST_SWEPT,
+            leads: cipher_break::attack::ENIGMA_LEADS,
+            focus: "de".to_string(),
+            rings: cipher_break::alphabet::ALPHABET,
+            finish: GPU_ENIGMA_FINISH,
+            gpu: gpu.clone(),
+        }));
+    }
     for period in 1..=depth {
         if period >= GPU_PERIOD_FLOOR {
             attacks.push(Box::new(cipher_break::attack::GpuPeriodicSweep {
@@ -346,12 +353,19 @@ fn cribs(ct: &[Letter], args: &[String]) {
         Some(word) => vec![word.to_string()],
         None => KRIEGSMARINE.iter().map(|w| (*w).to_string()).collect(),
     };
-    println!("  {:<18} {:>9} {:>8}  offsets", "crib", "placements", "ruled out");
+    println!(
+        "  {:<18} {:>9} {:>8}  offsets",
+        "crib", "placements", "ruled out"
+    );
     for word in words {
         let letters = to_letters(&word);
         let crib = Crib::against(ct, &letters);
-        let shown: Vec<String> =
-            crib.offsets.iter().take(12).map(ToString::to_string).collect();
+        let shown: Vec<String> = crib
+            .offsets
+            .iter()
+            .take(12)
+            .map(ToString::to_string)
+            .collect();
         let more = if crib.offsets.len() > 12 { ", ..." } else { "" };
         println!(
             "  {:<18} {:>9} {:>7.0}%  {}{}",

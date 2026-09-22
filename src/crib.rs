@@ -37,7 +37,10 @@ impl Crib {
     /// A crib placed against a ciphertext.
     #[must_use]
     pub fn against(ct: &[Letter], word: &[Letter]) -> Crib {
-        Crib { word: word.to_vec(), offsets: placements(ct, word) }
+        Crib {
+            word: word.to_vec(),
+            offsets: placements(ct, word),
+        }
     }
 
     /// How much of the search a crib removes, as a share of the offsets.

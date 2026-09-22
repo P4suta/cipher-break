@@ -14,7 +14,9 @@ exclude = ["src/gpu.rs", "src/gpu/**"]
 
 [execution]
 timeout = "20m"
-skip_targets = ["solves", "enigma"]
+# Target ids, as `njutest plan` prints them.
+# A bare test name is not matched and is silently ignored, which starts a run that takes hours.
+skip_targets = ["cipher-break/test/solves", "cipher-break/test/enigma"]
 
 [mutation]
 equivalence = true

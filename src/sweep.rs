@@ -46,13 +46,23 @@ impl Outcome {
 
     /// How far the leader stands above the null, in deviations of the null.
     ///
-    /// Returns `None` when no null was run, because then there is nothing to stand above and the leading score means nothing on its own.
+    /// Returns `None` when no null was run, because then there is nothing to
+    /// stand above, and also when the null has no spread at all.
+    ///
+    /// A null whose runs all landed on the same number says how far above it
+    /// something is only in units of nothing. Dividing by that produced an
+    /// infinite margin in a report, which reads as certainty and means the
+    /// opposite: it is the one case where the null has told us least.
     #[must_use]
     pub fn z(&self) -> Option<f64> {
         if self.null.len() < 2 {
             return None;
         }
         let (mean, sd) = self.null_moments();
+        let scale = mean.abs().max(self.leader().abs()).max(1.0);
+        if sd <= scale * f64::EPSILON.sqrt() {
+            return None;
+        }
         Some((self.leader() - mean) / sd)
     }
 
@@ -219,6 +229,15 @@ mod tests {
             .z()
             .expect("two nulls are enough");
         assert!((z - 3.0).abs() < 1e-9, "z was {z}");
+    }
+
+    #[test]
+    fn a_null_with_no_spread_gives_no_z() {
+        // Every run landed on the same number, so "how many deviations above it" is a question about nothing.
+        // It used to answer infinity.
+        assert!(made(Some(5.0), vec![2.0, 2.0, 2.0, 2.0]).z().is_none());
+        assert!(made(Some(5.0), vec![2.0, 2.000_000_1]).z().is_none());
+        assert!(made(Some(5.0), vec![2.0, 3.0]).z().is_some());
     }
 
     #[test]

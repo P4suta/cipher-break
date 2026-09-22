@@ -62,6 +62,7 @@ cb train   [--order N] [--cutoff N]   learn a model from a corpus on stdin
 | transposition | columnar to width 8, rail fence | every column order and every height |
 | concealment | null ciphers: every nth letter, forwards and back | every stride and offset to 12 |
 | rotor | Enigma M3 and naval M4, eight rotors, both reflectors | rotors and rings exhausted, plugboard grown a lead at a time |
+| rotor, with a crib | Turing's bombe, with the diagonal board | every rotor setting refuted or not, exactly, whatever the plugboard |
 
 Adding one means writing an `Attack`: a name, a key space, and a way of searching it.
 Everything else — the calibration, the nulls, the ranking, the trace, the report — works on it the day it arrives.
@@ -102,6 +103,24 @@ The limit is measured rather than assumed.
 A rank diagnostic reports where the true setting lands in the sweep: 146th of six hundred million for the short message, first for the long one, seventh of sixteen billion when the ring is swept too.
 A right ring away from `A` on a seventy-letter message is past what the evidence supports, and the report says so instead of guessing.
 
+## The bombe
+
+Every other Enigma attack needs the decipherment to look like a language, and on a short message with a full plugboard it never does: the board sends twenty of twenty-six letters somewhere else.
+The bombe does not look at the decipherment.
+Given a crib it asks whether *any* plugboard could turn this ciphertext into those words under this rotor setting, and answers by contradiction — which is exact, and which does not weaken as the board grows.
+
+```console
+$ cb bombe message.txt --word KEINEBESONDERENVORKOMMNISSE
+  KEINEBESONDERENVORKOMMNISSE  19 placements, 7 closures
+  bombe on KEINEBESONDERENVORKOMMNISSE   11631734784 all   -inf   -inf   -
+```
+
+`-inf` there is the strongest answer this tool can give: eleven billion settings, every one refuted, so those words are not in that message under any four-rotor Enigma and any plugboard whatever.
+
+It needs a crib that is really there and one long enough to close loops in its menu.
+A menu contradicts only where it forces a letter twice, so a crib of sixteen distinct-ish letters over twenty-odd nodes is a forest and refutes nothing; `cb bombe` refuses one that closes nothing rather than running it and looking busy.
+That is why `cb crib` and `cb bombe` draw on different word lists.
+
 ## Speed
 
 Apple M5 Pro, 18 cores, on a 72-letter message:
@@ -111,7 +130,9 @@ Apple M5 Pro, 18 cores, on a 72-letter message:
 | Vigenere period 4 | 1,370,928 | 0.04 s | — |
 | Vigenere period 6 | 926,747,328 | 20.8 s | **2.8 s** |
 | Vigenere period 7 | 24,095,430,528 | ~9 min | **72 s** |
+| Vigenere period 8 | 626,481,193,728 | — | **~30 min** |
 | Enigma M4 rotor sweep | 614,335,744 | 65 s | **2.3 s** |
+| Enigma bombe, one naval crib | 13,511,866,368 | 35 min | — |
 
 337 million Vigenere keys a second on the device, and the two backends agree key for key — which is what the tests assert, for the sweeps and for the plugboard climb.
 

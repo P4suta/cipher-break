@@ -1826,7 +1826,7 @@ impl Attack for BombeAttack {
                             (index % ALPHABET as u64) as u8,
                         ],
                     );
-                    positions.aim(settings, reflectors[reflector].1, reach);
+                    positions.restart(settings, reach);
                     let Stop::Survived { board, .. } = scan(&menu, &positions) else {
                         continue;
                     };

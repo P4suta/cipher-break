@@ -181,8 +181,13 @@ pub fn conclude(
             if !clear {
                 continue;
             }
+            // A null that was run and could not discriminate is not the same as no null at all.
+            // When shuffled runs all land on one number, or land on nothing, the margin is undefined — and an undefined margin used to let a candidate through on its raw score, which is the one thing this tool exists not to do.
+            // Every outcome that reaches here has enough shuffles behind it,
+            // so a margin exists and must be finite and clear.
+            // A null that was run and could not discriminate — every shuffle landing on the same number, or on nothing — leaves the margin undefined, and an undefined margin used to let a candidate through on its raw score, which is the one thing this tool exists not to do.
             let m = merit(outcome, candidate.score);
-            if !m.is_nan() && m < MERIT_BAR {
+            if !(m.is_finite() && m >= MERIT_BAR) {
                 continue;
             }
             let cost = match outcome.coverage {
@@ -395,6 +400,29 @@ mod tests {
                 plain: vec![0, 1, 2],
             }],
             null,
+        }
+    }
+
+    #[test]
+    fn a_null_that_could_not_discriminate_is_not_a_licence() {
+        // Four shuffles that all landed on the same number: the margin is undefined, and an undefined margin must not read as a clear one.
+        let mut searched = outcome(20.0, vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        searched.coverage = Coverage::Searched(0);
+        assert!(matches!(
+            conclude(&[searched], &mut Calibrator::fixed(cal()), |_| "de".into()),
+            Conclusion::Unread { .. }
+        ));
+    }
+
+    #[test]
+    fn with_no_null_at_all_nothing_can_be_read() {
+        // `--nulls 0` is a request to skip the calibration, and this tool does not have a verdict without one.
+        // The attack is named as unjudged rather than trusted.
+        let mut o = outcome(20.0, vec![]);
+        o.coverage = Coverage::Exhaustive(10);
+        match conclude(&[o], &mut Calibrator::fixed(cal()), |_| "en".into()) {
+            Conclusion::Unread { unjudged, .. } => assert_eq!(unjudged.len(), 1),
+            Conclusion::Read { .. } => panic!("read something with no null at all"),
         }
     }
 

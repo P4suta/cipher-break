@@ -26,6 +26,11 @@ pub struct Menu {
     pub offset: usize,
     /// One per crib position: the message index, the crib letter, the cipher letter.
     pub edges: Vec<(usize, Letter, Letter)>,
+    /// For each letter, the edges that touch it, as (position, other letter).
+    ///
+    /// A deduction about one letter only travels along the edges that letter is on.
+    /// Walking the whole menu for each of them costs the length of the crib per deduction where this costs the two or three edges that actually meet there, and a naval sweep makes that difference tens of billions of times.
+    incident: Vec<Vec<(usize, Letter)>>,
 }
 
 impl Menu {
@@ -46,7 +51,16 @@ impl Menu {
         if edges.iter().any(|&(_, p, c)| p == c) {
             return None;
         }
-        Some(Menu { offset, edges })
+        let mut incident = vec![Vec::new(); ALPHABET];
+        for &(i, p, c) in &edges {
+            incident[p as usize].push((i, c));
+            incident[c as usize].push((i, p));
+        }
+        Some(Menu {
+            offset,
+            edges,
+            incident,
+        })
     }
 
     /// How many independent loops the menu contains.
@@ -126,9 +140,21 @@ impl Positions {
     /// Point an existing record at a new setting, without rebuilding it.
     pub fn aim(&mut self, settings: Settings, reflector: [u8; ALPHABET], length: usize) {
         self.machine.aim(settings, reflector);
+        self.retrace(settings, length);
+    }
+
+    /// Move only the starting positions, keeping the rotors and reflector.
+    ///
+    /// The inner loop of a crib sweep walks 17,576 starting positions with everything else held still, and re-copying three rotor wirings at each of them costs more than the trace it is preparing for.
+    pub fn restart(&mut self, settings: Settings, length: usize) {
+        self.machine.restart(settings.positions);
+        self.retrace(settings, length);
+    }
+
+    fn retrace(&mut self, settings: Settings, length: usize) {
         self.offsets.clear();
         self.offsets.extend(self.machine.offset_trace(length));
-        self.machine.aim(settings, reflector);
+        self.machine.restart(settings.positions);
     }
 
     /// What position `i` does to a letter.
@@ -161,47 +187,62 @@ pub fn scan(menu: &Menu, positions: &Positions) -> Stop {
 /// Follow one assumption through the menu.
 ///
 /// Returns the board it forces, or `None` if the forcing contradicts itself.
+///
+/// Deductions are driven from a worklist rather than by sweeping every edge
+/// until nothing changes. The sweep was the obvious way to write it and cost
+/// the square of the menu's length in machine evaluations per hypothesis,
+/// which on a naval sweep is the difference between hours and minutes.
 fn follow(menu: &Menu, positions: &Positions, start: Letter, guess: Letter) -> Option<Plugboard> {
     // `known[l]` is what `l` is plugged to, once something has forced it.
     let mut known: [Option<Letter>; ALPHABET] = [None; ALPHABET];
-    let set = |known: &mut [Option<Letter>; ALPHABET], a: Letter, b: Letter| -> bool {
-        // The diagonal board: a lead is an involution, so setting one end sets the other, and either end may be the one that disagrees.
+    let mut pending: [Letter; ALPHABET] = [0; ALPHABET];
+    let mut waiting = 0usize;
+
+    // A lead is an involution, so setting one end sets the other, and either end may be the one that disagrees.
+    // That is Turing's diagonal board, and half the contradictions come from it alone.
+    let mut settle = |known: &mut [Option<Letter>; ALPHABET],
+                      pending: &mut [Letter; ALPHABET],
+                      waiting: &mut usize,
+                      a: Letter,
+                      b: Letter|
+     -> bool {
         for (x, y) in [(a, b), (b, a)] {
-            match known[x as usize % ALPHABET] {
+            let slot = x as usize % ALPHABET;
+            match known[slot] {
                 Some(v) if v != y => return false,
-                _ => known[x as usize % ALPHABET] = Some(y),
+                Some(_) => {}
+                None => {
+                    known[slot] = Some(y);
+                    pending[*waiting] = x;
+                    *waiting += 1;
+                }
             }
         }
         true
     };
-    if !set(&mut known, start, guess) {
+
+    if !settle(&mut known, &mut pending, &mut waiting, start, guess) {
         return None;
     }
 
-    // Keep walking the menu until nothing new is forced.
-    // Edges may be reached in any order, so the whole menu is swept until it settles.
-    loop {
-        let mut changed = false;
-        for &(i, p, c) in &menu.edges {
-            for (from, to) in [(p, c), (c, p)] {
-                let Some(u) = known[from as usize % ALPHABET] else {
-                    continue;
-                };
-                let v = positions.at(i, u);
-                match known[to as usize % ALPHABET] {
-                    Some(w) if w != v => return None,
-                    Some(_) => {}
-                    None => {
-                        if !set(&mut known, to, v) {
-                            return None;
-                        }
-                        changed = true;
+    while waiting > 0 {
+        waiting -= 1;
+        let from = pending[waiting];
+        let Some(u) = known[from as usize % ALPHABET] else {
+            continue;
+        };
+        // Each edge joins its two letters through the machine at that position, in either direction, because the machine there is an involution.
+        for &(i, to) in &menu.incident[from as usize % ALPHABET] {
+            let v = positions.at(i, u);
+            match known[to as usize % ALPHABET] {
+                Some(w) if w != v => return None,
+                Some(_) => {}
+                None => {
+                    if !settle(&mut known, &mut pending, &mut waiting, to, v) {
+                        return None;
                     }
                 }
             }
-        }
-        if !changed {
-            break;
         }
     }
 

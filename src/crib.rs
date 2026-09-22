@@ -85,6 +85,9 @@ pub const KRIEGSMARINE_LONG: &[&str] = &[
     "ERBITTEUNTERSTUETZUNG",
 ];
 
+/// Short words a Kriegsmarine signal is likely to contain.
+///
+/// For asking where something could sit, not for asking what sitting there would imply: they are below [`BOMBE_MINIMUM`] and a bombe on one of them would refute nothing.
 pub const KRIEGSMARINE: &[&str] = &[
     "VONVON",
     "ANBDU",

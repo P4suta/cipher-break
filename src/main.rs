@@ -434,15 +434,23 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
             println!("  {word:<18} no closures; a bombe on it would refute nothing");
             continue;
         }
+        println!(
+            "  {word:<28} {} placements, {closures} closures",
+            crib.offsets.len()
+        );
+        let _ = std::io::stdout().flush();
         let attack = cipher_break::attack::BombeAttack {
             crib: letters,
             label: word.clone(),
             rotors_available: rotors,
             naval,
         };
+        // Flushed per crib.
+        // A bombe over a dozen cribs is an hour's work, and block-buffered output means an hour of looking at nothing and wondering whether it is stuck.
         let outcome = sweep::run(&attack, ct, &ctx, effort.nulls);
         print!("{}", paint(args, &report::heading(&outcome.name)));
         print!("{}", paint(args, &report::outcome_row(&outcome)));
+        let _ = std::io::stdout().flush();
         for candidate in &outcome.best {
             println!(
                 "{}",
@@ -458,6 +466,7 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
                 )
             );
         }
+        let _ = std::io::stdout().flush();
     }
     Ok(())
 }

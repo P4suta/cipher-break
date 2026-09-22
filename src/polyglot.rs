@@ -650,7 +650,7 @@ mod calibration_tests {
         let bank = small_bank();
         let text = to_letters(&"THEQUICKBROWNFOX".repeat(40));
         let short = &text[..INLINE];
-        let long = &text[..INLINE + 1];
+        let long = &text[..=INLINE];
         assert!(bank.fit(short).is_finite());
         assert!(bank.fit(long).is_finite());
         // The same text scored through each path, by padding to cross the line.

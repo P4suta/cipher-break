@@ -178,6 +178,11 @@ pub fn statistics(bank: Option<&Polyglot>) -> Vec<Statistic> {
             of: Box::new(vowels),
         },
         Statistic {
+            name: "hands alternating",
+            tail: Tail::Upper,
+            of: Box::new(hands_alternating),
+        },
+        Statistic {
             name: "longest vowel-free run",
             tail: Tail::Upper,
             of: Box::new(longest_vowel_free_run),
@@ -251,6 +256,20 @@ pub fn random_population(len: usize, count: usize, rng: &mut Rng) -> Vec<Vec<Let
         .map(|_| (0..len).map(|_| rng.below(ALPHABET) as u8).collect())
         .collect()
 }
+
+/// How often consecutive letters fall to opposite hands on a QWERTY keyboard.
+///
+/// The other half of the typist question, and the half that settles it.
+/// Counting neighbouring keys says the letters are near each other, which a cipher can produce by accident; hand alternation says a person was typing, because a person asked for random letters alternates hands far more than chance and a machine has no hands.
+/// It runs the other way too: a text that alternates *less* than chance was not typed, whatever its keys happen to be near.
+#[must_use]
+pub fn hands_alternating(ls: &[Letter]) -> f64 {
+    let left = |l: Letter| LEFT_HAND.contains(letter_char(l));
+    ls.windows(2).filter(|w| left(w[0]) != left(w[1])).count() as f64
+}
+
+/// The letters a touch typist's fingers rest on.
+const LEFT_HAND: &str = "QWERTASDFGZXCVB";
 
 /// The longest stretch containing no vowel at all.
 ///
@@ -329,6 +348,26 @@ pub fn windows(width: usize, count: usize, corpus: &[Letter]) -> Vec<Vec<Letter>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hand_alternation_counts_crossings_not_keys() {
+        use super::hands_alternating as alt;
+        use crate::alphabet::to_letters;
+
+        assert_eq!(alt(&to_letters("")), 0.0);
+        assert_eq!(alt(&to_letters("QW")), 0.0, "both hands left, so no crossing");
+        assert_eq!(alt(&to_letters("QP")), 1.0, "left then right");
+        assert_eq!(alt(&to_letters("QPQP")), 3.0, "every step crosses");
+        assert_eq!(alt(&to_letters("QWER")), 0.0, "four left-hand keys in a row");
+
+        // Neighbouring keys and alternating hands are different questions, which is why both are asked.
+        // QWERTY's rows run left to right, so neighbours are usually the same hand.
+        let neighbours = to_letters("QWERTY");
+        assert!(
+            super::qwerty_neighbours(&neighbours) > alt(&neighbours),
+            "a run along one row is all neighbours and almost no crossings"
+        );
+    }
+
     #[test]
     fn the_longest_vowel_free_run_is_counted_across_the_whole_text() {
         use super::longest_vowel_free_run as run;

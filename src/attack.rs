@@ -10,7 +10,7 @@
 
 use crate::alphabet::{ALPHABET, Letter, from_letters};
 use crate::anneal::{Schedule, anneal};
-use crate::bombe::{Menu, Positions, Stop, scan};
+use crate::bombe::{Menu, Positions, Scratch, Stop, scan_with};
 use crate::ciphers::enigma::{self, Enigma, Plugboard, Settings};
 use crate::ciphers::{
     autokey, bifid, hill, periodic, playfair, porta, substitution, transposition,
@@ -1738,6 +1738,10 @@ impl Attack for GpuEnigmaNaval {
 /// It needs a crib that is actually there, and a crib whose letters repeat enough to close loops.
 /// A menu with no closures forces nothing twice, so nothing can ever disagree, and the attack accepts every setting it is shown; [`crate::bombe::Menu::closures`] is what says whether a crib is worth running.
 pub struct BombeAttack {
+    /// How many settings the last sweep left standing.
+    ///
+    /// Kept because it is the difference between "nothing survived" and "thousands survived and none of them read", which a list of the best five candidates cannot tell apart, and which the report was previously reading as the same thing.
+    pub stops: std::sync::atomic::AtomicU64,
     /// The guessed plaintext.
     pub crib: Vec<Letter>,
     /// What to call it in the report.
@@ -1746,6 +1750,35 @@ pub struct BombeAttack {
     pub rotors_available: usize,
     /// Whether to fold in the Greek rotor and thin reflectors.
     pub naval: bool,
+}
+
+/// Turn a setting the bombe could not refute into a candidate the report can rank.
+///
+/// The expensive half of a sweep once the menus are strong: deciphering and scoring costs about four times what refuting a setting does, so a menu that leaves millions standing is paying for its own answer.
+fn judge_stop(
+    ct: &[Letter],
+    ctx: &Context,
+    settings: Settings,
+    reflector: &(String, [u8; ALPHABET]),
+    board: Plugboard,
+    offset: usize,
+) -> (Candidate, usize) {
+    let plain = Enigma::with_reflector(settings, reflector.1, board).run(ct);
+    (
+        Candidate {
+            score: ctx.score(&plain),
+            key: format!(
+                "rotors {:?} {} start {} crib at {} plugs {}",
+                settings.rotors.map(|r| r + 1),
+                reflector.0,
+                from_letters(&settings.position_letters()),
+                offset,
+                describe_leads(&board)
+            ),
+            plain,
+        },
+        board.pairs().len(),
+    )
 }
 
 impl Attack for BombeAttack {
@@ -1772,6 +1805,7 @@ impl Attack for BombeAttack {
     }
 
     fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate> {
+        self.stops.store(0, std::sync::atomic::Ordering::Relaxed);
         let placements = crate::crib::placements(ct, &self.crib);
         if placements.is_empty() {
             return Vec::new();
@@ -1793,28 +1827,51 @@ impl Attack for BombeAttack {
                 })
                 .collect()
         };
-        let span = (ALPHABET as u64).pow(3);
-
         let reflector_count = reflectors.len();
         let order_count = orders.len();
-        let jobs: Vec<(usize, usize, usize)> = placements
+        // One job per rotor order and reflector, with every placement of the crib tested inside it.
+        // The placements used to be the outer loop,
+        // which recomputed the machine's trajectory for each of them — the same trajectory, twenty-two times over, for every one of six hundred million settings.
+
+        let span = (ALPHABET as u64).pow(3);
+        let settings = span * orders.len() as u64 * reflectors.len() as u64;
+
+        // Only placements whose menu actually removes something.
+        // One closure forces no letter twice and so hands back every setting it was shown; two or more divide the survivors by twenty-six apiece, and a pile that is merely large is still a pile a score can sort.
+        let menus: Vec<Menu> = placements
             .iter()
-            .flat_map(|&offset| {
-                (0..order_count)
-                    .flat_map(move |o| (0..reflector_count).map(move |r| (offset, o, r)))
-            })
+            .filter_map(|&offset| Menu::place(ct, &self.crib, offset))
+            .filter(|menu| menu.narrows(settings))
+            .collect();
+        if menus.is_empty() {
+            return Vec::new();
+        }
+        let decisive = menus.iter().filter(|m| m.decisive_over(settings)).count();
+        ctx.trace.note("bombe/menus", || {
+            format!(
+                "{} placements, {} closing a loop, {decisive} of those decisive over {settings} settings",
+                placements.len(),
+                menus.len()
+            )
+        });
+        let reach = menus
+            .iter()
+            .map(|menu| menu.offset + self.crib.len())
+            .max()
+            .unwrap_or(ct.len());
+
+        let jobs: Vec<(usize, usize)> = (0..order_count)
+            .flat_map(|o| (0..reflector_count).map(move |r| (o, r)))
             .collect();
 
         let mut found: Vec<(Candidate, usize)> = jobs
             .par_iter()
-            .flat_map(|&(offset, order, reflector)| {
-                let Some(menu) = Menu::place(ct, &self.crib, offset) else {
-                    return Vec::new();
-                };
-                let reach = offset + self.crib.len();
+            .flat_map(|&(order, reflector)| {
                 let mut stops: Vec<(Candidate, usize)> = Vec::new();
                 let base = Settings::at(orders[order], 0, [0; 3], [0; 3]);
                 let mut positions = Positions::of(base, reflectors[reflector].1, reach);
+                let mut scratch = Scratch::new();
+                let mut survived = 0u64;
                 for index in 0..span {
                     let settings = Settings::at(
                         orders[order],
@@ -1827,28 +1884,31 @@ impl Attack for BombeAttack {
                         ],
                     );
                     positions.restart(settings, reach);
-                    let Stop::Survived { board, .. } = scan(&menu, &positions) else {
-                        continue;
-                    };
-                    let plain =
-                        Enigma::with_reflector(settings, reflectors[reflector].1, board).run(ct);
-                    stops.push((
-                        Candidate {
-                            score: ctx.score(&plain),
-                            key: format!(
-                                "rotors {:?} {} start {} crib at {offset} plugs {}",
-                                settings.rotors.map(|r| r + 1),
-                                reflectors[reflector].0,
-                                from_letters(&settings.position_letters()),
-                                describe_leads(&board)
-                            ),
-                            plain,
-                        },
-                        board.pairs().len(),
-                    ));
+                    for menu in &menus {
+                        let Stop::Survived { board, .. } =
+                            scan_with(menu, &positions, &mut scratch)
+                        else {
+                            continue;
+                        };
+                        survived += 1;
+                        stops.push(judge_stop(
+                            ct,
+                            ctx,
+                            settings,
+                            &reflectors[reflector],
+                            board,
+                            menu.offset,
+                        ));
+                    }
+                    if stops.len() > ctx.keep.max(1) * 64 {
+                        stops.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
+                        stops.truncate(ctx.keep.max(1));
+                    }
                 }
                 stops.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
                 stops.truncate(ctx.keep.max(1));
+                self.stops
+                    .fetch_add(survived, std::sync::atomic::Ordering::Relaxed);
                 stops
             })
             .collect();

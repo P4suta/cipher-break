@@ -4,7 +4,7 @@
 //!
 //! The command with no subcommand is the one to reach for: hand it a ciphertext and it runs the whole catalogue, calibrates itself, and says either what the message is or exactly what it ruled out on the way to not knowing.
 
-use cipher_break::alphabet::{Letter, from_letters, to_letters};
+use cipher_break::alphabet::{ALPHABET, Letter, from_letters, to_letters};
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Context, registry};
 use cipher_break::crib::{Crib, KRIEGSMARINE, KRIEGSMARINE_LONG};
@@ -103,7 +103,7 @@ fn main() -> ExitCode {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
-    if args.is_empty() || args[0] == "-h" || args[0] == "--help" {
+    if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
         print!("{USAGE}");
         return Ok(());
     }
@@ -142,6 +142,13 @@ fn run(args: &[String]) -> Result<(), String> {
 /// Guessing between them is the single largest convenience the tool offers, and it is safe to guess: a path that exists is a path, and anything else is text.
 fn input_from(arg: Option<&String>) -> Result<Vec<Letter>, String> {
     let arg = arg.ok_or("give me a ciphertext, a file, or - for standard input")?;
+    // A flag is never a ciphertext.
+    // Without this, `cb bombe --flag` strips the punctuation and attacks the letters of the flag name, which looks like a real run and answers a question nobody asked.
+    if arg.starts_with('-') && arg != "-" {
+        return Err(format!(
+            "{arg} is where the ciphertext goes; give me a ciphertext, a file, or - for standard input"
+        ));
+    }
     let raw = if arg == "-" {
         let mut buf = String::new();
         std::io::stdin()
@@ -380,11 +387,121 @@ fn cribs(ct: &[Letter], args: &[String]) {
     }
 }
 
+/// What a bombe would be worth on each crib, printed as a table and returned as a plan.
+///
+/// Every crib judged before any is swept: a sweep is an hour, the judgement is a millisecond, and a reader who has to watch the first hour to learn that the second was never worth starting has been told the truth in the wrong order.
+fn bombe_plan(
+    ct: &[Letter],
+    words: Vec<String>,
+    settings: u64,
+) -> Vec<(String, usize, usize, f64)> {
+    let mut words: Vec<(String, Vec<cipher_break::bombe::Menu>)> = words
+        .into_iter()
+        .map(|word| {
+            let letters = to_letters(&word);
+            let menus: Vec<cipher_break::bombe::Menu> = Crib::against(ct, &letters)
+                .offsets
+                .iter()
+                .filter_map(|&o| cipher_break::bombe::Menu::place(ct, &letters, o))
+                .collect();
+            (word, menus)
+        })
+        .collect();
+    // Strongest crib first, so that if anything is going to be found it is found in the first minutes rather than the last.
+    words.sort_by_key(|(_, menus)| {
+        std::cmp::Reverse(menus.iter().map(cipher_break::bombe::Menu::closures).max())
+    });
+
+    println!(
+        "  {:<28} {:>10}  {:>8}  {:>13}  {:>9}",
+        "crib", "placements", "closures", "stops by chance", "truth at"
+    );
+    let mut worth_sweeping = Vec::new();
+    for (word, menus) in words {
+        let narrowing: Vec<&cipher_break::bombe::Menu> =
+            menus.iter().filter(|m| m.narrows(settings)).collect();
+        if narrowing.is_empty() {
+            println!(
+                "  {word:<28} {:>10}  {:>8}  {:>13}  {:>9}",
+                menus.len(),
+                "-",
+                "removes nothing",
+                "-"
+            );
+            continue;
+        }
+        let closures: Vec<usize> = narrowing.iter().map(|m| m.closures()).collect();
+        // The weakest menu decides how deep the report has to go: it is the one whose survivors the score has to sort.
+        let leakiest = narrowing
+            .iter()
+            .map(|m| m.chance_stops(settings))
+            .fold(0.0f64, f64::max);
+        let rank = narrowing
+            .iter()
+            .map(|m| {
+                m.expected_rank_of_truth(settings, cipher_break::bombe::RANK_OF_TRUTH_WHEN_SHORT)
+            })
+            .fold(0.0f64, f64::max);
+        println!(
+            "  {word:<28} {:>10}  {:>8}  {:>13}  {:>9}",
+            format!("{} of {}", narrowing.len(), menus.len()),
+            format!(
+                "{}-{}",
+                closures.iter().min().copied().unwrap_or(0),
+                closures.iter().max().copied().unwrap_or(0)
+            ),
+            format!("{leakiest:.0}"),
+            format!("{rank:.0}")
+        );
+        worth_sweeping.push((word, narrowing.len(), menus.len(), rank));
+    }
+    println!();
+
+    worth_sweeping
+}
+
 /// Attack an Enigma message through a crib, with a bombe.
 ///
 /// The one attack here that does not need the decipherment to look like a language, and so the only one that reaches a short message with a full plugboard.
 /// It needs a crib that is really there and whose letters repeat enough to close loops; `cb crib` says where a crib could sit, and this says what sitting there would imply.
 fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
+    let words: Vec<String> = match option(args, "--word") {
+        Some(word) => vec![word.to_string()],
+        None => KRIEGSMARINE_LONG.iter().map(|w| (*w).to_string()).collect(),
+    };
+    let naval = !flag(args, "--m3");
+    let rotors = number(args, "--rotors", cipher_break::ciphers::enigma::ROTOR_COUNT);
+
+    // How many rotor settings each menu will be shown, which is what decides whether surviving one means anything.
+    let settings = (ALPHABET as u64).pow(3)
+        * cipher_break::ciphers::enigma::rotor_orders(rotors).len() as u64
+        * if naval {
+            cipher_break::ciphers::enigma::NAVAL_REFLECTOR_COUNT as u64
+        } else {
+            cipher_break::ciphers::enigma::REFLECTOR_COUNT as u64
+        };
+
+    let worth_sweeping = bombe_plan(ct, words, settings);
+    if worth_sweeping.is_empty() {
+        println!(
+            "  no menu here removes a single setting; a sweep would hand back the search space and call it a result"
+        );
+        return Ok(());
+    }
+    // The report is only as useful as it is long: a candidate the weakest menu puts seventh is a candidate a list of five throws away.
+    let depth = worth_sweeping
+        .iter()
+        .map(|&(_, _, _, rank)| rank.ceil() as usize)
+        .max()
+        .unwrap_or(1);
+    println!(
+        "  sweeping {} cribs, keeping the top {depth} of each so the weakest menu can still surface a true setting",
+        worth_sweeping.len()
+    );
+    // Flushed here because everything after it is measured in minutes, and a plan the reader cannot see until the run ends is not a plan.
+    let _ = std::io::stdout().flush();
+
+    // Paid for only now: building the noise scales samples twenty-six language models, and a run with nothing to sweep should not have to wait for it to find that out.
     let bank = models(args)?;
     let effort = effort_from(args);
     let seed = number(args, "--seed", 1u64);
@@ -404,42 +521,21 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
         scale: &scale,
         plan: effort.plan,
         seed,
-        keep: number(args, "--top", 5usize),
+        keep: number(args, "--top", depth),
         focus: focus.as_ref(),
         focus_scale: focus_scale.as_ref(),
         trace: &trace,
     };
 
-    let words: Vec<String> = match option(args, "--word") {
-        Some(word) => vec![word.to_string()],
-        None => KRIEGSMARINE_LONG.iter().map(|w| (*w).to_string()).collect(),
-    };
-    let naval = !flag(args, "--m3");
-    let rotors = number(args, "--rotors", cipher_break::ciphers::enigma::ROTOR_COUNT);
-
-    for word in words {
+    for (word, narrowing, placements, rank) in worth_sweeping {
         let letters = to_letters(&word);
-        let crib = Crib::against(ct, &letters);
-        let closures = crib
-            .offsets
-            .first()
-            .and_then(|&o| cipher_break::bombe::Menu::place(ct, &letters, o))
-            .map_or(0, |m| m.closures());
-        if crib.offsets.is_empty() {
-            println!("  {word:<18} impossible at every offset");
-            continue;
-        }
-        if closures == 0 {
-            // Stated rather than run: a menu with no loops forces nothing twice, so it cannot contradict anything and would accept every setting it was shown.
-            println!("  {word:<18} no closures; a bombe on it would refute nothing");
-            continue;
-        }
+        println!();
         println!(
-            "  {word:<28} {} placements, {closures} closures",
-            crib.offsets.len()
+            "  {word} — {narrowing} of {placements} placements narrow; a true setting should land by {rank:.0}"
         );
         let _ = std::io::stdout().flush();
         let attack = cipher_break::attack::BombeAttack {
+            stops: std::sync::atomic::AtomicU64::new(0),
             crib: letters,
             label: word.clone(),
             rotors_available: rotors,
@@ -450,6 +546,16 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
         let outcome = sweep::run(&attack, ct, &ctx, effort.nulls);
         print!("{}", paint(args, &report::heading(&outcome.name)));
         print!("{}", paint(args, &report::outcome_row(&outcome)));
+        // The number the report cannot show and the one the whole run turns on: nothing standing is a refutation, thousands standing is a shrug.
+        let standing = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
+        println!(
+            "  {standing} settings survived the crib{}",
+            if standing == 0 {
+                " — every one of them refuted"
+            } else {
+                ""
+            }
+        );
         let _ = std::io::stdout().flush();
         for candidate in &outcome.best {
             println!(
@@ -818,6 +924,20 @@ mod tests {
     #[test]
     fn the_catalogue_deepens_with_the_depth_it_is_given() {
         assert!(registry(5).len() > registry(3).len());
+    }
+
+    #[test]
+    fn a_flag_in_the_ciphertext_slot_is_refused_rather_than_deciphered() {
+        // `--m3` strips to the letters M3 -> "M", a two-letter ciphertext that every attack would happily and meaninglessly chew on.
+        for flag in ["--help", "--m3", "-x"] {
+            let refusal = input_from(Some(&flag.to_string()))
+                .expect_err("a flag must never be read as a ciphertext");
+            assert!(refusal.contains(flag), "{refusal} should name {flag}");
+        }
+        assert!(
+            input_from(Some(&"HELLO".to_string())).is_ok(),
+            "a real ciphertext still goes through"
+        );
     }
 
     #[test]

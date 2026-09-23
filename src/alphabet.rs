@@ -14,6 +14,10 @@ pub type Text = Vec<Letter>;
 /// How many letters there are.
 pub const ALPHABET: usize = 26;
 
+// A letter table padded to thirty-two slots and indexed by masking was tried here, to take the `% ALPHABET` off the address path of every lookup.
+// It is slower, and instructively so: on a value the compiler can already see is under twenty-six, `x % ALPHABET` folds to nothing *and* is what proves the index in bounds, so the modulo was never costing anything and the mask was a real added instruction over a working set half again as large.
+// Measured on the bombe's inner loop: 494 ns/scan as written, 560 with the scratch padded, 681 with the rotor tables padded.
+
 /// The letter a character stands for, or `None` for anything that is not an ASCII letter.
 #[must_use]
 pub fn char_letter(c: char) -> Option<Letter> {
@@ -58,6 +62,7 @@ pub fn sub(a: Letter, b: Letter) -> Letter {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]

@@ -488,6 +488,7 @@ fn the_bombe_breaks_a_message_it_has_a_crib_for() {
         trace: &trace,
     };
     let attack = BombeAttack {
+        stops: std::sync::atomic::AtomicU64::new(0),
         crib,
         label: "VONVONJAWEGENDERSITUATIONXXMELDEICHXX".to_string(),
         rotors_available: 5,
@@ -501,4 +502,119 @@ fn the_bombe_breaks_a_message_it_has_a_crib_for() {
         found[0].key,
         from_letters(&found[0].plain)
     );
+}
+
+/// Where a bombe sweep's time actually goes.
+///
+/// Three guesses at this were wrong in a row — the allocation, the repeated trace, the per-hypothesis clearing — and each cost a rebuild to disprove.
+/// Measuring the parts separately is faster than guessing at them.
+#[cfg(feature = "gpu")]
+#[test]
+#[ignore = "a measurement, not an assertion; run with --ignored --nocapture"]
+fn where_the_bombe_spends_its_time() {
+    use cipher_break::bombe::{Menu, Positions, Scratch, scan_with};
+    use cipher_break::crib::placements;
+    use std::time::Instant;
+
+    /// Enough settings that a timing is a timing and not a cache miss.
+    const N: usize = 200_000;
+
+    let case = &CASES[0];
+    let ct = case.ciphertext();
+    let crib = to_letters("VONVONJAWEGENDERSITUATIONXXMELDEICHXX");
+    let offsets = placements(&ct, &crib);
+    let menus: Vec<Menu> = offsets
+        .iter()
+        .filter_map(|&o| Menu::place(&ct, &crib, o))
+        .collect();
+    let reach = offsets
+        .iter()
+        .map(|&o| o + crib.len())
+        .max()
+        .expect("a placement");
+    let settings = case.settings();
+    let reflector = case.reflector();
+    let mut positions = Positions::of(settings, reflector, reach);
+    let mut scratch = Scratch::new();
+
+    let start = Instant::now();
+    for i in 0..N {
+        let s = Settings::at(case.rotors, 0, [0; 3], [0, 0, (i % 26) as u8]);
+        positions.restart(s, reach);
+        std::hint::black_box(&positions);
+    }
+    let tracing = start.elapsed();
+
+    let start = Instant::now();
+    for i in 0..N {
+        let s = Settings::at(case.rotors, 0, [0; 3], [0, 0, (i % 26) as u8]);
+        positions.restart(s, reach);
+        let r = scan_with(&menus[0], &positions, &mut scratch);
+        std::hint::black_box(&r);
+    }
+    let one_menu = start.elapsed();
+
+    let start = Instant::now();
+    for i in 0..N {
+        let s = Settings::at(case.rotors, 0, [0; 3], [0, 0, (i % 26) as u8]);
+        positions.restart(s, reach);
+        for menu in &menus {
+            let r = scan_with(menu, &positions, &mut scratch);
+            std::hint::black_box(&r);
+        }
+    }
+    let all_menus = start.elapsed();
+
+    let per = |d: std::time::Duration| d.as_secs_f64() / N as f64 * 1e9;
+    println!(
+        "menus {}, reach {reach}, {N} settings each:\n  \
+         trace only        {:>8.0} ns/setting\n  \
+         + one menu        {:>8.0} ns/setting  ({:>6.0} ns/scan)\n  \
+         + all {:>2} menus    {:>8.0} ns/setting  ({:>6.0} ns/scan)",
+        menus.len(),
+        per(tracing),
+        per(one_menu),
+        per(one_menu) - per(tracing),
+        menus.len(),
+        per(all_menus),
+        (per(all_menus) - per(tracing)) / menus.len() as f64
+    );
+}
+
+/// What a stop costs to judge, which is what decides how many of them a sweep can afford to produce.
+///
+/// A bombe narrows and a score chooses; the second only works if the first hands it a pile it can get through.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn what_it_costs_to_judge_a_stop() {
+    use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings};
+    use cipher_break::polyglot::Polyglot;
+
+    let ct = cipher_break::to_letters(
+        "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
+    );
+    let bank = bank();
+    let rounds = 20_000;
+
+    let start = std::time::Instant::now();
+    let mut sink = 0f64;
+    for i in 0..rounds {
+        let settings = Settings::at([0, 1, 2], 0, [0; 3], [(i % 26) as u8, 0, 0]);
+        let plain = Enigma::new(settings, Plugboard::empty()).run(&ct);
+        sink += bank.fit(&plain);
+    }
+    let each = start.elapsed().as_nanos() as f64 / f64::from(rounds);
+    println!(
+        "  judging one stop   {each:>8.0} ns   (decrypt {} letters and score it)",
+        ct.len()
+    );
+    println!(
+        "  so a menu leaving   1,000,000 stops costs {:>6.1} s to judge",
+        each * 1e6 / 1e9
+    );
+    println!(
+        "                     23,622,144 stops costs {:>6.1} s to judge",
+        each * 23_622_144.0 / 1e9
+    );
+    assert!(sink.is_finite());
 }

@@ -26,12 +26,23 @@ pub struct Menu {
     pub offset: usize,
     /// One per crib position: the message index, the crib letter, the cipher letter.
     pub edges: Vec<(usize, Letter, Letter)>,
+    /// The letter to start every hypothesis from.
+    ///
+    /// The one on the most edges.
+    /// A deduction about it immediately forces everything around it, so a wrong setting contradicts in fewer steps than it would from a letter on the edge of the graph.
+    hub: Letter,
     /// For each letter, the edges that touch it, as (position, other letter).
     ///
     /// A deduction about one letter only travels along the edges that letter is on.
     /// Walking the whole menu for each of them costs the length of the crib per deduction where this costs the two or three edges that actually meet there, and a naval sweep makes that difference tens of billions of times.
     incident: Vec<Vec<(usize, Letter)>>,
 }
+
+/// Where a true rotor setting sits when the whole naval space is scored at the length this tool was built for.
+///
+/// Measured rather than assumed: `where_the_true_setting_ranks` plants a known setting in a message of about seventy letters and finds it a hundred and forty-sixth of six hundred million.
+/// A short message simply does not carry enough German for the score to put the truth first, and that is the whole reason a bombe earns its place — it throws away the accidents before the score has to choose between them.
+pub const RANK_OF_TRUTH_WHEN_SHORT: u64 = 146;
 
 impl Menu {
     /// Place a crib and build its menu.
@@ -51,14 +62,18 @@ impl Menu {
         if edges.iter().any(|&(_, p, c)| p == c) {
             return None;
         }
-        let mut incident = vec![Vec::new(); ALPHABET];
+        let mut incident: Vec<Vec<(usize, Letter)>> = vec![Vec::new(); ALPHABET];
         for &(i, p, c) in &edges {
             incident[p as usize].push((i, c));
             incident[c as usize].push((i, p));
         }
+        let hub = (0..ALPHABET as u8)
+            .max_by_key(|&l| incident[l as usize].len())
+            .unwrap_or(0);
         Some(Menu {
             offset,
             edges,
+            hub,
             incident,
         })
     }
@@ -67,6 +82,45 @@ impl Menu {
     ///
     /// Loops are what make a menu bite.
     /// Each one is a path that returns to where it started, so the letters around it are forced twice and may disagree; a menu with none can never contradict anything and will accept every rotor setting there is.
+    #[must_use]
+    /// About how many settings survive this menu for no reason at all, out of `settings` swept.
+    ///
+    /// Each closure forces a letter that is already forced, and two forcings agree by chance one time in twenty-six, so a menu with `c` closures lets through roughly one setting in `26^(c-1)`.
+    /// This is the number that says what a stop is worth: against a residue of thousands, a stop means nothing, and the sweep has refuted nothing it can name.
+    #[must_use]
+    pub fn chance_stops(&self, settings: u64) -> f64 {
+        let exponent = self.closures().saturating_sub(1) as i32;
+        settings as f64 / (ALPHABET as f64).powi(exponent)
+    }
+
+    /// Whether a stop from this menu would mean something on its own.
+    ///
+    /// True when the sweep is expected to leave nothing standing by chance, so that anything still standing is standing for a reason and needs no score to vouch for it.
+    #[must_use]
+    pub fn decisive_over(&self, settings: u64) -> bool {
+        self.chance_stops(settings) < 1.0
+    }
+
+    /// Whether sweeping this menu removes anything at all.
+    ///
+    /// A menu's first closure buys nothing — it is what makes a stop possible — so a menu with one closure hands back every setting it was shown, and an hour spent producing that pile is an hour spent copying the search space.
+    /// Every further closure divides the pile by twenty-six, and a pile that is merely large can still be sorted: a bombe narrows and a score chooses, and the score only needs the truth to be somewhere it can reach.
+    #[must_use]
+    pub fn narrows(&self, settings: u64) -> bool {
+        self.chance_stops(settings) < settings as f64
+    }
+
+    /// Where a true setting would sit among this menu's survivors, once they are scored.
+    ///
+    /// The bombe leaves `chance_stops` settings standing for no reason, and a known fraction of the whole space outscores a true setting at this length, so the accidents that both survive and outscore it are what stand between the truth and the top of the report.
+    #[must_use]
+    pub fn expected_rank_of_truth(&self, settings: u64, rank_over_all: u64) -> f64 {
+        1.0 + rank_over_all as f64 * self.chance_stops(settings) / settings as f64
+    }
+
+    /// How many times the menu forces a letter that something else has already forced.
+    ///
+    /// The cycle rank of the graph the crib and its ciphertext make together, and the only thing that gives a bombe anything to contradict: every closure is a place where two chains of deduction must agree, and disagreeing is how a setting is refuted.
     #[must_use]
     pub fn closures(&self) -> usize {
         let mut parent: [usize; ALPHABET] = std::array::from_fn(|i| i);
@@ -80,6 +134,12 @@ impl Menu {
             }
         }
         loops
+    }
+
+    /// The letter every hypothesis starts from: the one on the most edges.
+    #[must_use]
+    pub fn hub(&self) -> Letter {
+        self.hub
     }
 
     /// The letters the menu touches.
@@ -152,12 +212,15 @@ impl Positions {
     }
 
     fn retrace(&mut self, settings: Settings, length: usize) {
-        self.offsets.clear();
-        self.offsets.extend(self.machine.offset_trace(length));
+        self.machine.trace_into(length, &mut self.offsets);
         self.machine.restart(settings.positions);
     }
 
     /// What position `i` does to a letter.
+    ///
+    /// Answered on demand rather than tabulated. Building all twenty-six
+    /// answers per position was measured and is a loss below about twenty
+    /// menus: the table costs more to fill than the questions cost to ask.
     #[inline]
     #[must_use]
     pub fn at(&self, i: usize, l: Letter) -> Letter {
@@ -165,16 +228,91 @@ impl Positions {
     }
 }
 
+/// Room for one scan, kept between scans.
+///
+/// A hypothesis needs to know, for each letter, whether anything has forced it yet and to what.
+/// Clearing that between hypotheses is 52 bytes a time, which is twenty-two menus times twenty-six hypotheses times six hundred million settings of pure zeroing — eighteen terabytes of it on one naval crib.
+///
+/// A generation counter removes the clearing entirely: a slot counts as known only if it was stamped this time round, so the previous round's contents need not be touched.
+pub struct Scratch {
+    generation: u32,
+    stamp: [u32; ALPHABET],
+    value: [Letter; ALPHABET],
+    pending: [Letter; ALPHABET],
+}
+
+impl Default for Scratch {
+    fn default() -> Self {
+        Scratch::new()
+    }
+}
+
+impl Scratch {
+    /// Somewhere to work.
+    #[must_use]
+    pub fn new() -> Scratch {
+        Scratch {
+            generation: 0,
+            stamp: [0; ALPHABET],
+            value: [0; ALPHABET],
+            pending: [0; ALPHABET],
+        }
+    }
+
+    #[inline]
+    fn begin(&mut self) {
+        // On the one wrap in four billion, clear rather than let a stale stamp read as fresh.
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            self.stamp = [0; ALPHABET];
+            self.generation = 1;
+        }
+    }
+
+    #[inline]
+    fn known(&self, l: Letter) -> Option<Letter> {
+        // The modulo is free — the compiler folds it away on a letter — and earns its place by being what tells the compiler the index is in bounds, so the check goes too.
+        let i = l as usize % ALPHABET;
+        if self.stamp[i] == self.generation {
+            Some(self.value[i])
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn set(&mut self, l: Letter, v: Letter) {
+        let i = l as usize % ALPHABET;
+        self.stamp[i] = self.generation;
+        self.value[i] = v;
+    }
+}
+
 /// Scan one rotor setting against a menu.
 ///
-/// Assumes each possible lead for the menu's first letter in turn, follows the crib wherever it leads, and reports the first assumption that does not contradict itself.
+/// Assumes each possible lead for the menu's first letter in turn, follows the
+/// crib wherever it leads, and reports the first assumption that does not
+/// contradict itself.
 #[must_use]
 pub fn scan(menu: &Menu, positions: &Positions) -> Stop {
-    let Some(&(_, start, _)) = menu.edges.first() else {
+    scan_with(menu, positions, &mut Scratch::new())
+}
+
+/// The same, reusing a caller's workspace.
+#[must_use]
+pub fn scan_with(menu: &Menu, positions: &Positions, scratch: &mut Scratch) -> Stop {
+    if menu.edges.is_empty() {
         return Stop::Refuted;
-    };
+    }
+    let start = menu.hub;
     for guess in 0..ALPHABET as u8 {
-        if let Some(board) = follow(menu, positions, start, guess) {
+        if follow(menu, positions, start, guess, scratch) {
+            let mut board = Plugboard::empty();
+            for l in 0..ALPHABET as u8 {
+                if let Some(p) = scratch.known(l) {
+                    board.connect(l, p);
+                }
+            }
             return Stop::Survived {
                 assumed: (start, guess),
                 board,
@@ -186,77 +324,111 @@ pub fn scan(menu: &Menu, positions: &Positions) -> Stop {
 
 /// Follow one assumption through the menu.
 ///
-/// Returns the board it forces, or `None` if the forcing contradicts itself.
+/// Answers whether the forcing held together; the workspace holds what it
+/// forced.
 ///
 /// Deductions are driven from a worklist rather than by sweeping every edge
-/// until nothing changes. The sweep was the obvious way to write it and cost
-/// the square of the menu's length in machine evaluations per hypothesis,
-/// which on a naval sweep is the difference between hours and minutes.
-fn follow(menu: &Menu, positions: &Positions, start: Letter, guess: Letter) -> Option<Plugboard> {
-    // `known[l]` is what `l` is plugged to, once something has forced it.
-    let mut known: [Option<Letter>; ALPHABET] = [None; ALPHABET];
-    let mut pending: [Letter; ALPHABET] = [0; ALPHABET];
+/// until nothing changes, and each one travels only the edges its letter is
+/// actually on.
+fn follow(
+    menu: &Menu,
+    positions: &Positions,
+    start: Letter,
+    guess: Letter,
+    scratch: &mut Scratch,
+) -> bool {
+    scratch.begin();
     let mut waiting = 0usize;
 
     // A lead is an involution, so setting one end sets the other, and either end may be the one that disagrees.
     // That is Turing's diagonal board, and half the contradictions come from it alone.
-    let mut settle = |known: &mut [Option<Letter>; ALPHABET],
-                      pending: &mut [Letter; ALPHABET],
-                      waiting: &mut usize,
-                      a: Letter,
-                      b: Letter|
-     -> bool {
-        for (x, y) in [(a, b), (b, a)] {
-            let slot = x as usize % ALPHABET;
-            match known[slot] {
-                Some(v) if v != y => return false,
-                Some(_) => {}
-                None => {
-                    known[slot] = Some(y);
-                    pending[*waiting] = x;
-                    *waiting += 1;
+    macro_rules! settle {
+        ($a:expr, $b:expr) => {{
+            let mut ok = true;
+            for (x, y) in [($a, $b), ($b, $a)] {
+                match scratch.known(x) {
+                    Some(v) if v != y => {
+                        ok = false;
+                        break;
+                    }
+                    Some(_) => {}
+                    None => {
+                        scratch.set(x, y);
+                        scratch.pending[waiting] = x;
+                        waiting += 1;
+                    }
                 }
             }
-        }
-        true
-    };
+            ok
+        }};
+    }
 
-    if !settle(&mut known, &mut pending, &mut waiting, start, guess) {
-        return None;
+    if !settle!(start, guess) {
+        return false;
     }
 
     while waiting > 0 {
         waiting -= 1;
-        let from = pending[waiting];
-        let Some(u) = known[from as usize % ALPHABET] else {
+        let from = scratch.pending[waiting];
+        let Some(u) = scratch.known(from) else {
             continue;
         };
         // Each edge joins its two letters through the machine at that position, in either direction, because the machine there is an involution.
         for &(i, to) in &menu.incident[from as usize % ALPHABET] {
             let v = positions.at(i, u);
-            match known[to as usize % ALPHABET] {
-                Some(w) if w != v => return None,
+            match scratch.known(to) {
+                Some(w) if w != v => return false,
                 Some(_) => {}
                 None => {
-                    if !settle(&mut known, &mut pending, &mut waiting, to, v) {
-                        return None;
+                    if !settle!(to, v) {
+                        return false;
                     }
                 }
             }
         }
     }
-
-    let mut board = Plugboard::empty();
-    for (l, partner) in known.iter().enumerate() {
-        if let Some(p) = partner {
-            board.connect(l as u8, *p);
-        }
-    }
-    Some(board)
+    true
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_menu_says_how_many_settings_it_lets_through_by_chance() {
+        use crate::alphabet::to_letters;
+
+        // Each closure divides the residue by twenty-six, and the first one buys nothing: it is what makes a stop possible at all.
+        let ct =
+            to_letters("JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF");
+        let crib = to_letters("KEINEBESONDERENVORKOMMNISSE");
+        let menu = Menu::place(&ct, &crib, 0).expect("the crib fits at the front");
+        let settings = 1_000_000u64;
+        let expected = settings as f64 / 26f64.powi(menu.closures() as i32 - 1);
+        assert!((menu.chance_stops(settings) - expected).abs() < 1e-6);
+
+        // The bar is exactly where the residue falls below one whole setting.
+        assert_eq!(
+            menu.decisive_over(settings),
+            menu.chance_stops(settings) < 1.0
+        );
+    }
+
+    #[test]
+    fn a_menu_with_one_closure_decides_nothing() {
+        use crate::alphabet::to_letters;
+
+        // One closure leaves the sweep exactly as it found it: every setting still standing.
+        // This is the case the sweep used to run for an hour and report as though it had refuted something.
+        let ct = to_letters("BCDEFG");
+        let crib = to_letters("ABABAB");
+        let Some(menu) = Menu::place(&ct, &crib, 0) else {
+            return;
+        };
+        if menu.closures() == 1 {
+            assert_eq!(menu.chance_stops(1_000_000), 1_000_000.0);
+            assert!(!menu.decisive_over(1_000_000));
+        }
+    }
+
     use super::*;
     use crate::alphabet::to_letters;
     use crate::ciphers::enigma::{composite_reflector, reflector_wiring};

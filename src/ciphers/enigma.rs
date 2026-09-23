@@ -88,6 +88,34 @@ static WIRED: std::sync::LazyLock<[Rotor; ROTOR_COUNT]> = std::sync::LazyLock::n
     })
 });
 
+/// Every rotor's wiring, already shifted to every offset.
+///
+/// Entering a wiring at an offset is two modulo operations and a lookup, and a bombe does it six times for every letter it deduces — which measured as almost the whole cost of a crib sweep.
+/// The shift depends only on the rotor and the offset, neither of which changes inside the sweep, so all 26 shifts of all eight rotors in both directions are built once: eleven kilobytes that turn six arithmetic sequences into six array reads.
+///
+/// Indexed `[rotor][offset][letter]`, forwards then backwards.
+/// Every rotor, pre-shifted to every offset, in both directions.
+///
+/// A rotor at offset `o` is the rotor at rest conjugated by a rotation, so the whole family can be worked out once and read thereafter.
+/// Nested [`ByLetter`] tables so that the address of an entry is shifts and an or, with no multiply by twenty-six and no bounds check at any level: this table is read seven times per letter and nothing else in the program is read as often.
+type Shifted = [[[u8; ALPHABET]; ALPHABET]; ROTOR_COUNT];
+
+static SHIFTED: std::sync::LazyLock<(Shifted, Shifted)> = std::sync::LazyLock::new(|| {
+    let build = |pick: fn(&Rotor) -> &[u8; ALPHABET]| -> Shifted {
+        std::array::from_fn(|r| {
+            let wiring = pick(&WIRED[r]);
+            std::array::from_fn(|o| {
+                std::array::from_fn(|l| {
+                    let (l, shift) = (l as u8, o as u8);
+                    let entered = (l + shift) % ALPHABET as u8;
+                    (wiring[entered as usize] + ALPHABET as u8 - shift) % ALPHABET as u8
+                })
+            })
+        })
+    };
+    (build(|r| &r.forward), build(|r| &r.backward))
+});
+
 /// The reflectors, wired once.
 static REFLECTED: std::sync::LazyLock<[[u8; ALPHABET]; REFLECTOR_COUNT]> =
     std::sync::LazyLock::new(|| std::array::from_fn(|i| wiring(REFLECTORS[i])));
@@ -215,6 +243,7 @@ impl Settings {
 /// A machine, set up and ready to run.
 #[derive(Clone, Debug)]
 pub struct Enigma {
+    rotor_ids: [usize; SLOTS],
     rotors: [Rotor; 3],
     reflector: [u8; ALPHABET],
     rings: [Ring; 3],
@@ -227,6 +256,7 @@ impl Enigma {
     #[must_use]
     pub fn new(settings: Settings, plugboard: Plugboard) -> Enigma {
         Enigma {
+            rotor_ids: settings.rotors,
             rotors: [
                 Rotor::new(settings.rotors[0]),
                 Rotor::new(settings.rotors[1]),
@@ -288,12 +318,20 @@ impl Enigma {
     /// Building the whole 26-letter permutation at every position to answer that would cost more than deciphering the message; recording where the rotors stand and evaluating on demand costs seven lookups an answer.
     #[must_use]
     pub fn offset_trace(&mut self, n: usize) -> Vec<[Offset; 3]> {
-        (0..n)
-            .map(|_| {
-                self.step();
-                self.offsets()
-            })
-            .collect()
+        let mut out = Vec::with_capacity(n);
+        self.trace_into(n, &mut out);
+        out
+    }
+
+    /// The same, written into a buffer the caller keeps.
+    ///
+    /// A crib sweep asks for this once per rotor setting and there are billions of settings, so the allocation is the cost rather than the trace.
+    pub fn trace_into(&mut self, n: usize, out: &mut Vec<[Offset; 3]>) {
+        out.clear();
+        for _ in 0..n {
+            self.step();
+            out.push(self.offsets());
+        }
     }
 
     /// What the rotors and reflector do to one letter at given offsets.
@@ -302,13 +340,15 @@ impl Enigma {
     #[inline]
     #[must_use]
     pub fn transform_at(&self, offsets: [Offset; 3], l: Letter) -> Letter {
+        let (forward, backward) = &*SHIFTED;
+        let ids = self.rotor_ids;
         let mut c = l;
-        for (offset, rotor) in offsets.iter().zip(&self.rotors).rev() {
-            c = offset.through(&rotor.forward, c);
+        for i in (0..SLOTS).rev() {
+            c = forward[ids[i]][offsets[i].index()][c as usize];
         }
         c = self.reflector[c as usize];
-        for (offset, rotor) in offsets.iter().zip(&self.rotors) {
-            c = offset.through(&rotor.backward, c);
+        for i in 0..SLOTS {
+            c = backward[ids[i]][offsets[i].index()][c as usize];
         }
         c
     }
@@ -330,6 +370,7 @@ impl Enigma {
     ///
     /// A sweep can then keep one machine per thread and move it, which is the difference between copying three wiring tables per key and copying none.
     pub fn aim(&mut self, settings: Settings, reflector: [u8; ALPHABET]) {
+        self.rotor_ids = settings.rotors;
         for (slot, &r) in self.rotors.iter_mut().zip(settings.rotors.iter()) {
             *slot = WIRED[r % WIRED.len()];
         }
@@ -344,6 +385,20 @@ impl Enigma {
     #[inline]
     pub fn restart(&mut self, positions: [Indicator; 3]) {
         self.positions = positions;
+    }
+
+    /// Which of the historical rotors sits in each slot.
+    ///
+    /// Recorded so the shifted tables can be indexed without carrying the wirings around.
+    #[must_use]
+    pub fn rotor_indices(&self) -> [usize; SLOTS] {
+        self.rotor_ids
+    }
+
+    /// The reflector in use.
+    #[must_use]
+    pub fn reflector(&self) -> [u8; ALPHABET] {
+        self.reflector
     }
 
     /// The plugboard in use.
@@ -568,6 +623,7 @@ impl Enigma {
         plugboard: Plugboard,
     ) -> Enigma {
         Enigma {
+            rotor_ids: settings.rotors,
             rotors: [
                 Rotor::new(settings.rotors[0]),
                 Rotor::new(settings.rotors[1]),

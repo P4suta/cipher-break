@@ -247,6 +247,50 @@ pub fn random_population(len: usize, count: usize, rng: &mut Rng) -> Vec<Vec<Let
         .collect()
 }
 
+/// Ciphertexts an Enigma would actually produce, for comparing a message against the machine it is supposed to have come out of.
+///
+/// The usual null — letters drawn uniformly — answers "is this random", which is not the question anyone is asking.
+/// The question is whether the message looks like what the assumed cipher emits, and for a rotor machine that is not the same thing: no letter ever enciphers to itself, so the ciphertext is thinned of whatever the plaintext is rich in, and a null of uniform letters would call that thinning an anomaly in every Enigma message ever sent.
+///
+/// Each draw is a fresh machine — rotor order, rings, starting position, and ten plugboard leads — enciphering fresh text sampled from the language model.
+#[must_use]
+pub fn enigma_population(
+    len: usize,
+    count: usize,
+    plaintext: &crate::ngram::Model,
+    rng: &mut Rng,
+) -> Vec<Vec<Letter>> {
+    use crate::ciphers::enigma::{Enigma, Plugboard, ROTOR_COUNT, Settings, rotor_orders};
+
+    let orders = rotor_orders(ROTOR_COUNT);
+    (0..count)
+        .map(|_| {
+            let rotors = orders[rng.below(orders.len())];
+            let pick = |rng: &mut Rng| {
+                [
+                    rng.below(ALPHABET) as u8,
+                    rng.below(ALPHABET) as u8,
+                    rng.below(ALPHABET) as u8,
+                ]
+            };
+            let rings = pick(rng);
+            let positions = pick(rng);
+            let mut board = Plugboard::empty();
+            let mut free: Vec<u8> = (0..ALPHABET as u8).collect();
+            for _ in 0..PLUGBOARD_LEADS {
+                let a = free.swap_remove(rng.below(free.len()));
+                let b = free.swap_remove(rng.below(free.len()));
+                board.connect(a, b);
+            }
+            let settings = Settings::at(rotors, rng.below(2), rings, positions);
+            Enigma::new(settings, board).run(&plaintext.sample(len, rng))
+        })
+        .collect()
+}
+
+/// How many plugboard leads a wartime naval Enigma carried.
+const PLUGBOARD_LEADS: usize = 10;
+
 /// Evenly spaced, non-overlapping windows of a corpus.
 #[must_use]
 pub fn windows(width: usize, count: usize, corpus: &[Letter]) -> Vec<Vec<Letter>> {
@@ -265,6 +309,39 @@ pub fn windows(width: usize, count: usize, corpus: &[Letter]) -> Vec<Vec<Letter>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_enigma_null_is_thinned_of_what_its_plaintext_was_rich_in() {
+        use crate::alphabet::ALPHABET;
+        use crate::polyglot::Polyglot;
+
+        // The property the null exists to capture, and the reason uniform letters are the wrong comparison: a letter never enciphers to itself, so a vowel-rich plaintext yields a vowel-poor ciphertext.
+        // The effect is small — a plaintext vowel only bars its own letter, not every vowel — and getting that wrong once turned a real anomaly into an imagined artefact.
+        let bank = Polyglot::from_bundle(include_str!("../data/models.bundle"));
+        let Some(german) = bank.model_named("de") else {
+            return;
+        };
+        let mut rng = Rng::new(11);
+        let draws = enigma_population(200, 400, german, &mut rng);
+
+        let vowels = |t: &[Letter]| {
+            t.iter().filter(|&&l| b"AEIOU".contains(&(l + b'A'))).count() as f64
+                / t.len() as f64
+        };
+        let machine: f64 = draws.iter().map(|t| vowels(t)).sum::<f64>() / draws.len() as f64;
+        let uniform = 5.0 / ALPHABET as f64;
+
+        assert!(
+            machine < uniform,
+            "an Enigma null should be thinner in vowels than uniform letters: {machine} vs {uniform}"
+        );
+        // And only a little thinner.
+        // A plaintext vowel bars one letter of twenty-five, not five.
+        assert!(
+            machine > uniform - 0.02,
+            "the thinning is small, and a null that overshoots it would excuse a real anomaly: {machine} vs {uniform}"
+        );
+    }
+
     use super::*;
     use crate::alphabet::to_letters;
 

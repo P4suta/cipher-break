@@ -674,6 +674,11 @@ fn train(args: &[String]) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// The language the Enigma null enciphers.
+///
+/// German, because that is the machine's whole history, and because what the null is for is to show what the assumed cipher emits from the assumed language.
+const ENIGMA_NULL_LANGUAGE: &str = "de";
+
 /// Everything that can be said about the text before a key is tried.
 fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
     let mut out = String::new();
@@ -686,6 +691,24 @@ fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
         .collect();
     out.push_str(&report::heading("AGAINST RANDOM LETTERS"));
     out.push_str(&report::statistics_table(&verdicts, "random"));
+
+    // And against the machine the message is supposed to have come out of.
+    // Uniform letters answer "is this random"; a rotor machine's own output answers "is this that machine", and the two differ because no letter ever enciphers to itself — every Enigma ciphertext is thinned of whatever its plaintext was rich in.
+    if let Some(german) = bank.model_named(ENIGMA_NULL_LANGUAGE) {
+        let machines = triage::enigma_population(
+            ct.len(),
+            number(args, "--trials", TRIAGE_TRIALS),
+            german,
+            &mut rng,
+        );
+        let against: Vec<_> = triage::statistics(Some(bank))
+            .iter()
+            .map(|st| triage::assess(st, ct, &machines))
+            .collect();
+        out.push_str(&report::heading("AGAINST ENIGMA OUTPUT"));
+        out.push_str("  a naval machine, fresh rotors and ten leads each draw, enciphering German\n");
+        out.push_str(&report::statistics_table(&against, "enigma"));
+    }
 
     out.push_str(&report::heading("PERIOD"));
     out.push_str("  a period shows itself as columns that are each monoalphabetic\n");

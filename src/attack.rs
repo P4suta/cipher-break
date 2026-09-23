@@ -1795,6 +1795,28 @@ fn sift(stops: &mut Vec<(Candidate, usize)>, keep: usize) {
     stops.truncate(keep);
 }
 
+/// Score a decipherment on the part of it the bombe did not plant.
+///
+/// A bombe's candidate always contains its crib, because placing the crib is what the bombe did; those letters are perfect language in every candidate it returns, right or wrong, and counting them is counting the question as part of the answer.
+/// On a seventy-two letter message an eight-letter crib is an eighth of the text scoring as fluent German, which is enough to push a decipherment of noise past the bar for calling something a reading — and did.
+///
+/// So the crib's letters are cut out and what is left is scored.
+/// The join makes one gram that belongs to neither side, which costs every candidate the same and decides nothing.
+#[must_use]
+pub fn score_outside_the_crib(plain: &[Letter], ctx: &Context, offset: usize, len: usize) -> f64 {
+    let end = (offset + len).min(plain.len());
+    if offset >= plain.len() || end <= offset {
+        return ctx.score(plain);
+    }
+    let mut rest: Vec<Letter> = Vec::with_capacity(plain.len() - (end - offset));
+    rest.extend_from_slice(&plain[..offset]);
+    rest.extend_from_slice(&plain[end..]);
+    if rest.is_empty() {
+        return f64::NEG_INFINITY;
+    }
+    ctx.score(&rest)
+}
+
 /// Turn a setting the bombe could not refute into a candidate the report can rank.
 ///
 /// The expensive half of a sweep once the menus are strong: deciphering and scoring costs about four times what refuting a setting does, so a menu that leaves millions standing is paying for its own answer.
@@ -1805,11 +1827,12 @@ fn judge_stop(
     reflector: &(String, [u8; ALPHABET]),
     board: Plugboard,
     offset: usize,
+    crib: usize,
 ) -> (Candidate, usize) {
     let plain = Enigma::with_reflector(settings, reflector.1, board).run(ct);
     (
         Candidate {
-            score: ctx.score(&plain),
+            score: score_outside_the_crib(&plain, ctx, offset, crib),
             key: format!(
                 "rotors {:?} {} start {} crib at {} plugs {}",
                 settings.rotors.map(|r| r + 1),
@@ -1899,6 +1922,7 @@ impl BombeAttack {
                 &named[hit.reflector],
                 board,
                 menu.offset,
+                self.crib.len(),
             ));
         }
         best.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
@@ -2033,6 +2057,7 @@ impl Attack for BombeAttack {
                             &reflectors[reflector],
                             board,
                             menu.offset,
+                            self.crib.len(),
                         ));
                     }
                     if stops.len() > keep * STOPS_BEFORE_SIFTING {

@@ -1030,3 +1030,54 @@ fn what_a_stop_costs_along_the_path_the_sweep_takes() {
     println!("  a crib stopping 2.7e9 times pays {:.0} s of that key, over 18 threads", 2.7e9 * (both - scoring) / 1e9 / 18.0);
     assert!(sink.is_finite() && length > 0);
 }
+
+/// A bombe must not be credited with the crib it planted itself.
+///
+/// The crib is in every candidate a bombe returns, right or wrong, because placing it is what the bombe did.
+/// Counting those letters is counting the question as part of the answer, and on a seventy-two letter message an eight-letter crib was enough to push a decipherment of noise past the bar for calling something a reading.
+#[test]
+fn a_bombe_is_not_credited_with_the_crib_it_planted() {
+    use cipher_break::attack::score_outside_the_crib;
+
+    let bank = bank();
+    let ct = cipher_break::to_letters(
+        "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
+    );
+    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+    let trace = Trace::new(false);
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: Schedule::default(),
+        seed: 1,
+        keep: 5,
+        focus: None,
+        focus_scale: None,
+        trace: &trace,
+    };
+
+    // The candidate that first tripped the bar: noise, with STANDORT sitting in it at letter twenty-three because that is where the bombe put it.
+    let noise = cipher_break::to_letters(
+        "DRWIBTARUAXRMGLDIRBEINSSTANDORTSZIIRNAMTIMULTRECEMMTAMMKMAEIURFFFNGOEOJO",
+    );
+    let whole = ctx.score(&noise);
+    let outside = score_outside_the_crib(&noise, &ctx, 23, 8);
+    println!("  whole {whole:+.2}s, without the planted crib {outside:+.2}s");
+    assert!(
+        outside < whole,
+        "cutting out eight letters of fluent German should lower the score, not raise it"
+    );
+
+    // And a crib that is genuinely there costs its candidate nothing it deserves:
+    // the rest of a true decipherment is language too.
+    let german = cipher_break::to_letters(
+        "KEINEBESONDERENVORKOMMNISSEXXSTANDORTMARQUADRATSIEBENXXWETTERBERICHTXXAB",
+    );
+    let both = (ctx.score(&german), score_outside_the_crib(&german, &ctx, 23, 8));
+    println!("  real German {:+.2}s, without eight of its letters {:+.2}s", both.0, both.1);
+    assert!(
+        both.1 > whole,
+        "real German minus a crib should still beat noise plus a crib: {:+.2} vs {whole:+.2}",
+        both.1
+    );
+}

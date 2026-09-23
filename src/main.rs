@@ -514,6 +514,40 @@ fn bombe_plan(
 }
 
 
+/// Score a few tens of thousands of settings the machine could have been on, to see what a search of this kind turns up when there is nothing in it.
+fn random_decipherments(ct: &[Letter], ctx: &Context) -> Vec<f64> {
+    use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings, rotor_orders};
+
+    let orders = rotor_orders(cipher_break::ciphers::enigma::ROTOR_COUNT);
+    let mut rng = Rng::new(ctx.seed ^ 0xB0_1BE);
+    (0..NOISE_DECIPHERMENTS)
+        .map(|_| {
+            let rotors = orders[rng.below(orders.len())];
+            let mut pick = |r: &mut Rng| {
+                [
+                    r.below(ALPHABET) as u8,
+                    r.below(ALPHABET) as u8,
+                    r.below(ALPHABET) as u8,
+                ]
+            };
+            let rings = pick(&mut rng);
+            let starts = pick(&mut rng);
+            let mut board = Plugboard::empty();
+            let mut free: Vec<u8> = (0..ALPHABET as u8).collect();
+            for _ in 0..WARTIME_LEADS {
+                let a = free.swap_remove(rng.below(free.len()));
+                let b = free.swap_remove(rng.below(free.len()));
+                board.connect(a, b);
+            }
+            ctx.score(&Enigma::new(Settings::at(rotors, 0, rings, starts), board).run(ct))
+        })
+        .collect()
+}
+
+/// How many of them.
+/// Enough that the largest block the growth is measured over has several to take a median of.
+const NOISE_DECIPHERMENTS: usize = 40_000;
+
 /// Sweep one crib and report what stood up to it.
 fn bombe_one(
     ct: &[Letter],
@@ -525,11 +559,11 @@ fn bombe_one(
 ) {
     let naval = attack.naval;
     let outcome = sweep::run(attack, ct, ctx, nulls);
+    let standing = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
     print!("{}", paint(args, &report::heading(&outcome.name)));
     print!("{}", paint(args, &report::outcome_row(&outcome)));
     // The number the verdict cannot show and the one the whole run turns on.
     // A margin above a null says how a candidate scored; this says whether there was anything to score, and against a menu that should have left nothing standing it is the finding itself.
-    let standing = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
     println!("  {standing} settings survived, against {by_chance:.0} the menus let through by chance");
     if standing == 0 {
         println!(
@@ -541,19 +575,28 @@ fn bombe_one(
             "  THE MENUS SHOULD HAVE LEFT NOTHING STANDING. Read the candidates below whatever the verdict says of their scores."
         );
     }
-    // What a bombe's candidate is worth, judged against real language of this length rather than against the sweep that produced it.
-    // A sweep's survivors are random settings — surviving a menu says nothing about how the decipherment reads — so every null built from them is built from the same numbers as the thing it would judge.
+    // What a bombe's candidate is worth, against the two things that can judge it.
+    //
+    // A sweep's survivors are random settings — surviving a menu says nothing about how the decipherment reads — so a null built from them is built from the same numbers as the thing it would judge, and the first attempt at one reported a margin of 13.5 on gibberish.
+    //
+    // What can judge it is real language of this length, and what the best of this many tries reaches when there is nothing to find.
+    // The second matters because the best of a large search is high whatever the search was for: without it, a fixed threshold called a decipherment of noise a reading, twice.
     let mut calibrator = report::Calibrator::new(ctx.judge, ctx.scale, ctx.seed);
-    let bar = calibrator.at(ct.len());
+    let language = calibrator.at(ct.len()).language_mean;
+    let noise = report::best_of_n(&random_decipherments(ct, ctx), standing);
     if let Some(top) = outcome.best.first() {
         println!(
-            "  best decipherment {:+.1}s, where real text of this length reaches {:+.1}s — {}",
-            top.score,
-            bar.language_mean,
-            if bar.reads_as_language(top.score) {
+            "  best decipherment {:+.1}s; the best of {standing} tries reaches {noise:+.1}s on nothing, and real text of this length {language:+.1}s",
+            top.score
+        );
+        println!(
+            "  {}",
+            if top.score > noise && top.score > language {
                 "READS AS LANGUAGE"
+            } else if top.score > noise {
+                "above what this many tries reach by chance, but short of language"
             } else {
-                "not language"
+                "not language, and not even past what this many tries reach by chance"
             }
         );
     }

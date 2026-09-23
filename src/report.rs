@@ -282,6 +282,54 @@ pub fn statistics_table(verdicts: &[StatVerdict], population: &str) -> String {
     out
 }
 
+/// What the best of `n` tries would score if there were nothing to find.
+///
+/// A search returns its best, and the best of a large search is high whatever the search was for: that is what "best of" means.
+/// So a bar that does not move with the size of the search is a bar any big enough search crosses, and a fixed threshold for "this reads as language" called a decipherment of noise a reading the first time a sweep of six hundred million settings was measured against it.
+///
+/// The growth is measured from `samples` rather than assumed.
+/// The textbook figure — the mean plus `sqrt(2 ln n)` spreads — is a claim about a Gaussian tail, and the tail of a decipherment's score is heavier than that: on this tool's own message it under-called the best of twenty-five thousand tries by a whole point.
+/// Blocks of increasing size give the median of their bests, a line through those says how the best grows with the logarithm of the count, and that line is extended to the count a sweep actually made.
+#[must_use]
+pub fn best_of_n(samples: &[f64], n: u64) -> f64 {
+    if samples.len() < BLOCKS_FOR_GROWTH.iter().max().copied().unwrap_or(1) || n == 0 {
+        return f64::INFINITY;
+    }
+    let mut points: Vec<(f64, f64)> = Vec::new();
+    for &size in BLOCKS_FOR_GROWTH {
+        let mut tops: Vec<f64> = samples
+            .chunks(size)
+            .filter(|c| c.len() == size)
+            .map(|c| c.iter().copied().fold(f64::NEG_INFINITY, f64::max))
+            .collect();
+        if tops.is_empty() {
+            continue;
+        }
+        tops.sort_by(f64::total_cmp);
+        points.push(((size as f64).ln(), tops[tops.len() / 2]));
+    }
+    if points.len() < 2 {
+        return f64::INFINITY;
+    }
+    let count = points.len() as f64;
+    let sx: f64 = points.iter().map(|p| p.0).sum();
+    let sy: f64 = points.iter().map(|p| p.1).sum();
+    let sxy: f64 = points.iter().map(|p| p.0 * p.1).sum();
+    let sxx: f64 = points.iter().map(|p| p.0 * p.0).sum();
+    let denominator = count * sxx - sx * sx;
+    if denominator.abs() < f64::EPSILON {
+        return f64::INFINITY;
+    }
+    let slope = (count * sxy - sx * sy) / denominator;
+    let intercept = (sy - slope * sx) / count;
+    intercept + slope * (n as f64).ln()
+}
+
+/// The block sizes the growth is measured over.
+///
+/// Spread evenly in the logarithm, because that is the axis the best of a search grows along, and wide enough apart that a line through them is a line and not a slope between two neighbours.
+const BLOCKS_FOR_GROWTH: &[usize] = &[100, 400, 1_600, 6_400, 25_600];
+
 /// How many letters a message must have before one key fits it and the rest do not.
 ///
 /// Shannon's unicity distance: a key space of `keys` needs `log2(keys)` bits of evidence to single one of them out, and each letter of a redundant language supplies `redundancy` of them.
@@ -402,6 +450,42 @@ pub fn conclusion(c: &Conclusion, cal: &Calibration) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_bar_a_search_must_clear_rises_with_the_size_of_the_search() {
+        use super::best_of_n;
+
+        // Thirty thousand draws of pure noise.
+        let mut rng = crate::rng::Rng::new(5);
+        let samples: Vec<f64> = (0..30_000)
+            .map(|_| {
+                // Something with a tail: twelve uniforms summed is near enough Gaussian,
+                // and the point is only that the best of many is higher than the best of few.
+                (0..12).map(|_| rng.unit()).sum::<f64>() - 6.0
+            })
+            .collect();
+
+        let few = best_of_n(&samples, 1_000);
+        let many = best_of_n(&samples, 1_000_000_000);
+        assert!(
+            many > few,
+            "the best of a billion tries has to beat the best of a thousand: {many} vs {few}"
+        );
+        // And it is the logarithm that matters, not the count: a thousandfold search costs about as much again as the last thousandfold did.
+        let more = best_of_n(&samples, 1_000_000);
+        assert!(
+            (many - more - (more - few)).abs() < (more - few),
+            "the growth should be in the logarithm: {few} {more} {many}"
+        );
+    }
+
+    #[test]
+    fn a_bar_cannot_be_measured_from_too_few_samples() {
+        use super::best_of_n;
+
+        assert_eq!(super::best_of_n(&[1.0, 2.0, 3.0], 1_000), f64::INFINITY);
+        assert_eq!(best_of_n(&[], 1_000), f64::INFINITY);
+    }
+
     use super::*;
     use crate::attack::Candidate;
 

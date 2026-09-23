@@ -1081,3 +1081,90 @@ fn a_bombe_is_not_credited_with_the_crib_it_planted() {
         both.1
     );
 }
+
+/// Where the best of a very large search sits when there is nothing in it.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn what_the_best_of_a_big_search_scores_on_nothing() {
+    use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings, rotor_orders};
+
+    let ct = cipher_break::to_letters(
+        "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
+    );
+    let bank = bank();
+    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+    let focus = german();
+    let focus_scale = focus
+        .as_ref()
+        .map(|m| Scale::for_model(m, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2)));
+    let trace = Trace::new(false);
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: Schedule::default(),
+        seed: 1,
+        keep: 5,
+        focus: focus.as_ref(),
+        focus_scale: focus_scale.as_ref(),
+        trace: &trace,
+    };
+
+    let orders = rotor_orders(8);
+    let mut rng = Rng::new(99);
+    let mut scores = Vec::with_capacity(40_000);
+    for _ in 0..40_000 {
+        let rotors = orders[rng.below(orders.len())];
+        let pick = |r: &mut Rng| [r.below(26) as u8, r.below(26) as u8, r.below(26) as u8];
+        let mut board = Plugboard::empty();
+        let mut free: Vec<u8> = (0..26).collect();
+        for _ in 0..10 {
+            let a = free.swap_remove(rng.below(free.len()));
+            let b = free.swap_remove(rng.below(free.len()));
+            board.connect(a, b);
+        }
+        let settings = Settings::at(rotors, 0, pick(&mut rng), pick(&mut rng));
+        scores.push(ctx.score(&Enigma::new(settings, board).run(&ct)));
+    }
+    let (mean, sd) = cipher_break::stats::moments(&scores);
+    println!("  a random naval decipherment of this message scores {mean:+.2} +/- {sd:.2}");
+
+    // How the best of a block actually grows with the block's size, measured rather than assumed: the score's right tail is not Gaussian, and the textbook mean + sd*sqrt(2 ln N) is a guess about a shape nobody checked.
+    println!("  {:>10}  {:>9}  {:>9}", "block", "best of it", "predicted");
+    let mut points: Vec<(f64, f64)> = Vec::new();
+    for size in [100usize, 400, 1_600, 6_400, 25_600] {
+        let mut tops: Vec<f64> = scores
+            .chunks(size)
+            .filter(|c| c.len() == size)
+            .map(|c| c.iter().copied().fold(f64::NEG_INFINITY, f64::max))
+            .collect();
+        if tops.is_empty() {
+            continue;
+        }
+        tops.sort_by(f64::total_cmp);
+        let median = tops[tops.len() / 2];
+        let guess = mean + sd * (2.0 * (size as f64).ln()).sqrt();
+        println!("  {size:>10}  {median:>9.2}  {guess:>9.2}");
+        points.push(((size as f64).ln(), median));
+    }
+    // A straight line through the measured points, extended to the size of a real sweep.
+    let n = points.len() as f64;
+    let sx: f64 = points.iter().map(|p| p.0).sum();
+    let sy: f64 = points.iter().map(|p| p.1).sum();
+    let sxy: f64 = points.iter().map(|p| p.0 * p.1).sum();
+    let sxx: f64 = points.iter().map(|p| p.0 * p.0).sum();
+    let slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+    let intercept = (sy - slope * sx) / n;
+    println!("  measured growth: best of N sits near {intercept:+.2} + {slope:.3} * ln N");
+    for (name, count, seen) in [
+        ("KEINEBESONDEREN", 4_630_211f64, 8.4),
+        ("MELDE", 643_910_834.0, 11.7),
+        ("GELEITZUG", 2_972_677_852.0, 10.4),
+    ] {
+        let bar = intercept + slope * count.ln();
+        println!(
+            "  {name:<16} {count:>15.0} stops, noise would reach {bar:>6.2}, seen {seen:>5.1}  {}",
+            if seen > bar { "ABOVE" } else { "below" }
+        );
+    }
+    println!("  and real German of this length reaches +18.0");
+}

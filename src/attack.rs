@@ -278,6 +278,11 @@ pub const LEAD_MARGIN: f64 = 0.02;
 /// How many distinct leads a plugboard could take: every unordered pair of letters.
 pub const PLUGBOARD_PAIRS: usize = ALPHABET * (ALPHABET - 1) / 2;
 
+/// How many of the device's climbed boards the sharper model looks at again.
+///
+/// Long enough to hold a true setting that the trigram model left at twenty-two thousandth, which is where it leaves one on a message of seventy letters with every ring swept.
+pub const RERANK_DEPTH: usize = 60_000;
+
 /// How many invertible two-by-two matrices there are over the alphabet.
 ///
 /// Stated rather than counted so that [`Attack::coverage`] costs nothing;
@@ -1607,6 +1612,51 @@ pub struct GpuEnigmaNaval {
 }
 
 #[cfg(feature = "gpu")]
+/// Look again, with the sharper model, at the boards the device grew.
+///
+/// The trigram model steers the sweep because it is what a device can carry, and it gets a true setting from three hundred thousandth to twenty-two thousandth once a board is grown on it.
+/// That is still far past any finish anyone would pay for.
+/// The quadgram model, shown the same climbed boards, puts the same setting at nine hundred and eighty-fifth: the text is nearly right by then, and telling nearly-right from wrong is what the longer gram is for.
+///
+/// Measured on a planted sixty-nine letter naval message with every ring swept.
+/// Without this stage nothing is recovered at any finish depth; with it the plaintext comes first.
+fn rerank_on(
+    ctx: &Context,
+    ct: &[Letter],
+    ranked: &[(f64, usize)],
+    found: &[crate::gpu::EnigmaHit],
+    boards: &[(f64, [u8; ALPHABET])],
+    orders: &[[usize; 3]],
+    wirings: &[[u8; ALPHABET]],
+) -> Vec<(f64, usize)> {
+    let Some(sharper) = ctx.focus else {
+        return ranked.to_vec();
+    };
+    let deep = RERANK_DEPTH.min(ranked.len());
+    let grams = (ct.len() + 1).saturating_sub(sharper.order()).max(1);
+    let cost = (PLUGBOARD_PAIRS as f64).ln() / grams as f64;
+    let mut out: Vec<(f64, usize)> = ranked[..deep]
+        .par_iter()
+        .map(|&(_, i)| {
+            let hit = found[i];
+            let settings = Settings {
+                rotors: orders[hit.order],
+                reflector: 0,
+                rings: [Ring::new(0), Ring::new(0), hit.ring],
+                positions: hit.positions,
+            };
+            let board = Plugboard::from_mapping(boards[i].1);
+            let plain = Enigma::with_reflector(settings, wirings[hit.reflector], board).run(ct);
+            (
+                sharper.score(&plain) - cost * board.pairs().len() as f64,
+                i,
+            )
+        })
+        .collect();
+    out.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+    out
+}
+
 impl Attack for GpuEnigmaNaval {
     fn name(&self) -> String {
         let rings = if self.rings <= 1 {
@@ -1682,6 +1732,9 @@ impl Attack for GpuEnigmaNaval {
             })
             .collect();
         ranked.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+
+        ranked = rerank_on(ctx, ct, &ranked, &found, &boards, &orders, &wirings);
+
         ctx.trace.note("naval/climb", || {
             let head = describe_hits(
                 &orders,

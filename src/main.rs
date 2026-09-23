@@ -51,10 +51,13 @@ const PERIOD_COLUMN_MINIMUM: usize = 4;
 const GPU_ENIGMA_SHORTLIST_HELD: usize = 20_000;
 
 /// How many the sweep over every ring setting keeps.
-const GPU_ENIGMA_SHORTLIST_SWEPT: usize = 60_000;
+const GPU_ENIGMA_SHORTLIST_SWEPT: usize = 1_000_000;
 
 /// How many of the device's boards are finished on the processor.
-const GPU_ENIGMA_FINISH: usize = 64;
+///
+/// Measured rather than chosen: on a planted sixty-nine letter naval message with every ring swept, the sharper model leaves the true setting nine hundred and eighty-fifth, and a finish that stops at sixty-four never sees it.
+/// Two thousand of them cost a second.
+const GPU_ENIGMA_FINISH: usize = 2_000;
 
 /// The depth at which the Enigma sweep over every ring setting joins the run.
 const RING_SWEEP_DEPTH: usize = 6;

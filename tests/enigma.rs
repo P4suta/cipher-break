@@ -12,6 +12,7 @@
 //! sixteen billion with the ring — so the heavy tests are `#[ignore]` and run
 //! on purpose with `cargo test -- --ignored`.
 
+
 use cipher_break::alphabet::{Letter, from_letters, to_letters};
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Attack, Context};
@@ -103,6 +104,18 @@ pub const CASES: &[Planted] = &[
         greek: (0, 9, 0),
         plugs: &[(1, 20), (8, 15), (17, 2)],
         sweep_rings: 1,
+    },
+    // The case this tool actually faces, and the one the table was missing.
+    // Everything else here is either long enough to be easy or has its right ring at A.
+    Planted {
+        label: "naval, short, right ring T",
+        text: SIGNAL,
+        rotors: [3, 1, 6],
+        rings: [0, 0, RIGHT_RING_T],
+        positions: [11, 4, 22],
+        greek: (0, 9, 0),
+        plugs: &[(1, 20), (8, 15), (17, 2)],
+        sweep_rings: 26,
     },
     Planted {
         label: "naval, long, right ring T",
@@ -1168,3 +1181,186 @@ fn what_the_best_of_a_big_search_scores_on_nothing() {
     }
     println!("  and real German of this length reaches +18.0");
 }
+
+/// How deep in the pack a true setting sits when the message is short and the rings are swept.
+///
+/// The rank test says only that it is past two hundred thousand of sixteen billion.
+/// This says how far past, which is what decides whether any shortlist could ever reach it.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn how_many_wrong_settings_outscore_a_true_one() {
+    use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings, rotor_orders};
+
+    let case = &CASES[2]; // naval, short, right ring T
+    let ct = case.ciphertext();
+    // The model the sweep itself steers by, so the numbers are the sweep's numbers.
+    let bank = bank();
+    let german = bank.model_named("de").expect("german");
+    let truth = german.score(
+        &Enigma::with_reflector(case.settings(), case.reflector(), Plugboard::empty()).run(&ct),
+    );
+
+    // Where a wrong setting's score falls, measured over the same space the sweep covers.
+    let orders = rotor_orders(8);
+    let reflectors = cipher_break::ciphers::enigma::naval_reflectors();
+    let mut rng = Rng::new(404);
+    let trials = 200_000;
+    let mut above = 0u32;
+    for _ in 0..trials {
+        let rotors = orders[rng.below(orders.len())];
+        let reflector = reflectors[rng.below(reflectors.len())].1;
+        let pick = |r: &mut Rng| [r.below(26) as u8, r.below(26) as u8, r.below(26) as u8];
+        let rings = [0, 0, rng.below(26) as u8];
+        let settings = Settings::at(rotors, 0, rings, pick(&mut rng));
+        let s = german.score(
+            &Enigma::with_reflector(settings, reflector, Plugboard::empty()).run(&ct),
+        );
+        if s >= truth {
+            above += 1;
+        }
+    }
+    let share = f64::from(above) / f64::from(trials);
+    let space = 336.0 * 104.0 * 26.0 * 26f64.powi(3);
+    println!("  the true setting scores {truth:.4}");
+    println!("  {:.2}% of wrong settings score at least that much", 100.0 * share);
+    println!("  over {space:.3e} settings that is {:.3e} of them ahead of the truth", share * space);
+    println!("  a shortlist would have to be that long before the truth was in it");
+}
+
+/// The naval attack has to break a short message with every ring swept.
+///
+/// This is the case the tool actually faces and the one nothing tested.
+/// It failed for two reasons that only showed up together: the shortlist held sixty thousand settings where the true one sat near three hundred thousand, and the trigram model that steers the sweep leaves a true setting twenty-two thousandth even after a board is grown on it — past any finish worth paying for.
+/// The quadgram model, shown the same climbed boards, puts it nine hundred and eighty-fifth, which a finish does reach.
+#[test]
+#[ignore = "a sixteen-billion sweep and a million plugboard climbs"]
+fn the_naval_attack_breaks_a_short_message_with_the_rings_swept() {
+    use cipher_break::attack::{Attack, ENIGMA_LEADS, GpuEnigmaNaval};
+    use cipher_break::gpu::Gpu;
+
+    let Ok(gpu) = Gpu::open() else {
+        return;
+    };
+    let case = &CASES[2]; // naval, short, right ring T
+    let ct = case.ciphertext();
+    let plain = to_letters(case.text);
+    let bank = bank();
+    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+    let quad = german().expect("the German quadgram model");
+    let quad_scale = Scale::for_model(&quad, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2));
+    let trace = Trace::new(false);
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: Schedule::default(),
+        seed: 1,
+        keep: 10,
+        focus: Some(&quad),
+        focus_scale: Some(&quad_scale),
+        trace: &trace,
+    };
+    let attack = GpuEnigmaNaval {
+        shortlist: 1_000_000,
+        leads: ENIGMA_LEADS,
+        focus: "de".to_string(),
+        rings: 26,
+        finish: 2_000,
+        gpu: std::sync::Arc::new(gpu),
+    };
+
+    let start = std::time::Instant::now();
+    let found = attack.best(&ct, &ctx);
+    let at = found.iter().position(|c| {
+        c.plain.iter().zip(&plain).filter(|(a, b)| a == b).count() * 10 >= plain.len() * 9
+    });
+    println!(
+        "  {} letters, every ring swept, {:.0}s: plaintext at {at:?}",
+        ct.len(),
+        start.elapsed().as_secs_f64()
+    );
+    assert_eq!(
+        at,
+        Some(0),
+        "the attack has to put the message it was given first, not somewhere in the list"
+    );
+}
+
+
+/// The naval sweep, with the stages that were missing, on the message this repository exists for.
+#[test]
+#[ignore = "the real thing"]
+fn the_message() {
+    use cipher_break::attack::{Attack, ENIGMA_LEADS, GpuEnigmaNaval};
+    use cipher_break::gpu::Gpu;
+
+    let Ok(gpu) = Gpu::open() else {
+        return;
+    };
+    let ct = cipher_break::to_letters(
+        "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
+    );
+    let bank = bank();
+    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+    let quad = german().expect("the German quadgram model");
+    let quad_scale = Scale::for_model(&quad, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2));
+    let trace = Trace::new(true);
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: Schedule::default(),
+        seed: 1,
+        keep: 10,
+        focus: Some(&quad),
+        focus_scale: Some(&quad_scale),
+        trace: &trace,
+    };
+
+    // What this same pipeline reaches on the same letters in a different order.
+    // A million settings each given ten plugboard leads is forty-seven bits of freedom applied a million times, and the only honest question is what that reaches when there is nothing to find.
+    let mut null_rng = Rng::new(7);
+    let mut nulls: Vec<f64> = Vec::new();
+    for _ in 0..NULL_SHUFFLES {
+        let shuffled = null_rng.shuffled(&ct);
+        let attack = GpuEnigmaNaval {
+            shortlist: 1_000_000,
+            leads: ENIGMA_LEADS,
+            focus: "de".to_string(),
+            rings: 26,
+            finish: 2_000,
+            gpu: std::sync::Arc::new(Gpu::open().expect("a device")),
+        };
+        let best = attack
+            .best(&shuffled, &ctx)
+            .first()
+            .map_or(f64::NEG_INFINITY, |c| c.score);
+        println!("  a shuffle of the same letters reaches {best:+.2}s");
+        nulls.push(best);
+    }
+    let (nm, nsd) = cipher_break::stats::moments(&nulls);
+    println!("  shuffles reach {nm:+.2} +/- {nsd:.2}");
+
+    for (rings, shortlist) in [(1usize, 20_000usize), (26, 1_000_000)] {
+        let attack = GpuEnigmaNaval {
+            shortlist,
+            leads: ENIGMA_LEADS,
+            focus: "de".to_string(),
+            rings,
+            finish: 2_000,
+            gpu: std::sync::Arc::new(Gpu::open().expect("a device")),
+        };
+        let start = std::time::Instant::now();
+        let found = attack.best(&ct, &ctx);
+        println!(
+            "\n  === {rings} ring settings, shortlist {shortlist}, {:.0}s ===",
+            start.elapsed().as_secs_f64()
+        );
+        for c in found.iter().take(6) {
+            println!("  {:+6.2}s {}", c.score, c.key);
+            println!("         {}", cipher_break::from_letters(&c.plain));
+        }
+    }
+    let _ = &gpu;
+}
+
+/// How many shuffles the real message is measured against.
+const NULL_SHUFFLES: usize = 4;

@@ -96,15 +96,13 @@ impl Menu {
         })
     }
 
-    /// How many independent loops the menu contains.
+    /// The most settings that could survive this menu for no reason at all, out of `settings` swept.
     ///
-    /// Loops are what make a menu bite.
-    /// Each one is a path that returns to where it started, so the letters around it are forced twice and may disagree; a menu with none can never contradict anything and will accept every rotor setting there is.
-    #[must_use]
-    /// About how many settings survive this menu for no reason at all, out of `settings` swept.
+    /// Each closure forces a letter that is already forced, and two forcings agree by chance one time in twenty-six, so the loops alone let through at most one setting in `26^(c-1)`.
     ///
-    /// Each closure forces a letter that is already forced, and two forcings agree by chance one time in twenty-six, so a menu with `c` closures lets through roughly one setting in `26^(c-1)`.
-    /// This is the number that says what a stop is worth: against a residue of thousands, a stop means nothing, and the sweep has refuted nothing it can name.
+    /// A loose bound and not a prediction: it counts only the loops, and Turing's diagonal board forces the other end of every lead it sets, which contradicts far more often than the loops can account for.
+    /// Measured on this tool's own sweeps, the bound overshoots by twenty times to a hundred thousand, and a menu with a single closure — which the bound says refutes nothing whatever — refuted every one of the seventeen thousand settings it was shown.
+    /// So a stop against a small bound is worth a great deal, and a large bound is worth nothing at all: it says only that the loops did not settle the matter, not that the sweep will not.
     #[must_use]
     pub fn chance_stops(&self, settings: u64) -> f64 {
         let exponent = self.closures().saturating_sub(1) as i32;
@@ -117,15 +115,6 @@ impl Menu {
     #[must_use]
     pub fn decisive_over(&self, settings: u64) -> bool {
         self.chance_stops(settings) < 1.0
-    }
-
-    /// Whether sweeping this menu removes anything at all.
-    ///
-    /// A menu's first closure buys nothing — it is what makes a stop possible — so a menu with one closure hands back every setting it was shown, and an hour spent producing that pile is an hour spent copying the search space.
-    /// Every further closure divides the pile by twenty-six, and a pile that is merely large can still be sorted: a bombe narrows and a score chooses, and the score only needs the truth to be somewhere it can reach.
-    #[must_use]
-    pub fn narrows(&self, settings: u64) -> bool {
-        self.chance_stops(settings) < settings as f64
     }
 
     /// Where a true setting would sit among this menu's survivors, once they are scored.

@@ -394,7 +394,7 @@ fn bombe_plan(
     ct: &[Letter],
     words: Vec<String>,
     settings: u64,
-) -> Vec<(String, usize, usize, f64, f64)> {
+) -> Vec<(String, usize, f64)> {
     let mut words: Vec<(String, Vec<cipher_break::bombe::Menu>)> = words
         .into_iter()
         .map(|word| {
@@ -413,47 +413,33 @@ fn bombe_plan(
     });
 
     println!(
-        "  {:<28} {:>10}  {:>8}  {:>13}  {:>9}",
-        "crib", "placements", "closures", "stops by chance", "truth at"
+        "  {:<28} {:>10}  {:>8}  {:>18}",
+        "crib", "placements", "closures", "loops alone allow"
     );
     let mut worth_sweeping = Vec::new();
     for (word, menus) in words {
-        let narrowing: Vec<&cipher_break::bombe::Menu> =
-            menus.iter().filter(|m| m.narrows(settings)).collect();
-        if narrowing.is_empty() {
-            println!(
-                "  {word:<28} {:>10}  {:>8}  {:>13}  {:>9}",
-                menus.len(),
-                "-",
-                "removes nothing",
-                "-"
-            );
+        if menus.is_empty() {
+            println!("  {word:<28} {:>10}  {:>8}  {:>18}", 0, "-", "-");
             continue;
         }
-        let closures: Vec<usize> = narrowing.iter().map(|m| m.closures()).collect();
-        // The weakest menu decides how deep the report has to go: it is the one whose survivors the score has to sort.
-        let leakiest = narrowing
+        let closures: Vec<usize> = menus.iter().map(cipher_break::bombe::Menu::closures).collect();
+        // The weakest menu sets the bound, because it is the one whose survivors the score would have to sort.
+        // A bound and not a forecast: it counts loops and leaves out the diagonal board, and it overshoots what the sweep actually leaves standing by orders of magnitude.
+        let loosest = menus
             .iter()
             .map(|m| m.chance_stops(settings))
             .fold(0.0f64, f64::max);
-        let rank = narrowing
-            .iter()
-            .map(|m| {
-                m.expected_rank_of_truth(settings, cipher_break::bombe::RANK_OF_TRUTH_WHEN_SHORT)
-            })
-            .fold(0.0f64, f64::max);
         println!(
-            "  {word:<28} {:>10}  {:>8}  {:>13}  {:>9}",
-            format!("{} of {}", narrowing.len(), menus.len()),
+            "  {word:<28} {:>10}  {:>8}  {:>18}",
+            menus.len(),
             format!(
                 "{}-{}",
                 closures.iter().min().copied().unwrap_or(0),
                 closures.iter().max().copied().unwrap_or(0)
             ),
-            format!("{leakiest:.0}"),
-            format!("{rank:.0}")
+            format!("{loosest:.0}")
         );
-        worth_sweeping.push((word, narrowing.len(), menus.len(), rank, leakiest));
+        worth_sweeping.push((word, menus.len(), loosest));
     }
     println!();
 
@@ -534,10 +520,14 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
         );
         return Ok(());
     }
-    // The report is only as useful as it is long: a candidate the weakest menu puts seventh is a candidate a list of five throws away.
+    // The report is only as useful as it is long: a candidate that a hundred accidents outscore is a candidate a list of five throws away.
+    // The bound on survivors overshoots badly, so this depth is generous by the same margin, which costs a few printed lines and risks nothing.
     let depth = worth_sweeping
         .iter()
-        .map(|&(_, _, _, rank, _)| rank.ceil() as usize)
+        .map(|&(_, _, loosest)| {
+            (1.0 + cipher_break::bombe::RANK_OF_TRUTH_WHEN_SHORT as f64 * loosest / settings as f64)
+                .ceil() as usize
+        })
         .max()
         .unwrap_or(1);
     println!(
@@ -573,11 +563,9 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
         trace: &trace,
     };
 
-    for (word, narrowing, placements, rank, by_chance) in worth_sweeping {
+    for (word, placements, by_chance) in worth_sweeping {
         println!();
-        println!(
-            "  {word} — {narrowing} of {placements} placements narrow; a true setting should land by {rank:.0}"
-        );
+        println!("  {word} — {placements} placements");
         let _ = std::io::stdout().flush();
         let attack = cipher_break::attack::BombeAttack {
             slices: std::sync::Mutex::new(Vec::new()),

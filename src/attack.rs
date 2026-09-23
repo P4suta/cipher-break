@@ -1884,12 +1884,12 @@ impl Attack for BombeAttack {
         let span = (ALPHABET as u64).pow(3);
         let settings = span * orders.len() as u64 * reflectors.len() as u64;
 
-        // Only placements whose menu actually removes something.
-        // One closure forces no letter twice and so hands back every setting it was shown; two or more divide the survivors by twenty-six apiece, and a pile that is merely large is still a pile a score can sort.
+        // Every placement the crib can occupy at all.
+        // Weak menus were dropped here once, on a count of closures that said they could refute nothing; the count leaves out the diagonal board, and the menus it dismissed turned out to refute everything they were shown.
+        // A placement not swept is a placement the crib might have been sitting at, so the only ones left out are the ones `place` refuses: those where a letter would have to encipher to itself, which the machine cannot do.
         let menus: Vec<Menu> = placements
             .iter()
             .filter_map(|&offset| Menu::place(ct, &self.crib, offset))
-            .filter(|menu| menu.narrows(settings))
             .collect();
         if menus.is_empty() {
             return Vec::new();

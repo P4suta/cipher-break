@@ -596,7 +596,6 @@ fn where_the_bombe_spends_its_time() {
 #[ignore = "a measurement, not a check"]
 fn what_it_costs_to_judge_a_stop() {
     use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings};
-    use cipher_break::polyglot::Polyglot;
 
     let ct = cipher_break::to_letters(
         "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
@@ -692,4 +691,66 @@ fn a_bombe_calibrates_itself_against_its_own_accidents() {
     // Every slice that saw a stop contributes, and a sweep that saw stops in more than one slice can say something about its own spread.
     let stops = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
     println!("  {stops} stops over {NULL_GROUPS} slices gave {} null points", null.len());
+}
+
+/// Whether a menu that closes one loop refutes anything, which decides whether it is worth sweeping.
+///
+/// Counting closures says it refutes nothing: one closure is what makes a stop possible and leaves a sweep exactly as it found it.
+/// Counting closures leaves out Turing's diagonal board, which forces the other end of every lead it sets and so contradicts far more often than the loops alone can account for — the whole point of the thing.
+#[test]
+fn a_one_closure_menu_still_refutes_most_of_what_it_is_shown() {
+    use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_with};
+    use cipher_break::ciphers::enigma::{Settings, rotor_orders};
+
+    let ct = cipher_break::to_letters(
+        "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
+    );
+    let crib = to_letters("MELDEICHXXSTANDORTXX");
+    let Some(menu) = (0..=ct.len() - crib.len())
+        .filter_map(|o| Menu::place(&ct, &crib, o))
+        .find(|m| m.closures() == 1)
+    else {
+        return;
+    };
+
+    // One rotor order and one reflector: enough settings that a rate is a rate.
+    let orders = rotor_orders(5);
+    let reflector = cipher_break::ciphers::enigma::reflector_wiring(0);
+    let reach = menu.offset + crib.len();
+    let mut positions = Positions::of(
+        Settings::at(orders[0], 0, [0; 3], [0; 3]),
+        reflector,
+        reach,
+    );
+    let mut scratch = Scratch::new();
+
+    let mut shown = 0u32;
+    let mut survived = 0u32;
+    for index in 0..26u32 * 26 * 26 {
+        let settings = Settings::at(
+            orders[0],
+            0,
+            [0; 3],
+            [
+                (index / (26 * 26)) as u8,
+                ((index / 26) % 26) as u8,
+                (index % 26) as u8,
+            ],
+        );
+        positions.restart(settings, reach);
+        shown += 1;
+        if matches!(scan_with(&menu, &positions, &mut scratch), Stop::Survived { .. }) {
+            survived += 1;
+        }
+    }
+
+    let rate = f64::from(survived) / f64::from(shown);
+    println!(
+        "  one closure: {survived} of {shown} settings survived ({:.1}%), where counting closures predicts 100%",
+        100.0 * rate
+    );
+    assert!(
+        rate < 1.0,
+        "a one-closure menu refuted nothing at all, so dropping it from a sweep costs nothing"
+    );
 }

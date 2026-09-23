@@ -123,6 +123,15 @@ pub trait Attack: Sync + Send {
 
     /// The best candidates the attack finds.
     fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate>;
+
+    /// A null the attack measured on itself, if it is in a position to.
+    ///
+    /// The default is `None`, and a caller that gets it must buy a null the expensive way, by running the whole attack again on shuffled ciphertext as many times as the margin needs.
+    /// An attack that already sifts a great many candidates knows better than any shuffle what its own noise looks like: it has just measured it.
+    /// The contract is that the returned scores are draws of the same statistic as the reported best — the largest of an equal-sized sample — because a null made of individual candidates against a best that is the largest of millions would call anything a reading.
+    fn own_null(&self) -> Option<Vec<f64>> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -1737,7 +1746,19 @@ impl Attack for GpuEnigmaNaval {
 ///
 /// It needs a crib that is actually there, and a crib whose letters repeat enough to close loops.
 /// A menu with no closures forces nothing twice, so nothing can ever disagree, and the attack accepts every setting it is shown; [`crate::bombe::Menu::closures`] is what says whether a crib is worth running.
+/// How many equal slices a bombe cuts its own sweep into to measure its own noise.
+///
+/// One slice produces the reported best and the rest are the null, so this is one more than the number of null points, chosen to match what the same margin would have cost in shuffles.
+pub const NULL_GROUPS: usize = crate::report::MIN_NULLS_SEARCHED + 1;
+
+/// Turing's bombe: refute rotor settings by contradiction against a guessed plaintext.
+///
+/// The one attack here that never asks whether a decipherment looks like a language, and so the only one that reaches a short message through a full plugboard — it asks instead whether the machine could have produced this ciphertext from this crib at all, and a setting that could not is gone whatever it scores.
 pub struct BombeAttack {
+    /// The best score in each equal slice of the last sweep.
+    ///
+    /// The slice that produced the reported best is dropped and the others are its null: they are the same statistic — the largest score in a sample of this size — measured on settings that survived for no reason, which is exactly what a shuffle is run to estimate and what this sweep has already seen a hundred million times.
+    pub slices: std::sync::Mutex<Vec<f64>>,
     /// How many settings the last sweep left standing.
     ///
     /// Kept because it is the difference between "nothing survived" and "thousands survived and none of them read", which a list of the best five candidates cannot tell apart, and which the report was previously reading as the same thing.
@@ -1750,6 +1771,33 @@ pub struct BombeAttack {
     pub rotors_available: usize,
     /// Whether to fold in the Greek rotor and thin reflectors.
     pub naval: bool,
+}
+
+/// Every reflector a sweep must try, named as the report will name it.
+///
+/// A naval M4 folds its Greek rotor and thin reflector into a hundred and four composite reflectors, which is what lets one sweep cover a four-rotor machine with three-rotor machinery.
+fn reflectors_for(naval: bool) -> Vec<(String, [u8; ALPHABET])> {
+    if naval {
+        enigma::naval_reflectors()
+    } else {
+        (0..enigma::REFLECTOR_COUNT)
+            .map(|i| {
+                let name = if i == 0 { "B" } else { "C" };
+                (name.to_string(), enigma::reflector_wiring(i))
+            })
+            .collect()
+    }
+}
+
+/// How many candidates a sweep lets pile up before it throws the worse ones away.
+///
+/// A sweep of a weak menu can stop tens of millions of times, which is a pile no machine should be asked to hold; sorting after every stop would cost more than the sweep, so the pile is allowed to grow to this multiple of what the report keeps and is then cut back.
+const STOPS_BEFORE_SIFTING: usize = 64;
+
+/// Keep only the best `keep` of a pile of stops.
+fn sift(stops: &mut Vec<(Candidate, usize)>, keep: usize) {
+    stops.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
+    stops.truncate(keep);
 }
 
 /// Turn a setting the bombe could not refute into a candidate the report can rank.
@@ -1804,29 +1852,29 @@ impl Attack for BombeAttack {
         Coverage::Exhaustive(placements * orders * reflectors * (ALPHABET as u64).pow(3))
     }
 
+    fn own_null(&self) -> Option<Vec<f64>> {
+        let mut slices: Vec<f64> = self
+            .slices
+            .lock()
+            .map(|s| s.iter().copied().filter(|v| v.is_finite()).collect())
+            .unwrap_or_default();
+        slices.sort_unstable_by(f64::total_cmp);
+        // The top slice is the one that produced the reported best; comparing it with itself would prove only that it equals itself.
+        slices.pop();
+        Some(slices)
+    }
+
     fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate> {
         self.stops.store(0, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut slices) = self.slices.lock() {
+            *slices = vec![f64::NEG_INFINITY; NULL_GROUPS];
+        }
         let placements = crate::crib::placements(ct, &self.crib);
         if placements.is_empty() {
             return Vec::new();
         }
         let orders = enigma::rotor_orders(self.rotors_available);
-        let reflectors: Vec<(String, [u8; ALPHABET])> = if self.naval {
-            enigma::naval_reflectors()
-        } else {
-            (0..enigma::REFLECTOR_COUNT)
-                .map(|i| {
-                    (
-                        if i == 0 {
-                            "B".to_string()
-                        } else {
-                            "C".to_string()
-                        },
-                        enigma::reflector_wiring(i),
-                    )
-                })
-                .collect()
-        };
+        let reflectors = reflectors_for(self.naval);
         let reflector_count = reflectors.len();
         let order_count = orders.len();
         // One job per rotor order and reflector, with every placement of the crib tested inside it.
@@ -1869,9 +1917,11 @@ impl Attack for BombeAttack {
             .flat_map(|&(order, reflector)| {
                 let mut stops: Vec<(Candidate, usize)> = Vec::new();
                 let base = Settings::at(orders[order], 0, [0; 3], [0; 3]);
+                let keep = ctx.keep.max(1);
                 let mut positions = Positions::of(base, reflectors[reflector].1, reach);
                 let mut scratch = Scratch::new();
                 let mut survived = 0u64;
+                let mut slices = [f64::NEG_INFINITY; NULL_GROUPS];
                 for index in 0..span {
                     let settings = Settings::at(
                         orders[order],
@@ -1891,6 +1941,8 @@ impl Attack for BombeAttack {
                             continue;
                         };
                         survived += 1;
+                        // Which slice a setting falls in is decided by where it sits in the sweep, so the slices are equal in size and none of them is chosen for what it found.
+                        let slice = (index % NULL_GROUPS as u64) as usize;
                         stops.push(judge_stop(
                             ct,
                             ctx,
@@ -1899,16 +1951,20 @@ impl Attack for BombeAttack {
                             board,
                             menu.offset,
                         ));
+                        slices[slice] = slices[slice].max(stops[stops.len() - 1].0.score);
                     }
-                    if stops.len() > ctx.keep.max(1) * 64 {
-                        stops.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
-                        stops.truncate(ctx.keep.max(1));
+                    if stops.len() > keep * STOPS_BEFORE_SIFTING {
+                        sift(&mut stops, keep);
                     }
                 }
-                stops.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
-                stops.truncate(ctx.keep.max(1));
+                sift(&mut stops, keep);
                 self.stops
                     .fetch_add(survived, std::sync::atomic::Ordering::Relaxed);
+                if let Ok(mut shared) = self.slices.lock() {
+                    for (into, from) in shared.iter_mut().zip(slices) {
+                        *into = into.max(from);
+                    }
+                }
                 stops
             })
             .collect();

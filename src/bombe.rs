@@ -31,11 +31,15 @@ pub struct Menu {
     /// The one on the most edges.
     /// A deduction about it immediately forces everything around it, so a wrong setting contradicts in fewer steps than it would from a letter on the edge of the graph.
     hub: Letter,
-    /// For each letter, the edges that touch it, as (position, other letter).
+    /// For each letter, the edges that touch it, as (position, other letter), laid end to end.
     ///
     /// A deduction about one letter only travels along the edges that letter is on.
     /// Walking the whole menu for each of them costs the length of the crib per deduction where this costs the two or three edges that actually meet there, and a naval sweep makes that difference tens of billions of times.
-    incident: Vec<Vec<(usize, Letter)>>,
+    ///
+    /// One run of memory rather than twenty-six: a sweep holds every menu at once and reads them in turn, and twenty-six separately allocated lists per menu scatter across the cache the one structure the inner loop never stops touching.
+    incident: Vec<(u32, Letter)>,
+    /// Where each letter's edges begin in `incident`, with a final entry for the end.
+    starts: [u32; ALPHABET + 1],
 }
 
 /// Where a true rotor setting sits when the whole naval space is scored at the length this tool was built for.
@@ -62,19 +66,33 @@ impl Menu {
         if edges.iter().any(|&(_, p, c)| p == c) {
             return None;
         }
-        let mut incident: Vec<Vec<(usize, Letter)>> = vec![Vec::new(); ALPHABET];
+        // Counted first so the run can be filled in one pass with no growing and no gaps.
+        let mut degree = [0u32; ALPHABET];
+        for &(_, p, c) in &edges {
+            degree[p as usize] += 1;
+            degree[c as usize] += 1;
+        }
+        let mut starts = [0u32; ALPHABET + 1];
+        for l in 0..ALPHABET {
+            starts[l + 1] = starts[l] + degree[l];
+        }
+        let mut at = starts;
+        let mut incident = vec![(0u32, 0u8); edges.len() * 2];
         for &(i, p, c) in &edges {
-            incident[p as usize].push((i, c));
-            incident[c as usize].push((i, p));
+            for (from, to) in [(p, c), (c, p)] {
+                incident[at[from as usize] as usize] = (i as u32, to);
+                at[from as usize] += 1;
+            }
         }
         let hub = (0..ALPHABET as u8)
-            .max_by_key(|&l| incident[l as usize].len())
+            .max_by_key(|&l| degree[l as usize])
             .unwrap_or(0);
         Some(Menu {
             offset,
             edges,
             hub,
             incident,
+            starts,
         })
     }
 
@@ -374,8 +392,10 @@ fn follow(
             continue;
         };
         // Each edge joins its two letters through the machine at that position, in either direction, because the machine there is an involution.
-        for &(i, to) in &menu.incident[from as usize % ALPHABET] {
-            let v = positions.at(i, u);
+        let l = from as usize % ALPHABET;
+        let (first, last) = (menu.starts[l] as usize, menu.starts[l + 1] as usize);
+        for &(i, to) in &menu.incident[first..last] {
+            let v = positions.at(i as usize, u);
             match scratch.known(to) {
                 Some(w) if w != v => return false,
                 Some(_) => {}

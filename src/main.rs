@@ -394,7 +394,7 @@ fn bombe_plan(
     ct: &[Letter],
     words: Vec<String>,
     settings: u64,
-) -> Vec<(String, usize, usize, f64)> {
+) -> Vec<(String, usize, usize, f64, f64)> {
     let mut words: Vec<(String, Vec<cipher_break::bombe::Menu>)> = words
         .into_iter()
         .map(|word| {
@@ -453,11 +453,57 @@ fn bombe_plan(
             format!("{leakiest:.0}"),
             format!("{rank:.0}")
         );
-        worth_sweeping.push((word, narrowing.len(), menus.len(), rank));
+        worth_sweeping.push((word, narrowing.len(), menus.len(), rank, leakiest));
     }
     println!();
 
     worth_sweeping
+}
+
+
+/// Sweep one crib and report what stood up to it.
+fn bombe_one(
+    ct: &[Letter],
+    ctx: &Context,
+    args: &[String],
+    attack: &cipher_break::attack::BombeAttack,
+    nulls: usize,
+    by_chance: f64,
+) {
+    let naval = attack.naval;
+    let outcome = sweep::run(attack, ct, ctx, nulls);
+    print!("{}", paint(args, &report::heading(&outcome.name)));
+    print!("{}", paint(args, &report::outcome_row(&outcome)));
+    // The number the verdict cannot show and the one the whole run turns on.
+    // A margin above a null says how a candidate scored; this says whether there was anything to score, and against a menu that should have left nothing standing it is the finding itself.
+    let standing = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
+    println!("  {standing} settings survived, against {by_chance:.0} the menus let through by chance");
+    if standing == 0 {
+        println!(
+            "  every setting refuted: this crib is nowhere in this message under any {} setting",
+            if naval { "naval M4" } else { "M3" }
+        );
+    } else if by_chance < 1.0 {
+        println!(
+            "  THE MENUS SHOULD HAVE LEFT NOTHING STANDING. Read the candidates below whatever the verdict says of their scores."
+        );
+    }
+    for candidate in &outcome.best {
+        println!(
+            "{}",
+            paint(
+                args,
+                &format!(
+                    "  {:+6.1}s {:<3} {}\n       {}",
+                    candidate.score,
+                    ctx.judge.identify(&candidate.plain).0,
+                    candidate.key,
+                    from_letters(&candidate.plain)
+                )
+            )
+        );
+    }
+    let _ = std::io::stdout().flush();
 }
 
 /// Attack an Enigma message through a crib, with a bombe.
@@ -491,7 +537,7 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
     // The report is only as useful as it is long: a candidate the weakest menu puts seventh is a candidate a list of five throws away.
     let depth = worth_sweeping
         .iter()
-        .map(|&(_, _, _, rank)| rank.ceil() as usize)
+        .map(|&(_, _, _, rank, _)| rank.ceil() as usize)
         .max()
         .unwrap_or(1);
     println!(
@@ -527,54 +573,24 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
         trace: &trace,
     };
 
-    for (word, narrowing, placements, rank) in worth_sweeping {
-        let letters = to_letters(&word);
+    for (word, narrowing, placements, rank, by_chance) in worth_sweeping {
         println!();
         println!(
             "  {word} — {narrowing} of {placements} placements narrow; a true setting should land by {rank:.0}"
         );
         let _ = std::io::stdout().flush();
         let attack = cipher_break::attack::BombeAttack {
+            slices: std::sync::Mutex::new(Vec::new()),
             stops: std::sync::atomic::AtomicU64::new(0),
-            crib: letters,
+            crib: to_letters(&word),
             label: word.clone(),
             rotors_available: rotors,
             naval,
         };
-        // Flushed per crib.
-        // A bombe over a dozen cribs is an hour's work, and block-buffered output means an hour of looking at nothing and wondering whether it is stuck.
-        let outcome = sweep::run(&attack, ct, &ctx, effort.nulls);
-        print!("{}", paint(args, &report::heading(&outcome.name)));
-        print!("{}", paint(args, &report::outcome_row(&outcome)));
-        // The number the report cannot show and the one the whole run turns on: nothing standing is a refutation, thousands standing is a shrug.
-        let standing = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
-        println!(
-            "  {standing} settings survived the crib{}",
-            if standing == 0 {
-                " — every one of them refuted"
-            } else {
-                ""
-            }
-        );
-        let _ = std::io::stdout().flush();
-        for candidate in &outcome.best {
-            println!(
-                "{}",
-                paint(
-                    args,
-                    &format!(
-                        "  {:+6.1}s {:<3} {}\n       {}",
-                        candidate.score,
-                        bank.identify(&candidate.plain).0,
-                        candidate.key,
-                        from_letters(&candidate.plain)
-                    )
-                )
-            );
-        }
-        let _ = std::io::stdout().flush();
+        bombe_one(ct, &ctx, args, &attack, effort.nulls, by_chance);
     }
     Ok(())
+
 }
 
 fn list() {

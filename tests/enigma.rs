@@ -163,6 +163,20 @@ impl Planted {
     }
 }
 
+/// A message a bombe is known to break, and the plaintext it should come back with.
+///
+/// Shared so that a test about the bombe's answer and a test about the bombe's null are asking about the same sweep; the last time two bombe tests planted different settings, the disagreement between them cost an hour to find.
+fn planted_bombe_message() -> (Vec<u8>, Vec<u8>) {
+    let settings = Settings::at([2, 0, 4], 0, [0; 3], [7, 19, 3]);
+    let mut board = Plugboard::empty();
+    for (a, b) in [(0u8, 20u8), (4, 12), (8, 15), (17, 2), (24, 9)] {
+        board.connect(a, b);
+    }
+    let plain = to_letters(SIGNAL);
+    let ct = Enigma::new(settings, board).run(&plain);
+    (plain, ct)
+}
+
 /// The models the shipped binary carries.
 fn bank() -> Polyglot {
     Polyglot::from_bundle(include_str!("../data/models.bundle"))
@@ -455,14 +469,7 @@ fn the_bombe_breaks_a_message_it_has_a_crib_for() {
     use cipher_break::attack::BombeAttack;
     use cipher_break::bombe::Menu;
 
-    let settings = Settings::at([2, 0, 4], 0, [0; 3], [7, 19, 3]);
-    let mut board = Plugboard::empty();
-    for (a, b) in [(0u8, 20u8), (4, 12), (8, 15), (17, 2), (24, 9)] {
-        board.connect(a, b);
-    }
-    let plain = to_letters(SIGNAL);
-    let ct = Enigma::new(settings, board).run(&plain);
-
+    let (plain, ct) = planted_bombe_message();
     let crib = to_letters("VONVONJAWEGENDERSITUATIONXXMELDEICHXX");
     let menu = Menu::place(&ct, &crib, 0).expect("the true placement is never refuted");
     assert!(
@@ -488,6 +495,7 @@ fn the_bombe_breaks_a_message_it_has_a_crib_for() {
         trace: &trace,
     };
     let attack = BombeAttack {
+        slices: std::sync::Mutex::new(Vec::new()),
         stops: std::sync::atomic::AtomicU64::new(0),
         crib,
         label: "VONVONJAWEGENDERSITUATIONXXMELDEICHXX".to_string(),
@@ -617,4 +625,71 @@ fn what_it_costs_to_judge_a_stop() {
         each * 23_622_144.0 / 1e9
     );
     assert!(sink.is_finite());
+}
+
+/// The null a bombe measures on itself must be the same statistic as the best it reports.
+///
+/// A null made of individual stops against a best that is the largest of millions would call any sweep a reading, which is the shape of mistake this tool has already made once.
+#[test]
+fn a_bombe_calibrates_itself_against_its_own_accidents() {
+    use cipher_break::attack::{Attack, BombeAttack, NULL_GROUPS};
+
+    // The same machine and message the planted bombe test breaks, so that a sweep here is a sweep that is known to find something.
+    let (plain, ct) = planted_bombe_message();
+    let crib = to_letters("VONVONJAWEGENDERSITUATIONXXMELDEICHXX");
+
+    let bank = bank();
+    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+    let focus = german();
+    let focus_scale = focus
+        .as_ref()
+        .map(|m| Scale::for_model(m, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2)));
+    let trace = Trace::new(false);
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: Schedule::default(),
+        seed: 1,
+        keep: PLANTED_KEEP,
+        focus: focus.as_ref(),
+        focus_scale: focus_scale.as_ref(),
+        trace: &trace,
+    };
+
+    let attack = BombeAttack {
+        slices: std::sync::Mutex::new(Vec::new()),
+        stops: std::sync::atomic::AtomicU64::new(0),
+        crib,
+        label: "self-calibration".to_string(),
+        rotors_available: 5,
+        naval: false,
+    };
+    let _ = &plain;
+
+    assert_eq!(
+        attack.own_null(),
+        Some(Vec::new()),
+        "before a sweep there is nothing measured and so nothing to compare against"
+    );
+
+    let best = attack.best(&ct, &ctx);
+    let null = attack.own_null().expect("a bombe always answers for itself");
+
+    assert!(
+        null.len() < NULL_GROUPS,
+        "one slice produces the reported best and cannot also be its own null: {} of {NULL_GROUPS}",
+        null.len()
+    );
+    if let Some(top) = best.first() {
+        for &n in &null {
+            assert!(
+                n <= top.score,
+                "a null point {n} above the reported best {} means the best was not the best",
+                top.score
+            );
+        }
+    }
+    // Every slice that saw a stop contributes, and a sweep that saw stops in more than one slice can say something about its own spread.
+    let stops = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
+    println!("  {stops} stops over {NULL_GROUPS} slices gave {} null points", null.len());
 }

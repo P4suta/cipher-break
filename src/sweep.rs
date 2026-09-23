@@ -90,6 +90,17 @@ pub fn run(attack: &dyn Attack, ct: &[Letter], ctx: &Context, nulls: usize) -> O
         };
     }
     let best = attack.best(ct, ctx);
+    // An attack that measured its own noise is believed, and the shuffles are not run.
+    // Running them anyway would cost as much again as the attack, nine times over for a sweep that already sifted six hundred million settings and watched what the accidents among them scored.
+    if let Some(null) = attack.own_null() {
+        return Outcome {
+            name: attack.name(),
+            family: attack.family(),
+            coverage,
+            best,
+            null,
+        };
+    }
     let mut rng = Rng::new(ctx.seed ^ 0x5DEE_CE66_D000_0001);
     let shuffles: Vec<Vec<Letter>> = (0..nulls).map(|_| rng.shuffled(ct)).collect();
     let null = shuffles

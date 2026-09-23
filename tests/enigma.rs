@@ -223,8 +223,159 @@ fn every_planted_case_deciphers_back() {
 #[cfg(feature = "gpu")]
 mod device {
     use super::*;
+
+    /// What a naval bombe costs on the device, against what it costs on the processor.
+    #[test]
+    #[ignore = "a measurement, not a check"]
+    fn what_a_naval_bombe_costs_on_the_device() {
+        use cipher_break::bombe::Menu;
+        use cipher_break::ciphers::enigma::{ROTOR_COUNT, naval_reflectors, rotor_orders};
+
+        let Ok(gpu) = Gpu::open() else {
+            return;
+        };
+        let ct = cipher_break::to_letters(
+            "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
+        );
+        let crib = to_letters("KEINEBESONDEREN");
+        let menus: Vec<Menu> = (0..=ct.len() - crib.len())
+            .filter_map(|o| Menu::place(&ct, &crib, o))
+            .filter(|m| m.closures() > 0)
+            .collect();
+        let packed: Vec<(usize, Vec<(u8, u8)>, u8)> = menus
+            .iter()
+            .map(|m| {
+                let pairs = (0..crib.len()).map(|i| (crib[i], ct[m.offset + i])).collect();
+                (m.offset, pairs, m.hub())
+            })
+            .collect();
+        let german = german().expect("the German model");
+        let reflectors: Vec<[u8; 26]> = naval_reflectors().into_iter().map(|(_, w)| w).collect();
+        let orders = rotor_orders(ROTOR_COUNT);
+
+        // One rotor order of the three hundred and thirty-six, timed and multiplied.
+        let start = std::time::Instant::now();
+        let found = gpu.sweep_bombe(&BombeJob {
+            ct: &ct,
+            logp: german.log_table(),
+            order: german.order(),
+            orders: &orders[..1],
+            reflectors: &reflectors,
+            menus: &packed,
+            keep: 5,
+        });
+        let one = start.elapsed().as_secs_f64();
+
+        println!("  crib {} letters, {} placements", crib.len(), menus.len());
+        println!("  one rotor order          {one:>8.2} s   {} stops", found.stops);
+        println!("  all {} orders         {:>8.1} min", orders.len(), one * orders.len() as f64 / 60.0);
+        println!("  the processor took about 22 min for a crib of this size");
+        if let Some(top) = found.best.first() {
+            println!("  best {:+.3} at menu {} guess {}", top.score, top.menu, top.guess);
+        }
+    }
+
     use cipher_break::attack::{GpuEnigmaNaval, LEAD_MARGIN, climb_plugboard};
-    use cipher_break::gpu::{EnigmaHit, EnigmaJob, Gpu};
+    use cipher_break::gpu::{BombeJob, EnigmaHit, EnigmaJob, Gpu};
+
+    /// The device bombe must refute exactly what the processor's bombe refutes.
+    ///
+    /// Not approximately and not "about the same number": a bombe's whole worth is that its negatives are exact, and a device that refutes one setting the processor would have kept has thrown away the only thing it was built to produce.
+    #[test]
+    #[ignore = "a rotor sweep, and it needs a device"]
+    fn the_device_refutes_exactly_what_the_processor_refutes() {
+        use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_with};
+        use cipher_break::ciphers::enigma::{Settings, reflector_wiring};
+
+        let Ok(gpu) = Gpu::open() else {
+            return;
+        };
+        let (plain, ct) = planted_bombe_message();
+        // Short enough that a great many settings survive, because a comparison of two zeroes proves nothing at all — the first version of this test swept a crib strong enough to refute everything and agreed with itself about that.
+        let crib = to_letters("VONVONJAWE");
+        let menus: Vec<Menu> = (0..=ct.len() - crib.len())
+            .filter_map(|o| Menu::place(&ct, &crib, o))
+            .filter(|m| m.closures() > 0)
+            .collect();
+        assert!(!menus.is_empty(), "the crib has to sit somewhere");
+
+        // One rotor order and one reflector, every position of them: enough that a disagreement shows up and few enough that the processor can do it too.
+        // The order the message was actually enciphered on, so the true setting is in the sweep and has to survive it on both sides.
+        let orders = vec![[2usize, 0, 4]];
+        let reflector = reflector_wiring(0);
+        let bank = bank();
+        let german = german().expect("the German model");
+
+        let packed: Vec<(usize, Vec<(u8, u8)>, u8)> = menus
+            .iter()
+            .map(|m| {
+                let pairs: Vec<(u8, u8)> = (0..crib.len())
+                    .map(|i| (crib[i], ct[m.offset + i]))
+                    .collect();
+                (m.offset, pairs, m.hub())
+            })
+            .collect();
+
+        let found = gpu.sweep_bombe(&BombeJob {
+            ct: &ct,
+            logp: german.log_table(),
+            order: german.order(),
+            orders: &orders,
+            reflectors: &[reflector],
+            menus: &packed,
+            keep: 8,
+        });
+
+        // The same sweep, on the processor.
+        let mut expected: u64 = 0;
+        let reach = menus.iter().map(|m| m.offset + crib.len()).max().expect("a menu");
+        let mut positions = Positions::of(
+            Settings::at(orders[0], 0, [0; 3], [0; 3]),
+            reflector,
+            reach,
+        );
+        let mut scratch = Scratch::new();
+        for index in 0..26u32 * 26 * 26 {
+            let settings = Settings::at(
+                orders[0],
+                0,
+                [0; 3],
+                [
+                    (index / 676) as u8,
+                    ((index / 26) % 26) as u8,
+                    (index % 26) as u8,
+                ],
+            );
+            positions.restart(settings, reach);
+            for menu in &menus {
+                if matches!(scan_with(menu, &positions, &mut scratch), Stop::Survived { .. }) {
+                    expected += 1;
+                }
+            }
+        }
+
+        println!("  processor {expected} stops, device {} stops", found.stops);
+        assert!(expected > 0, "a comparison of two zeroes proves nothing");
+        assert_eq!(
+            found.stops, expected,
+            "the two bombes disagree about which settings survive"
+        );
+
+        // And the setting the message was really enciphered on is among them.
+        let truth = [7u8, 19, 3];
+        let mut kept = false;
+        for menu in &menus {
+            positions.restart(
+                Settings::at(orders[0], 0, [0; 3], truth),
+                reach,
+            );
+            if matches!(scan_with(menu, &positions, &mut scratch), Stop::Survived { .. }) {
+                kept = true;
+            }
+        }
+        assert!(kept, "a bombe that refutes the true setting is broken");
+        let _ = (&plain, &bank);
+    }
 
     fn context<'a>(
         bank: &'a Polyglot,
@@ -495,6 +646,8 @@ fn the_bombe_breaks_a_message_it_has_a_crib_for() {
         trace: &trace,
     };
     let attack = BombeAttack {
+        #[cfg(feature = "gpu")]
+        gpu: None,
         stops: std::sync::atomic::AtomicU64::new(0),
         crib,
         label: "VONVONJAWEGENDERSITUATIONXXMELDEICHXX".to_string(),
@@ -635,6 +788,8 @@ fn a_bombe_offers_no_null_of_its_own() {
 
     let (_, ct) = planted_bombe_message();
     let attack = BombeAttack {
+        #[cfg(feature = "gpu")]
+        gpu: None,
         stops: std::sync::atomic::AtomicU64::new(0),
         crib: to_letters("VONVONJAWEGENDERSITUATIONXXMELDEICHXX"),
         label: "no self-calibration".to_string(),

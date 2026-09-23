@@ -593,6 +593,10 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
     };
     let naval = !flag(args, "--m3");
     let rotors = number(args, "--rotors", cipher_break::ciphers::enigma::ROTOR_COUNT);
+    // A device if there is one.
+    // The sweep is the same either way — a cross-check plants a message and demands the two agree to the setting — and about three times faster.
+    #[cfg(feature = "gpu")]
+    let device = cipher_break::gpu::Gpu::open().ok().map(std::sync::Arc::new);
 
     // How many rotor settings each menu will be shown, which is what decides whether surviving one means anything.
     let settings = (ALPHABET as u64).pow(3)
@@ -658,6 +662,8 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
         println!("  {word} — {placements} placements");
         let _ = std::io::stdout().flush();
         let attack = cipher_break::attack::BombeAttack {
+            #[cfg(feature = "gpu")]
+            gpu: device.clone(),
             stops: std::sync::atomic::AtomicU64::new(0),
             crib: to_letters(&word),
             label: word.clone(),

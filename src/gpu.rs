@@ -26,6 +26,20 @@ const ENIGMA_SHADER: &str = include_str!("gpu/enigma.wgsl");
 /// The plugboard climb.
 const PLUGBOARD_SHADER: &str = include_str!("gpu/plugboard.wgsl");
 
+/// Turing's bombe, on the device.
+const BOMBE_SHADER: &str = include_str!("gpu/bombe.wgsl");
+
+/// How many threads a bombe workgroup runs.
+///
+/// Smaller than the rotor sweep's, because each thread here keeps a run of the crib's rotor positions in workgroup memory alongside the tables.
+const BOMBE_WORKGROUP: u32 = 128;
+
+/// The longest crib a device sweep can carry.
+///
+/// Sixteen words of two packed positions each.
+/// Longer cribs are swept on the processor, which has no such limit and no need of one — a crib this long already refutes everything it is shown.
+pub const BOMBE_MAX_CRIB: usize = 32;
+
 /// Where each block of the packed Enigma table starts, in words.
 ///
 /// Derived from the tables rather than written out: the shader has the same
@@ -66,6 +80,111 @@ pub struct EnigmaJob<'a> {
     pub rings: usize,
     /// How many settings to keep.
     pub keep: usize,
+}
+
+/// Lay every placement of a crib out for the device.
+///
+/// One run per menu: where it starts, the hub, where each letter's edges begin, and then those edges laid end to end.
+/// The same shape the processor's bombe uses, because the alternative — walking the whole crib for every deduction — is what held the first device bombe to one and a half times the speed of the machine it was meant to replace.
+/// Turn a dispatch's per-thread bests back into settings.
+fn decode_stops(hits: &[u32], order: usize, menus: u32, positions: u32) -> Vec<BombeHit> {
+    let mut out = Vec::new();
+    for pair in hits.chunks_exact(2) {
+        let score = f64::from(f32::from_bits(pair[0]));
+        // Threads that refuted everything they were shown report a score no float would reach.
+        if !score.is_finite() || score < -1.0e29 {
+            continue;
+        }
+        let guess = (pair[1] % ALPHABET as u32) as u8;
+        let rest = pair[1] / ALPHABET as u32;
+        let index = rest / menus;
+        let p = index % positions;
+        out.push(BombeHit {
+            score,
+            order,
+            reflector: (index / positions) as usize,
+            positions: [
+                Indicator::new((p / 676) as u8),
+                Indicator::new(((p / 26) % 26) as u8),
+                Indicator::new((p % 26) as u8),
+            ],
+            menu: (rest % menus) as usize,
+            guess,
+        });
+    }
+    out
+}
+
+fn pack_menus(menus: &[(usize, Vec<(Letter, Letter)>, Letter)], crib: usize) -> Vec<u32> {
+    let mut packed: Vec<u32> = Vec::with_capacity(menus.len() * (crib * 2 + 29));
+    for (offset, pairs, hub) in menus {
+        let mut degree = [0u32; ALPHABET];
+        for (p, c) in pairs {
+            degree[*p as usize] += 1;
+            degree[*c as usize] += 1;
+        }
+        let mut starts = [0u32; ALPHABET + 1];
+        for l in 0..ALPHABET {
+            starts[l + 1] = starts[l] + degree[l];
+        }
+        let mut at = starts;
+        let mut flat = vec![0u32; pairs.len() * 2];
+        for (i, (p, c)) in pairs.iter().enumerate() {
+            for (from, to) in [(*p, *c), (*c, *p)] {
+                flat[at[from as usize] as usize] = i as u32 | (u32::from(to) << 5);
+                at[from as usize] += 1;
+            }
+        }
+        packed.push(*offset as u32);
+        packed.push(u32::from(*hub));
+        packed.extend_from_slice(&starts);
+        packed.extend_from_slice(&flat);
+    }
+    packed
+}
+
+/// A crib to run a bombe on, and everything the device needs to run it.
+pub struct BombeJob<'a> {
+    /// The ciphertext.
+    pub ct: &'a [Letter],
+    /// The log-probability table of the steering language.
+    pub logp: &'a [f32],
+    /// The order of the model that table came from.
+    pub order: usize,
+    /// The rotor orders to try.
+    pub orders: &'a [[usize; 3]],
+    /// The reflectors to try.
+    pub reflectors: &'a [[u8; ALPHABET]],
+    /// Every placement of the crib: where it starts, its letters against the ciphertext's, and the letter to start each hypothesis from.
+    pub menus: &'a [(usize, Vec<(Letter, Letter)>, Letter)],
+    /// How many settings to keep.
+    pub keep: usize,
+}
+
+/// What a device bombe came back with.
+#[derive(Clone, Debug)]
+pub struct BombeFindings {
+    /// The best-scoring stops, most promising first.
+    pub best: Vec<BombeHit>,
+    /// How many settings the sweep could not refute, over all placements.
+    pub stops: u64,
+}
+
+/// One setting a menu could not refute.
+#[derive(Clone, Copy, Debug)]
+pub struct BombeHit {
+    /// How well its decipherment scored under the steering language.
+    pub score: f64,
+    /// Which rotor order, as an index into the list the caller passed.
+    pub order: usize,
+    /// Which reflector, likewise.
+    pub reflector: usize,
+    /// Where the three rotors started.
+    pub positions: [Indicator; 3],
+    /// Which placement of the crib produced it.
+    pub menu: usize,
+    /// What the hub was assumed to be stecker'd to.
+    pub guess: Letter,
 }
 
 /// One rotor setting the device liked.
@@ -200,6 +319,8 @@ pub struct Gpu {
     enigma_layout: wgpu::BindGroupLayout,
     plug_pipeline: wgpu::ComputePipeline,
     plug_layout: wgpu::BindGroupLayout,
+    bombe_pipeline: wgpu::ComputePipeline,
+    bombe_layout: wgpu::BindGroupLayout,
     /// What the adapter calls itself, for the report.
     pub name: String,
 }
@@ -349,6 +470,8 @@ impl Gpu {
             compute_pipeline(&device, "enigma", ENIGMA_SHADER, "sweep", 5, 4);
         let (plug_pipeline, plug_layout) =
             compute_pipeline(&device, "plugboard", PLUGBOARD_SHADER, "climb", 6, 5);
+        let (bombe_pipeline, bombe_layout) =
+            compute_pipeline(&device, "bombe", BOMBE_SHADER, "sweep", 7, 5);
         Ok(Gpu {
             device,
             queue,
@@ -358,6 +481,8 @@ impl Gpu {
             enigma_layout,
             plug_pipeline,
             plug_layout,
+            bombe_pipeline,
+            bombe_layout,
             name,
         })
     }
@@ -467,6 +592,107 @@ impl Gpu {
             found.truncate(keep.max(1));
         }
         found
+    }
+
+    /// Run a bombe over every rotor setting, on the device.
+    ///
+    /// A bombe narrows and a score chooses, and both happen here: a sweep through a strong menu leaves a few million settings standing out of six hundred million, which is far too many to hand back and far too few to be worth a second pass, so a thread that finds a stop deciphers the message with the plugboard the stop handed it and keeps only its own best.
+    ///
+    /// The host dispatches once per rotor order, as the rotor sweep does and for the same reason: one order at a time keeps every count inside a `u32`.
+    #[must_use]
+    pub fn sweep_bombe(&self, job: &BombeJob) -> BombeFindings {
+        let BombeJob {
+            ct,
+            logp,
+            order,
+            orders,
+            reflectors,
+            menus,
+            keep,
+        } = *job;
+        let crib = menus.first().map_or(0, |m| m.1.len());
+        if crib == 0 || crib > BOMBE_MAX_CRIB || menus.iter().any(|m| m.1.len() != crib) {
+            return BombeFindings {
+                best: Vec::new(),
+                stops: 0,
+            };
+        }
+        let tables = pack_enigma_tables(reflectors);
+        let packed = pack_menus(menus, crib);
+
+        let positions = (ALPHABET as u32).pow(3);
+        let count = reflectors.len() as u32 * positions;
+        let threads = THREADS.min(count);
+        let chunk = count.div_ceil(threads);
+        let groups = threads.div_ceil(BOMBE_WORKGROUP);
+
+        let ct_buffer = self.storage("ct", &words_to_bytes(&ct_words(ct)));
+        let tables_buffer = self.storage("tables", &words_to_bytes(&tables));
+        let logp_buffer = self.storage("logp", &floats_to_bytes(logp));
+        let menus_buffer = self.storage("menus", &words_to_bytes(&packed));
+        let out_len = threads as usize * 2;
+        let out_buffer = self.readable("out", (out_len * 4) as u64);
+        let out_staging = self.staging("out-read", (out_len * 4) as u64);
+        let stops_buffer = self.readable("stops", u64::from(threads) * 4);
+        let stops_staging = self.staging("stops-read", u64::from(threads) * 4);
+
+        let mut best: Vec<BombeHit> = Vec::new();
+        let mut total: u64 = 0;
+        for (o, rotors) in orders.iter().enumerate() {
+            let params = vec![
+                ct.len() as u32,
+                count,
+                threads,
+                chunk,
+                reflectors.len() as u32,
+                positions,
+                menus.len() as u32,
+                crib as u32,
+                (ALPHABET as u32).pow(order as u32 - 1),
+                order as u32,
+                rotors[0] as u32,
+                rotors[1] as u32,
+                rotors[2] as u32,
+                0,
+                0,
+                0,
+            ];
+            let params_buffer = self.storage("params", &words_to_bytes(&params));
+            let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("bombe"),
+                layout: &self.bombe_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: ct_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: tables_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: logp_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: menus_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 4, resource: params_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 5, resource: out_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 6, resource: stops_buffer.as_entire_binding() },
+                ],
+            });
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+                pass.set_pipeline(&self.bombe_pipeline);
+                pass.set_bind_group(0, &bind, &[]);
+                pass.dispatch_workgroups(groups, 1, 1);
+            }
+            encoder.copy_buffer_to_buffer(&out_buffer, 0, &out_staging, 0, (out_len * 4) as u64);
+            encoder.copy_buffer_to_buffer(&stops_buffer, 0, &stops_staging, 0, u64::from(threads) * 4);
+            self.queue.submit(Some(encoder.finish()));
+
+            let hits = bytes_to_words(&self.read(&out_staging));
+            for found in bytes_to_words(&self.read(&stops_staging)) {
+                total += u64::from(found);
+            }
+            best.extend(decode_stops(&hits, o, menus.len() as u32, positions));
+            best.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
+            best.truncate(keep.max(1));
+        }
+        BombeFindings { best, stops: total }
     }
 
     /// Grow a plugboard for every candidate setting, on the device.

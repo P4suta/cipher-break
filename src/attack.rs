@@ -1749,6 +1749,11 @@ impl Attack for GpuEnigmaNaval {
 /// It needs a crib that is actually there, and a crib whose letters repeat enough to close loops.
 /// A menu with no closures forces nothing twice, so nothing can ever disagree, and the attack accepts every setting it is shown; [`crate::bombe::Menu::closures`] is what says whether a crib is worth running.
 pub struct BombeAttack {
+    /// A device to run the sweep on, when there is one.
+    ///
+    /// The same sweep either way — a cross-check plants a message and demands the two agree to the setting, not to a count — but about three times faster, which is the difference between an afternoon and an evening.
+    #[cfg(feature = "gpu")]
+    pub gpu: Option<std::sync::Arc<crate::gpu::Gpu>>,
     /// How many settings the last sweep left standing.
     ///
     /// Kept because it is the difference between "nothing survived" and "thousands survived and none of them read", which a list of the best five candidates cannot tell apart, and which the report was previously reading as the same thing.
@@ -1819,6 +1824,92 @@ fn judge_stop(
     )
 }
 
+impl BombeAttack {
+    /// The same sweep on the device, when there is a device and one language to steer by.
+    ///
+    /// Returns `None` when anything is missing, so the processor's sweep is always the one that decides what a bombe means and the device only ever makes it faster.
+    #[cfg(feature = "gpu")]
+    fn on_device(&self, ct: &[Letter], ctx: &Context) -> Option<Vec<Candidate>> {
+        let gpu = self.gpu.as_ref()?;
+        let model = ctx.focus?;
+        if self.crib.len() > crate::gpu::BOMBE_MAX_CRIB {
+            return None;
+        }
+        let placements = crate::crib::placements(ct, &self.crib);
+        let menus: Vec<Menu> = placements
+            .iter()
+            .filter_map(|&offset| Menu::place(ct, &self.crib, offset))
+            .filter(|menu| menu.closures() > 0)
+            .collect();
+        if menus.is_empty() {
+            return Some(Vec::new());
+        }
+        let packed: Vec<(usize, Vec<(Letter, Letter)>, Letter)> = menus
+            .iter()
+            .map(|m| {
+                let pairs = (0..self.crib.len())
+                    .map(|i| (self.crib[i], ct[m.offset + i]))
+                    .collect();
+                (m.offset, pairs, m.hub())
+            })
+            .collect();
+        let orders = enigma::rotor_orders(self.rotors_available);
+        let named = reflectors_for(self.naval);
+        let wirings: Vec<[u8; ALPHABET]> = named.iter().map(|(_, w)| *w).collect();
+
+        let found = gpu.sweep_bombe(&crate::gpu::BombeJob {
+            ct,
+            logp: model.log_table(),
+            order: model.order(),
+            orders: &orders,
+            reflectors: &wirings,
+            menus: &packed,
+            keep: ctx.keep.max(1),
+        });
+        self.stops
+            .store(found.stops, std::sync::atomic::Ordering::Relaxed);
+        ctx.trace.note("bombe/device", || {
+            format!("{} stops over {} menus", found.stops, menus.len())
+        });
+
+        // The device found the settings; the plugboard and the score are worked out here, for the handful that are going to be reported, so that a candidate from a device sweep and one from a processor sweep are the same object.
+        let reach = menus
+            .iter()
+            .map(|m| m.offset + self.crib.len())
+            .max()
+            .unwrap_or(ct.len());
+        let mut scratch = Scratch::new();
+        let mut best: Vec<(Candidate, usize)> = Vec::new();
+        for hit in &found.best {
+            let settings = Settings::at(
+                orders[hit.order],
+                0,
+                [0; 3],
+                hit.positions.map(Indicator::value),
+            );
+            let positions = Positions::of(settings, wirings[hit.reflector], reach);
+            let menu = &menus[hit.menu];
+            let Stop::Survived { board, .. } = scan_with(menu, &positions, &mut scratch) else {
+                continue;
+            };
+            best.push(judge_stop(
+                ct,
+                ctx,
+                settings,
+                &named[hit.reflector],
+                board,
+                menu.offset,
+            ));
+        }
+        best.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
+        Some(rank_enigma(
+            best,
+            ct.len().saturating_sub(2).max(1),
+            ctx.keep,
+        ))
+    }
+}
+
 impl Attack for BombeAttack {
     fn name(&self) -> String {
         format!("bombe on {}", self.label)
@@ -1858,6 +1949,10 @@ impl Attack for BombeAttack {
 
     fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate> {
         self.stops.store(0, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(feature = "gpu")]
+        if let Some(found) = self.on_device(ct, ctx) {
+            return found;
+        }
         let placements = crate::crib::placements(ct, &self.crib);
         if placements.is_empty() {
             return Vec::new();

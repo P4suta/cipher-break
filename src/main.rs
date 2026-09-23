@@ -431,7 +431,7 @@ fn bombe_plan(
     words: Vec<String>,
     settings: u64,
 ) -> Vec<(String, usize, f64)> {
-    let mut words: Vec<(String, Vec<cipher_break::bombe::Menu>)> = words
+    let words: Vec<(String, Vec<cipher_break::bombe::Menu>)> = words
         .into_iter()
         .map(|word| {
             let letters = to_letters(&word);
@@ -541,6 +541,22 @@ fn bombe_one(
             "  THE MENUS SHOULD HAVE LEFT NOTHING STANDING. Read the candidates below whatever the verdict says of their scores."
         );
     }
+    // What a bombe's candidate is worth, judged against real language of this length rather than against the sweep that produced it.
+    // A sweep's survivors are random settings — surviving a menu says nothing about how the decipherment reads — so every null built from them is built from the same numbers as the thing it would judge.
+    let mut calibrator = report::Calibrator::new(ctx.judge, ctx.scale, ctx.seed);
+    let bar = calibrator.at(ct.len());
+    if let Some(top) = outcome.best.first() {
+        println!(
+            "  best decipherment {:+.1}s, where real text of this length reaches {:+.1}s — {}",
+            top.score,
+            bar.language_mean,
+            if bar.reads_as_language(top.score) {
+                "READS AS LANGUAGE"
+            } else {
+                "not language"
+            }
+        );
+    }
     for candidate in &outcome.best {
         println!(
             "{}",
@@ -642,7 +658,6 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
         println!("  {word} — {placements} placements");
         let _ = std::io::stdout().flush();
         let attack = cipher_break::attack::BombeAttack {
-            slices: std::sync::Mutex::new(Vec::new()),
             stops: std::sync::atomic::AtomicU64::new(0),
             crib: to_letters(&word),
             label: word.clone(),

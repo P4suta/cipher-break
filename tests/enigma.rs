@@ -495,7 +495,6 @@ fn the_bombe_breaks_a_message_it_has_a_crib_for() {
         trace: &trace,
     };
     let attack = BombeAttack {
-        slices: std::sync::Mutex::new(Vec::new()),
         stops: std::sync::atomic::AtomicU64::new(0),
         crib,
         label: "VONVONJAWEGENDERSITUATIONXXMELDEICHXX".to_string(),
@@ -626,71 +625,28 @@ fn what_it_costs_to_judge_a_stop() {
     assert!(sink.is_finite());
 }
 
-/// The null a bombe measures on itself must be the same statistic as the best it reports.
+/// A bombe offers no null of its own, and the reason is worth a test.
 ///
-/// A null made of individual stops against a best that is the largest of millions would call any sweep a reading, which is the shape of mistake this tool has already made once.
+/// Its survivors are settings a menu could not refute, and surviving a menu says nothing about how the decipherment reads: they are random settings, so any null built from them is built from the same numbers as the thing it would judge.
+/// Cutting the sweep into slices and taking each slice's best was tried, and it reported a margin of 13.5 on a crib whose best decipherment began QZZENANDFUNBATVGOBGZOIEX — the score being judged is the largest of those slice maxima by construction.
 #[test]
-fn a_bombe_calibrates_itself_against_its_own_accidents() {
-    use cipher_break::attack::{Attack, BombeAttack, NULL_GROUPS};
+fn a_bombe_offers_no_null_of_its_own() {
+    use cipher_break::attack::{Attack, BombeAttack};
 
-    // The same machine and message the planted bombe test breaks, so that a sweep here is a sweep that is known to find something.
-    let (plain, ct) = planted_bombe_message();
-    let crib = to_letters("VONVONJAWEGENDERSITUATIONXXMELDEICHXX");
-
-    let bank = bank();
-    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
-    let focus = german();
-    let focus_scale = focus
-        .as_ref()
-        .map(|m| Scale::for_model(m, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2)));
-    let trace = Trace::new(false);
-    let ctx = Context {
-        judge: &bank,
-        scale: &scale,
-        plan: Schedule::default(),
-        seed: 1,
-        keep: PLANTED_KEEP,
-        focus: focus.as_ref(),
-        focus_scale: focus_scale.as_ref(),
-        trace: &trace,
-    };
-
+    let (_, ct) = planted_bombe_message();
     let attack = BombeAttack {
-        slices: std::sync::Mutex::new(Vec::new()),
         stops: std::sync::atomic::AtomicU64::new(0),
-        crib,
-        label: "self-calibration".to_string(),
+        crib: to_letters("VONVONJAWEGENDERSITUATIONXXMELDEICHXX"),
+        label: "no self-calibration".to_string(),
         rotors_available: 5,
         naval: false,
     };
-    let _ = &plain;
-
     assert_eq!(
         attack.own_null(),
         Some(Vec::new()),
-        "before a sweep there is nothing measured and so nothing to compare against"
+        "a null of no points, so no margin can be computed and no reading declared from one"
     );
-
-    let best = attack.best(&ct, &ctx);
-    let null = attack.own_null().expect("a bombe always answers for itself");
-
-    assert!(
-        null.len() < NULL_GROUPS,
-        "one slice produces the reported best and cannot also be its own null: {} of {NULL_GROUPS}",
-        null.len()
-    );
-    if let Some(top) = best.first() {
-        for &n in &null {
-            assert!(
-                n <= top.score,
-                "a null point {n} above the reported best {} means the best was not the best",
-                top.score
-            );
-        }
-    }
-    // Every slice that saw a stop contributes, and a sweep that saw stops in more than one slice can say something about its own spread.
-    let stops = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
-    println!("  {stops} stops over {NULL_GROUPS} slices gave {} null points", null.len());
+    let _ = ct;
 }
 
 /// Whether a menu that closes one loop refutes anything, which decides whether it is worth sweeping.

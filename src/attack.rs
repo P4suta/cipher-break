@@ -1748,19 +1748,7 @@ impl Attack for GpuEnigmaNaval {
 ///
 /// It needs a crib that is actually there, and a crib whose letters repeat enough to close loops.
 /// A menu with no closures forces nothing twice, so nothing can ever disagree, and the attack accepts every setting it is shown; [`crate::bombe::Menu::closures`] is what says whether a crib is worth running.
-/// How many equal slices a bombe cuts its own sweep into to measure its own noise.
-///
-/// One slice produces the reported best and the rest are the null, so this is one more than the number of null points, chosen to match what the same margin would have cost in shuffles.
-pub const NULL_GROUPS: usize = crate::report::MIN_NULLS_SEARCHED + 1;
-
-/// Turing's bombe: refute rotor settings by contradiction against a guessed plaintext.
-///
-/// The one attack here that never asks whether a decipherment looks like a language, and so the only one that reaches a short message through a full plugboard — it asks instead whether the machine could have produced this ciphertext from this crib at all, and a setting that could not is gone whatever it scores.
 pub struct BombeAttack {
-    /// The best score in each equal slice of the last sweep.
-    ///
-    /// The slice that produced the reported best is dropped and the others are its null: they are the same statistic — the largest score in a sample of this size — measured on settings that survived for no reason, which is exactly what a shuffle is run to estimate and what this sweep has already seen a hundred million times.
-    pub slices: std::sync::Mutex<Vec<f64>>,
     /// How many settings the last sweep left standing.
     ///
     /// Kept because it is the difference between "nothing survived" and "thousands survived and none of them read", which a list of the best five candidates cannot tell apart, and which the report was previously reading as the same thing.
@@ -1855,22 +1843,21 @@ impl Attack for BombeAttack {
     }
 
     fn own_null(&self) -> Option<Vec<f64>> {
-        let mut slices: Vec<f64> = self
-            .slices
-            .lock()
-            .map(|s| s.iter().copied().filter(|v| v.is_finite()).collect())
-            .unwrap_or_default();
-        slices.sort_unstable_by(f64::total_cmp);
-        // The top slice is the one that produced the reported best; comparing it with itself would prove only that it equals itself.
-        slices.pop();
-        Some(slices)
+        // No null, and deliberately so.
+        //
+        // A sweep's survivors are settings that a menu could not refute, and surviving a menu says nothing whatever about how the decipherment scores; they are random settings, and the best of several million of them is the best of several million random settings.
+        // Every null that can be built from them is therefore built from the same numbers as the thing it is meant to judge.
+        //
+        // Cutting the sweep into slices and taking each slice's best was tried here.
+        // It is worse than useless: the score being judged is the largest of those slice maxima by construction, so the comparison is the largest of nine numbers against the other eight — positive every time — and maxima of half a million draws bunch so tightly that the deviation comes out enormous.
+        // It reported a margin of 13.5 on a crib whose best decipherment was QZZENANDFUNBATVGOBGZOIEX.
+        //
+        // What can judge a bombe's candidate is what it is worth against real language of that length, which the report already knows and does not need a sweep to tell it.
+        Some(Vec::new())
     }
 
     fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate> {
         self.stops.store(0, std::sync::atomic::Ordering::Relaxed);
-        if let Ok(mut slices) = self.slices.lock() {
-            *slices = vec![f64::NEG_INFINITY; NULL_GROUPS];
-        }
         let placements = crate::crib::placements(ct, &self.crib);
         if placements.is_empty() {
             return Vec::new();
@@ -1925,7 +1912,6 @@ impl Attack for BombeAttack {
                 let mut positions = Positions::of(base, reflectors[reflector].1, reach);
                 let mut scratch = Scratch::new();
                 let mut survived = 0u64;
-                let mut slices = [f64::NEG_INFINITY; NULL_GROUPS];
                 for index in 0..span {
                     let settings = Settings::at(
                         orders[order],
@@ -1945,8 +1931,6 @@ impl Attack for BombeAttack {
                             continue;
                         };
                         survived += 1;
-                        // Which slice a setting falls in is decided by where it sits in the sweep, so the slices are equal in size and none of them is chosen for what it found.
-                        let slice = (index % NULL_GROUPS as u64) as usize;
                         stops.push(judge_stop(
                             ct,
                             ctx,
@@ -1955,7 +1939,6 @@ impl Attack for BombeAttack {
                             board,
                             menu.offset,
                         ));
-                        slices[slice] = slices[slice].max(stops[stops.len() - 1].0.score);
                     }
                     if stops.len() > keep * STOPS_BEFORE_SIFTING {
                         sift(&mut stops, keep);
@@ -1964,11 +1947,6 @@ impl Attack for BombeAttack {
                 sift(&mut stops, keep);
                 self.stops
                     .fetch_add(survived, std::sync::atomic::Ordering::Relaxed);
-                if let Ok(mut shared) = self.slices.lock() {
-                    for (into, from) in shared.iter_mut().zip(slices) {
-                        *into = into.max(from);
-                    }
-                }
                 stops
             })
             .collect();

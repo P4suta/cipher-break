@@ -698,25 +698,36 @@ fn a_bombe_calibrates_itself_against_its_own_accidents() {
 /// Counting closures says it refutes nothing: one closure is what makes a stop possible and leaves a sweep exactly as it found it.
 /// Counting closures leaves out Turing's diagonal board, which forces the other end of every lead it sets and so contradicts far more often than the loops alone can account for — the whole point of the thing.
 #[test]
-fn a_one_closure_menu_still_refutes_most_of_what_it_is_shown() {
+fn a_weak_menu_still_refutes_most_of_what_it_is_shown() {
     use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_with};
     use cipher_break::ciphers::enigma::{Settings, rotor_orders};
 
     let ct = cipher_break::to_letters(
         "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
     );
-    let crib = to_letters("MELDEICHXXSTANDORTXX");
-    let Some(menu) = (0..=ct.len() - crib.len())
-        .filter_map(|o| Menu::place(&ct, &crib, o))
-        .find(|m| m.closures() == 1)
-    else {
-        return;
-    };
+    // A menu for each of the two counts the loop arithmetic writes off entirely.
+    let weak: Vec<Menu> = [0usize, 1]
+        .iter()
+        .filter_map(|&want| {
+            let crib = to_letters(if want == 0 {
+                "ABCDEFGH"
+            } else {
+                "MELDEICHXXSTANDORTXX"
+            });
+            (0..=ct.len() - crib.len())
+                .filter_map(|o| Menu::place(&ct, &crib, o))
+                .find(|m| m.closures() == want)
+        })
+        .collect();
+    assert!(!weak.is_empty(), "no weak menu to measure");
+
+    for menu in &weak {
 
     // One rotor order and one reflector: enough settings that a rate is a rate.
+    let crib_len = menu.edges.len();
     let orders = rotor_orders(5);
     let reflector = cipher_break::ciphers::enigma::reflector_wiring(0);
-    let reach = menu.offset + crib.len();
+    let reach = menu.offset + crib_len;
     let mut positions = Positions::of(
         Settings::at(orders[0], 0, [0; 3], [0; 3]),
         reflector,
@@ -739,18 +750,22 @@ fn a_one_closure_menu_still_refutes_most_of_what_it_is_shown() {
         );
         positions.restart(settings, reach);
         shown += 1;
-        if matches!(scan_with(&menu, &positions, &mut scratch), Stop::Survived { .. }) {
+        if matches!(scan_with(menu, &positions, &mut scratch), Stop::Survived { .. }) {
             survived += 1;
         }
     }
 
     let rate = f64::from(survived) / f64::from(shown);
     println!(
-        "  one closure: {survived} of {shown} settings survived ({:.1}%), where counting closures predicts 100%",
+        "  {} closures: {survived} of {shown} settings survived ({:.1}%), where counting loops predicts 100%",
+        menu.closures(),
         100.0 * rate
     );
-    assert!(
-        rate < 1.0,
-        "a one-closure menu refuted nothing at all, so dropping it from a sweep costs nothing"
-    );
+    if menu.closures() >= 1 {
+        assert!(
+            rate < 1.0,
+            "a one-closure menu refuted nothing at all, so dropping it from a sweep would cost nothing"
+        );
+    }
+    }
 }

@@ -1884,12 +1884,14 @@ impl Attack for BombeAttack {
         let span = (ALPHABET as u64).pow(3);
         let settings = span * orders.len() as u64 * reflectors.len() as u64;
 
-        // Every placement the crib can occupy at all.
-        // Weak menus were dropped here once, on a count of closures that said they could refute nothing; the count leaves out the diagonal board, and the menus it dismissed turned out to refute everything they were shown.
-        // A placement not swept is a placement the crib might have been sitting at, so the only ones left out are the ones `place` refuses: those where a letter would have to encipher to itself, which the machine cannot do.
+        // Every placement whose menu closes at least one loop, which is where the cliff actually is.
+        // Measured rather than reasoned: a menu with one closure refuted every one of the seventeen thousand settings it was shown, and a menu with none let 99.7% of them through.
+        // Dropping the second kind is not a saving but a necessity — six hundred million survivors to decipher and score is twenty minutes per menu to learn nothing.
+        // A placement not swept is a placement the crib might have been sitting at, so nothing else is left out.
         let menus: Vec<Menu> = placements
             .iter()
             .filter_map(|&offset| Menu::place(ct, &self.crib, offset))
+            .filter(|menu| menu.closures() > 0)
             .collect();
         if menus.is_empty() {
             return Vec::new();

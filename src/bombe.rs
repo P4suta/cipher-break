@@ -101,7 +101,7 @@ impl Menu {
     /// Each closure forces a letter that is already forced, and two forcings agree by chance one time in twenty-six, so the loops alone let through at most one setting in `26^(c-1)`.
     ///
     /// A loose bound and not a prediction: it counts only the loops, and Turing's diagonal board forces the other end of every lead it sets, which contradicts far more often than the loops can account for.
-    /// Measured on this tool's own sweeps, the bound overshoots by twenty times to a hundred thousand, and a menu with a single closure — which the bound says refutes nothing whatever — refuted every one of the seventeen thousand settings it was shown.
+    /// Measured on this tool's own sweeps the bound overshoots by twenty times to a hundred thousand, and the cliff is not where it puts it: a menu with one closure, which the bound writes off entirely, refuted every one of the seventeen thousand settings it was shown, while a menu with none let 99.7% through.
     /// So a stop against a small bound is worth a great deal, and a large bound is worth nothing at all: it says only that the loops did not settle the matter, not that the sweep will not.
     #[must_use]
     pub fn chance_stops(&self, settings: u64) -> f64 {

@@ -178,6 +178,11 @@ pub fn statistics(bank: Option<&Polyglot>) -> Vec<Statistic> {
             of: Box::new(vowels),
         },
         Statistic {
+            name: "longest vowel-free run",
+            tail: Tail::Upper,
+            of: Box::new(longest_vowel_free_run),
+        },
+        Statistic {
             name: "QWERTY neighbours",
             tail: Tail::Upper,
             of: Box::new(qwerty_neighbours),
@@ -247,6 +252,21 @@ pub fn random_population(len: usize, count: usize, rng: &mut Rng) -> Vec<Vec<Let
         .collect()
 }
 
+/// The longest stretch containing no vowel at all.
+///
+/// A count of vowels says how many there are; this says whether they are spread through the message or gathered at one end of it.
+/// The two come apart: a message can hold the ordinary number of vowels and still have half of itself without one, and that is a message that is probably two things rather than one — a preamble and a body, two ciphers, or a key group carried in front of the text it opens.
+#[must_use]
+pub fn longest_vowel_free_run(ls: &[Letter]) -> f64 {
+    let mut best = 0usize;
+    let mut run = 0usize;
+    for &l in ls {
+        run = if VOWELS.contains(&l) { 0 } else { run + 1 };
+        best = best.max(run);
+    }
+    best as f64
+}
+
 /// Ciphertexts an Enigma would actually produce, for comparing a message against the machine it is supposed to have come out of.
 ///
 /// The usual null — letters drawn uniformly — answers "is this random", which is not the question anyone is asking.
@@ -309,6 +329,35 @@ pub fn windows(width: usize, count: usize, corpus: &[Letter]) -> Vec<Vec<Letter>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_longest_vowel_free_run_is_counted_across_the_whole_text() {
+        use super::longest_vowel_free_run as run;
+        use crate::alphabet::to_letters;
+
+        assert_eq!(run(&to_letters("")), 0.0);
+        assert_eq!(run(&to_letters("AEIOU")), 0.0, "every letter a vowel, so no run at all");
+        assert_eq!(run(&to_letters("BCDFG")), 5.0, "no vowel anywhere, so the whole text");
+        assert_eq!(run(&to_letters("BCAdEfG")), 2.0, "the longest of several, not the last");
+        assert_eq!(run(&to_letters("ABCD")), 3.0, "a run that reaches the end still counts");
+    }
+
+    #[test]
+    fn a_vowel_count_and_a_vowel_run_are_different_questions() {
+        use super::{longest_vowel_free_run as run, vowels};
+        use crate::alphabet::to_letters;
+
+        // The same number of vowels, spread out or gathered up.
+        let spread = to_letters("BAB BAB BAB BAB".replace(' ', "").as_str());
+        let heaped = to_letters("AAAA BBBB BBBB BBBB".replace(' ', "").as_str());
+        assert_eq!(vowels(&spread), vowels(&heaped), "the same vowels either way");
+        assert!(
+            run(&heaped) > run(&spread),
+            "and only the run can tell that one of them is gathered at an end: {} vs {}",
+            run(&heaped),
+            run(&spread)
+        );
+    }
+
     #[test]
     fn an_enigma_null_is_thinned_of_what_its_plaintext_was_rich_in() {
         use crate::alphabet::ALPHABET;

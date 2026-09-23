@@ -710,6 +710,20 @@ fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
         out.push_str(&report::statistics_table(&against, "enigma"));
     }
 
+    // And against its own letters in a different order.
+    // The two nulls above let the message's composition vary, so a statistic can be flagged for what the letters are rather than for where they sit; this one holds the letters fixed and varies only the arrangement.
+    // A statistic that stands out against all three stands out for its order, which is the only thing a cipher is free to choose.
+    let rearranged: Vec<Vec<Letter>> = (0..number(args, "--trials", TRIAGE_TRIALS))
+        .map(|_| rng.shuffled(ct))
+        .collect();
+    let orderings: Vec<_> = triage::statistics(Some(bank))
+        .iter()
+        .map(|st| triage::assess(st, ct, &rearranged))
+        .collect();
+    out.push_str(&report::heading("AGAINST ITS OWN LETTERS REARRANGED"));
+    out.push_str("  the same letters in a different order, so only arrangement is on trial\n");
+    out.push_str(&report::statistics_table(&orderings, "shuffled"));
+
     out.push_str(&report::heading("PERIOD"));
     out.push_str("  a period shows itself as columns that are each monoalphabetic\n");
     let _ = writeln!(

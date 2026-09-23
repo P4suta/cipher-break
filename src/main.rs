@@ -5,6 +5,7 @@
 //! The command with no subcommand is the one to reach for: hand it a ciphertext and it runs the whole catalogue, calibrates itself, and says either what the message is or exactly what it ruled out on the way to not knowing.
 
 use cipher_break::alphabet::{ALPHABET, Letter, from_letters, to_letters};
+use rayon::prelude::*;
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Context, registry};
 use cipher_break::crib::{Crib, KRIEGSMARINE, KRIEGSMARINE_LONG};
@@ -362,29 +363,63 @@ fn cribs(ct: &[Letter], args: &[String]) {
         Some(word) => vec![word.to_string()],
         None => KRIEGSMARINE.iter().map(|w| (*w).to_string()).collect(),
     };
+    // One rotor order and one reflector, every position of them, is enough to measure a menu's bite: it is a property of the menu's shape, not of which rotors are in the machine.
+    let rotors = cipher_break::ciphers::enigma::rotor_orders(cipher_break::ciphers::enigma::ROTOR_COUNT)[0];
+    let reflector = cipher_break::ciphers::enigma::reflector_wiring(0);
+    let naval = f64::from((ALPHABET as u32).pow(3))
+        * cipher_break::ciphers::enigma::rotor_orders(cipher_break::ciphers::enigma::ROTOR_COUNT).len() as f64
+        * cipher_break::ciphers::enigma::NAVAL_REFLECTOR_COUNT as f64;
+
     println!(
-        "  {:<18} {:>9} {:>8}  offsets",
-        "crib", "placements", "ruled out"
+        "  {:<18} {:>4} {:>7} {:>9} {:>10} {:>9}",
+        "crib", "len", "places", "closures", "survive", "to judge"
     );
     for word in words {
         let letters = to_letters(&word);
-        let crib = Crib::against(ct, &letters);
-        let shown: Vec<String> = crib
+        let menus: Vec<cipher_break::bombe::Menu> = Crib::against(ct, &letters)
             .offsets
             .iter()
-            .take(12)
-            .map(ToString::to_string)
+            .filter_map(|&o| cipher_break::bombe::Menu::place(ct, &letters, o))
+            .filter(|m| m.closures() > 0)
             .collect();
-        let more = if crib.offsets.len() > 12 { ", ..." } else { "" };
+        if menus.is_empty() {
+            println!("  {word:<18} {:>4} {:>7}", letters.len(), 0);
+            continue;
+        }
+        // Measured, not reasoned.
+        // Counting loops answered this wrongly by five orders of magnitude.
+        let survive: f64 = menus
+            .par_iter()
+            .map(|m| m.survival_rate(rotors, reflector))
+            .sum::<f64>()
+            / menus.len() as f64;
+        let closures: Vec<usize> = menus.iter().map(cipher_break::bombe::Menu::closures).collect();
+        // What the survivors of a full naval sweep would cost to decipher and score, spread over this machine.
+        let seconds = survive * naval * menus.len() as f64 * SECONDS_TO_JUDGE_A_STOP
+            / num_cpus_or_one() as f64;
         println!(
-            "  {:<18} {:>9} {:>7.0}%  {}{}",
-            word,
-            crib.offsets.len(),
-            crib.cut(ct.len()) * 100.0,
-            shown.join(", "),
-            more
+            "  {word:<18} {:>4} {:>7} {:>9} {:>9.4}% {:>8.0}s",
+            letters.len(),
+            menus.len(),
+            format!(
+                "{}-{}",
+                closures.iter().min().copied().unwrap_or(0),
+                closures.iter().max().copied().unwrap_or(0)
+            ),
+            100.0 * survive,
+            seconds
         );
     }
+}
+
+/// What deciphering a surviving setting and scoring it costs.
+///
+/// Measured by `what_it_costs_to_judge_a_stop`: a bombe narrows and a score chooses, and the second is four times the price of the first, so a menu that lets millions through is paying for its own answer.
+const SECONDS_TO_JUDGE_A_STOP: f64 = 1.893e-6;
+
+/// How many threads the sweep will actually get.
+fn num_cpus_or_one() -> usize {
+    std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
 }
 
 /// What a bombe would be worth on each crib, printed as a table and returned as a plan.

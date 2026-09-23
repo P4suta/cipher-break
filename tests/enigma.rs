@@ -769,3 +769,83 @@ fn a_weak_menu_still_refutes_most_of_what_it_is_shown() {
     }
     }
 }
+
+/// How much of the search space each crib in the shipped lists actually refutes.
+///
+/// The one number that decides whether a crib is worth an hour, measured rather than reasoned: the loop arithmetic that used to answer this was wrong by five orders of magnitude and wrong in both directions.
+/// Short cribs matter because they are the ones that might really be in the message — a guess at twenty-eight letters of German has to be right twenty-eight times over — and the question is whether they still bite.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn how_much_each_shipped_crib_refutes() {
+    use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_with};
+    use cipher_break::ciphers::enigma::{Settings, reflector_wiring, rotor_orders};
+    use cipher_break::alphabet::ALPHABET;
+    use cipher_break::crib::{KRIEGSMARINE, KRIEGSMARINE_LONG};
+
+    let ct = cipher_break::to_letters(
+        "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
+    );
+    let orders = rotor_orders(8);
+    let reflector = reflector_wiring(0);
+    let span = (ALPHABET as u32).pow(3);
+
+    println!(
+        "  {:<18} {:>4} {:>6} {:>8} {:>12} {:>9}",
+        "crib", "len", "places", "closures", "survive", "naval cost"
+    );
+    for word in KRIEGSMARINE.iter().chain(KRIEGSMARINE_LONG) {
+        let crib = to_letters(word);
+        if crib.len() > ct.len() {
+            continue;
+        }
+        let menus: Vec<Menu> = (0..=ct.len() - crib.len())
+            .filter_map(|o| Menu::place(&ct, &crib, o))
+            .filter(|m| m.closures() > 0)
+            .collect();
+        if menus.is_empty() {
+            println!("  {word:<18} {:>4} {:>6}", crib.len(), 0);
+            continue;
+        }
+        let reach = menus.iter().map(|m| m.offset + crib.len()).max().unwrap_or(0);
+        let mut positions =
+            Positions::of(Settings::at(orders[0], 0, [0; 3], [0; 3]), reflector, reach);
+        let mut scratch = Scratch::new();
+
+        let mut survived = 0u64;
+        for index in 0..span {
+            let settings = Settings::at(
+                orders[0],
+                0,
+                [0; 3],
+                [
+                    (index / (ALPHABET as u32 * ALPHABET as u32)) as u8,
+                    ((index / ALPHABET as u32) % ALPHABET as u32) as u8,
+                    (index % ALPHABET as u32) as u8,
+                ],
+            );
+            positions.restart(settings, reach);
+            for menu in &menus {
+                if matches!(scan_with(menu, &positions, &mut scratch), Stop::Survived { .. }) {
+                    survived += 1;
+                }
+            }
+        }
+        let shown = u64::from(span) * menus.len() as u64;
+        let rate = survived as f64 / shown as f64;
+        // What a naval sweep of this crib would leave to decipher and score, at 1.9 microseconds each.
+        let naval = rate * (336.0 * 104.0 * f64::from(span)) * menus.len() as f64;
+        let closures: Vec<usize> = menus.iter().map(Menu::closures).collect();
+        println!(
+            "  {word:<18} {:>4} {:>6} {:>8} {:>11.4}% {:>8.0}s",
+            crib.len(),
+            menus.len(),
+            format!(
+                "{}-{}",
+                closures.iter().min().copied().unwrap_or(0),
+                closures.iter().max().copied().unwrap_or(0)
+            ),
+            100.0 * rate,
+            naval * 1.893e-6 / 18.0
+        );
+    }
+}

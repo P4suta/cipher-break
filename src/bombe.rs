@@ -125,6 +125,40 @@ impl Menu {
         1.0 + rank_over_all as f64 * self.chance_stops(settings) / settings as f64
     }
 
+    /// What fraction of the settings shown to this menu survive it, measured on one rotor order and one reflector.
+    ///
+    /// The only honest answer to "is this crib worth an hour", and the one number that no amount of counting loops would give: the loop arithmetic was wrong here by five orders of magnitude, and wrong in both directions.
+    /// One rotor order stands in for all of them because the rate is a property of the menu's shape, not of which rotors happen to be in the machine, and every setting of that order is tried rather than sampled.
+    #[must_use]
+    pub fn survival_rate(&self, rotors: [usize; 3], reflector: [u8; ALPHABET]) -> f64 {
+        let span = (ALPHABET as u32).pow(3);
+        let reach = self.offset + self.edges.len();
+        let mut positions = Positions::of(
+            Settings::at(rotors, 0, [0; 3], [0; 3]),
+            reflector,
+            reach,
+        );
+        let mut scratch = Scratch::new();
+        let mut survived = 0u32;
+        for index in 0..span {
+            let settings = Settings::at(
+                rotors,
+                0,
+                [0; 3],
+                [
+                    (index / (ALPHABET as u32 * ALPHABET as u32)) as u8,
+                    ((index / ALPHABET as u32) % ALPHABET as u32) as u8,
+                    (index % ALPHABET as u32) as u8,
+                ],
+            );
+            positions.restart(settings, reach);
+            if matches!(scan_with(self, &positions, &mut scratch), Stop::Survived { .. }) {
+                survived += 1;
+            }
+        }
+        f64::from(survived) / f64::from(span)
+    }
+
     /// How many times the menu forces a letter that something else has already forced.
     ///
     /// The cycle rank of the graph the crib and its ciphertext make together, and the only thing that gives a bombe anything to contradict: every closure is a place where two chains of deduction must agree, and disagreeing is how a setting is refuted.

@@ -6,7 +6,7 @@
 //! A candidate is reported as a reading only when it clears the bar real text of that length clears, *and* stands clear of what the same search found in shuffled text.
 //! Anything else is reported as what it is — the best of a large number of tries, which is a different thing.
 
-use crate::alphabet::{Letter, from_letters};
+use crate::alphabet::{ALPHABET, Letter, from_letters};
 use crate::attack::Coverage;
 use crate::polyglot::{Calibration, Polyglot, Scale};
 use crate::rng::Rng;
@@ -260,17 +260,52 @@ pub fn heading(title: &str) -> String {
 #[must_use]
 pub fn statistics_table(verdicts: &[StatVerdict], population: &str) -> String {
     let mut out = format!(
-        "  {:<22} {:>10} {:>11} {:>8} {:>8}\n",
-        "statistic", "observed", population, "z", "P"
+        "  {:<22} {:>10} {:>11} {:>8} {:>8} {:>10}\n",
+        "statistic", "observed", population, "z", "P", "P in table"
     );
     for v in verdicts {
         let _ = writeln!(
             out,
-            "  {:<22} {:>10.4} {:>11.4} {:>+8.2} {:>8.4}",
-            v.name, v.observed, v.mean, v.z, v.p
+            "  {:<22} {:>10.4} {:>11.4} {:>+8.2} {:>8.4} {:>10}",
+            v.name,
+            v.observed,
+            v.mean,
+            v.z,
+            v.p,
+            if v.family_p.is_nan() {
+                "-".to_string()
+            } else {
+                format!("{:.4}", v.family_p)
+            }
         );
     }
     out
+}
+
+/// How many letters a message must have before one key fits it and the rest do not.
+///
+/// Shannon's unicity distance: a key space of `keys` needs `log2(keys)` bits of evidence to single one of them out, and each letter of a redundant language supplies `redundancy` of them.
+/// Below it, several keys produce readable text and no amount of searching can say which was meant; above it, the answer is unique and the only question left is whether it can be reached.
+///
+/// It is the first thing worth knowing about a message and the last thing anyone asks: a tool that hunts for hours without saying whether the hunt is even well posed is answering a question nobody checked.
+#[must_use]
+pub fn unicity_distance(keys: u64, redundancy: f64) -> f64 {
+    if keys <= 1 || redundancy <= 0.0 {
+        return 0.0;
+    }
+    (keys as f64).log2() / redundancy
+}
+
+/// How many bits each letter of a language carries beyond what a random letter would.
+///
+/// Measured from the model rather than looked up: a model's own mean score on text it generated is the entropy of the grams it counts, and the gap from there to a uniform alphabet is what a cryptanalyst has to spend.
+///
+/// A gram of `order` letters is charged to all of them, which overstates the entropy — the joint entropy of a gram is never below `order` times the conditional entropy of its last letter — and so understates the redundancy and overstates how long a message has to be.
+/// That is the safe direction for a number whose job is to say whether a search is worth starting.
+#[must_use]
+pub fn redundancy(gram_score_nats: f64, order: usize) -> f64 {
+    let per_letter = -gram_score_nats / order.max(1) as f64;
+    (ALPHABET as f64).log2() - per_letter / std::f64::consts::LN_2
 }
 
 /// Render one sweep's result as a table row.

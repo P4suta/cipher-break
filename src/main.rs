@@ -674,10 +674,83 @@ fn train(args: &[String]) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// How many plugboard cables a wartime operator was issued.
+///
+/// Ten from 1939, which is not the number that makes the board most uncertain — eleven is — but it is the number that was used.
+const WARTIME_LEADS: usize = 10;
+
+/// How much text to draw from a model when measuring its entropy.
+///
+/// Long enough that the measurement is the model's and not the sample's.
+const REDUNDANCY_SAMPLE: usize = 20_000;
+
 /// The language the Enigma null enciphers.
 ///
 /// German, because that is the machine's whole history, and because what the null is for is to show what the assumed cipher emits from the assumed language.
 const ENIGMA_NULL_LANGUAGE: &str = "de";
+
+/// Whether the hunt is even well posed, before an hour is spent on it.
+///
+/// A key space needs a certain weight of evidence before one key fits a message and the rest do not, and a message of a given length carries only so much.
+/// Below that length no search can choose between the keys that read; above it the answer is unique and the only question left is whether anything can reach it.
+/// The model's own mean score on text it generated is its entropy, so the redundancy is measured here rather than looked up.
+fn unicity_section(ct: &[Letter], bank: &Polyglot, args: &[String], rng: &mut Rng) -> String {
+    let mut out = String::new();
+    let Some(model) = bank.model_named(option(args, "--language").unwrap_or(ENIGMA_NULL_LANGUAGE))
+    else {
+        return out;
+    };
+    let sample = model.sample(REDUNDANCY_SAMPLE, rng);
+    let redundancy = report::redundancy(model.score(&sample), model.order());
+    out.push_str(&report::heading("IS THE ANSWER EVEN UNIQUE"));
+    let _ = writeln!(
+        out,
+        "  {:.2} bits of redundancy per letter, so {} letters carry {:.0} bits of evidence",
+        redundancy,
+        ct.len(),
+        redundancy * ct.len() as f64
+    );
+    let _ = writeln!(
+        out,
+        "  {:<36} {:>10} {:>10}  {}",
+        "cipher", "key bits", "needs", "at this length"
+    );
+    let verdict = |needs: f64| {
+        if ct.len() as f64 >= needs {
+            "one key fits"
+        } else {
+            "several keys fit — no search can choose"
+        }
+    };
+    // The machines themselves, not what any attack here searches of them.
+    for (name, naval) in [
+        ("Enigma M3, ten leads", false),
+        ("Enigma M4 naval, ten leads", true),
+    ] {
+        let bits = cipher_break::ciphers::enigma::key_bits(naval, WARTIME_LEADS);
+        let needs = bits / redundancy;
+        let _ = writeln!(out, "  {name:<36} {bits:>10.1} {needs:>10.1}  {}", verdict(needs));
+    }
+    let mut seen: Vec<(String, u64)> = registry(effort_from(args).depth)
+        .iter()
+        .map(|a| (a.name(), a.coverage(ct).keys()))
+        .filter(|(_, keys)| *keys > 1)
+        .collect();
+    seen.sort_by_key(|(_, keys)| *keys);
+    seen.dedup_by(|a, b| a.1 == b.1);
+    for (name, keys) in seen {
+        let needs = report::unicity_distance(keys, redundancy);
+        let _ = writeln!(
+            out,
+            "  {:<36} {:>10.1} {needs:>10.1}  {}",
+            name,
+            (keys as f64).log2(),
+            verdict(needs)
+        );
+    }
+    out.push('\n');
+    out
+}
 
 /// Everything that can be said about the text before a key is tried.
 fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
@@ -685,10 +758,7 @@ fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
     let mut rng = Rng::new(number(args, "--seed", 1u64) ^ 0xC0FF_EE00);
     let population =
         triage::random_population(ct.len(), number(args, "--trials", TRIAGE_TRIALS), &mut rng);
-    let verdicts: Vec<_> = triage::statistics(Some(bank))
-        .iter()
-        .map(|st| triage::assess(st, ct, &population))
-        .collect();
+    let verdicts = triage::assess_all(&triage::statistics(Some(bank)), ct, &population);
     out.push_str(&report::heading("AGAINST RANDOM LETTERS"));
     out.push_str(&report::statistics_table(&verdicts, "random"));
 
@@ -701,10 +771,7 @@ fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
             german,
             &mut rng,
         );
-        let against: Vec<_> = triage::statistics(Some(bank))
-            .iter()
-            .map(|st| triage::assess(st, ct, &machines))
-            .collect();
+        let against = triage::assess_all(&triage::statistics(Some(bank)), ct, &machines);
         out.push_str(&report::heading("AGAINST ENIGMA OUTPUT"));
         out.push_str("  a naval machine, fresh rotors and ten leads each draw, enciphering German\n");
         out.push_str(&report::statistics_table(&against, "enigma"));
@@ -716,13 +783,12 @@ fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
     let rearranged: Vec<Vec<Letter>> = (0..number(args, "--trials", TRIAGE_TRIALS))
         .map(|_| rng.shuffled(ct))
         .collect();
-    let orderings: Vec<_> = triage::statistics(Some(bank))
-        .iter()
-        .map(|st| triage::assess(st, ct, &rearranged))
-        .collect();
+    let orderings = triage::assess_all(&triage::statistics(Some(bank)), ct, &rearranged);
     out.push_str(&report::heading("AGAINST ITS OWN LETTERS REARRANGED"));
     out.push_str("  the same letters in a different order, so only arrangement is on trial\n");
     out.push_str(&report::statistics_table(&orderings, "shuffled"));
+
+    out.push_str(&unicity_section(ct, bank, args, &mut rng));
 
     out.push_str(&report::heading("PERIOD"));
     out.push_str("  a period shows itself as columns that are each monoalphabetic\n");

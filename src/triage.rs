@@ -224,6 +224,53 @@ pub struct Verdict {
     pub z: f64,
     /// The share of the population that matched or beat the observation.
     pub p: f64,
+    /// The same share, but counting a null draw whenever *any* statistic in the table reached this far.
+    ///
+    /// A table of a dozen statistics is a dozen chances to be surprised, and one of them landing at a P of 0.02 is what a dozen honest statistics do on noise about a fifth of the time.
+    /// This asks the question the reader actually has — would anything in this table have looked this striking on a text with nothing in it — and it is the number to believe when a single row stands out.
+    pub family_p: f64,
+}
+
+/// Compare a whole table of statistics against one population, and charge each of them for the company it keeps.
+///
+/// The per-statistic P answers "would this statistic look this striking by chance".
+/// The family-wise P answers "would *any* of these statistics look this striking by chance", which is the question a reader of a table is really asking, and the only one that does not get easier every time a statistic is added.
+/// Both come from the same null draws, so the correction costs nothing beyond the arithmetic.
+#[must_use]
+pub fn assess_all(sts: &[Statistic], ls: &[Letter], population: &[Vec<Letter>]) -> Vec<Verdict> {
+    let mut verdicts: Vec<Verdict> = sts.iter().map(|st| assess(st, ls, population)).collect();
+
+    // How far out the most extreme statistic of the table got, on each draw of the null.
+    let extremes: Vec<f64> = population
+        .iter()
+        .map(|t| {
+            sts.iter()
+                .zip(&verdicts)
+                .map(|(st, v)| {
+                    let value = (st.of)(t);
+                    let z = if v.sd > 0.0 {
+                        (value - v.mean) / v.sd
+                    } else {
+                        0.0
+                    };
+                    match st.tail {
+                        Tail::Upper => z,
+                        Tail::Lower => -z,
+                    }
+                })
+                .fold(f64::NEG_INFINITY, f64::max)
+        })
+        .collect();
+
+    for (st, v) in sts.iter().zip(&mut verdicts) {
+        let reach = match st.tail {
+            Tail::Upper => v.z,
+            Tail::Lower => -v.z,
+        };
+        v.family_p = extremes.iter().filter(|&&e| e >= reach).count() as f64
+            / extremes.len().max(1) as f64;
+    }
+    verdicts
 }
 
 /// Compare one statistic against a population.
@@ -246,6 +293,8 @@ pub fn assess(st: &Statistic, ls: &[Letter], population: &[Vec<Letter>]) -> Verd
         sd,
         z: (observed - mean) / sd,
         p: beaten as f64 / values.len().max(1) as f64,
+        // Meaningless until the statistic is judged alongside the rest of its table; `assess_all` fills it in.
+        family_p: f64::NAN,
     }
 }
 
@@ -348,6 +397,42 @@ pub fn windows(width: usize, count: usize, corpus: &[Letter]) -> Vec<Vec<Letter>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_statistic_is_charged_for_the_company_its_table_keeps() {
+        let mut rng = Rng::new(31);
+        let population = random_population(80, 2000, &mut rng);
+        // A text with nothing whatever in it.
+        let ordinary: Vec<Letter> = (0..80).map(|_| rng.below(ALPHABET) as u8).collect();
+
+        let table = statistics(None);
+        let verdicts = assess_all(&table, &ordinary, &population);
+        assert_eq!(verdicts.len(), table.len());
+
+        for v in &verdicts {
+            assert!(
+                v.family_p >= v.p - 1e-9,
+                "{}: being judged alongside {} others cannot make a finding easier ({} vs {})",
+                v.name,
+                table.len() - 1,
+                v.family_p,
+                v.p
+            );
+            assert!((0.0..=1.0).contains(&v.family_p), "{}: {}", v.name, v.family_p);
+        }
+
+        // The point of the correction: on a text with nothing in it, some row of a dozen will still land at a small P, and the family-wise figure is what refuses to be impressed by it.
+        let sharpest = verdicts
+            .iter()
+            .min_by(|a, b| a.p.total_cmp(&b.p))
+            .expect("a table");
+        assert!(
+            sharpest.family_p > sharpest.p,
+            "the sharpest row of a table of noise should pay the most for its company: {} vs {}",
+            sharpest.family_p,
+            sharpest.p
+        );
+    }
+
     #[test]
     fn hand_alternation_counts_crossings_not_keys() {
         use super::hands_alternating as alt;

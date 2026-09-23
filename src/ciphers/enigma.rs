@@ -120,6 +120,48 @@ static SHIFTED: std::sync::LazyLock<(Shifted, Shifted)> = std::sync::LazyLock::n
 static REFLECTED: std::sync::LazyLock<[[u8; ALPHABET]; REFLECTOR_COUNT]> =
     std::sync::LazyLock::new(|| std::array::from_fn(|i| wiring(REFLECTORS[i])));
 
+/// How many keys a wartime operator could have chosen from, in bits.
+///
+/// Not what any attack here searches — the attacks fix the rings, or the plugboard, or the reflector, and say so in their coverage — but what the machine itself offered.
+/// It is the number that decides whether a message is long enough for its answer to be unique, and a search that cannot say it is a search whose terms nobody checked.
+///
+/// Rotor order, ring settings, starting positions, reflector, and a plugboard of `leads` cables, which is the largest part of it by far.
+#[must_use]
+pub fn key_bits(naval: bool, leads: usize) -> f64 {
+    let slots = if naval { SLOTS + 1 } else { SLOTS };
+    let orders: f64 = (0..SLOTS)
+        .map(|i| (ROTOR_COUNT - i) as f64)
+        .product();
+    let reflectors = if naval {
+        NAVAL_REFLECTOR_COUNT as f64 / ALPHABET as f64
+    } else {
+        REFLECTOR_COUNT as f64
+    };
+    let wheels = (ALPHABET as f64).powi(slots as i32);
+    // Rings on the two rotors that can never step past their own notch are the only ones that change anything.
+    let rings = (ALPHABET as f64).powi(SLOTS as i32 - 1);
+    (orders * reflectors * wheels * rings).log2() + plugboard_bits(leads)
+}
+
+/// How many ways `leads` cables can be laid across the board, in bits.
+#[must_use]
+pub fn plugboard_bits(leads: usize) -> f64 {
+    if leads == 0 || leads * 2 > ALPHABET {
+        return 0.0;
+    }
+    // 26!
+    // / ((26 - 2n)!
+    // * n! * 2^n): choose the letters, pair them, and forget the order of the cables.
+    let mut bits = 0.0;
+    for i in 0..leads * 2 {
+        bits += ((ALPHABET - i) as f64).log2();
+    }
+    for i in 1..=leads {
+        bits -= (i as f64).log2();
+    }
+    bits - leads as f64
+}
+
 impl Rotor {
     /// The nth historical rotor, counting from zero.
     #[must_use]
@@ -471,6 +513,43 @@ pub fn compatible(ct: &[Letter], pt: &[Letter]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_plugboard_is_the_largest_part_of_the_key() {
+        // 26!
+        // / (6! * 10!
+        // * 2^10) ways to lay ten cables, which is where a bombe's whole difficulty lives.
+        let ten = super::plugboard_bits(10);
+        assert!(
+            (ten - 47.10).abs() < 0.01,
+            "ten leads should be 47.1 bits, got {ten}"
+        );
+        assert_eq!(super::plugboard_bits(0), 0.0, "no cables, no choice");
+        assert_eq!(
+            super::plugboard_bits(crate::alphabet::ALPHABET),
+            0.0,
+            "more cables than letters is not a board"
+        );
+        // More cables is more choice only up to eleven, and then less: pairing up twenty-four of twenty-six letters can be done fewer ways than pairing twenty-two, because the cables stop being distinguishable from each other faster than the letters run out.
+        // The wartime standard of ten sits just below the peak.
+        let peak = (1..=13)
+            .max_by(|&a, &b| super::plugboard_bits(a).total_cmp(&super::plugboard_bits(b)))
+            .expect("a peak");
+        assert_eq!(peak, 11, "the board is most uncertain at eleven leads, not thirteen");
+    }
+
+    #[test]
+    fn a_naval_machine_offers_more_key_than_a_three_rotor_one() {
+        let naval = super::key_bits(true, 10);
+        let army = super::key_bits(false, 10);
+        assert!(naval > army, "the fourth wheel adds key: {naval} vs {army}");
+        // Enough that seventy-odd letters of German is about what it takes to pin one down.
+        // Eight rotors taken three at a time, a Greek wheel and a thin reflector, four starting positions, the two ring settings that can change anything, and ten cables.
+        assert!(
+            (naval - 85.7).abs() < 0.5,
+            "a naval M4 with ten leads is about 85.7 bits, got {naval}"
+        );
+    }
+
     use super::*;
     use crate::alphabet::{from_letters, to_letters};
 

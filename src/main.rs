@@ -438,23 +438,51 @@ fn bombe_plan(
                 .offsets
                 .iter()
                 .filter_map(|&o| cipher_break::bombe::Menu::place(ct, &letters, o))
+                // Where the sweep filters, so the table describes the run rather than a run nobody asked for.
+                .filter(|m| m.closures() > 0)
                 .collect();
             (word, menus)
         })
         .collect();
-    // Strongest crib first, so that if anything is going to be found it is found in the first minutes rather than the last.
-    words.sort_by_key(|(_, menus)| {
-        std::cmp::Reverse(menus.iter().map(cipher_break::bombe::Menu::closures).max())
+    // Strongest crib first within its list, so that if anything is going to be found it is found in the first minutes rather than the last.
+    // Sorted on what the menus actually refute, measured; sorting on closures put a menu that refutes everything below one that refutes 99.7% of nothing.
+    let rotors = cipher_break::ciphers::enigma::rotor_orders(
+        cipher_break::ciphers::enigma::ROTOR_COUNT,
+    )[0];
+    let reflector = cipher_break::ciphers::enigma::reflector_wiring(0);
+    let mut rated: Vec<(f64, (String, Vec<cipher_break::bombe::Menu>))> = words
+        .into_par_iter()
+        .map(|(word, menus)| {
+            let rate = if menus.is_empty() {
+                f64::INFINITY
+            } else {
+                menus
+                    .iter()
+                    .map(|m| m.survival_rate(rotors, reflector))
+                    .sum::<f64>()
+                    / menus.len() as f64
+            };
+            (rate, (word, menus))
+        })
+        .collect();
+    // Short list before long, and within each, whatever refutes most.
+    // Sorting on the rate alone would put every long guess first again, because they refute everything — which is only worth having if the guess is there at all.
+    rated.sort_by(|a, b| {
+        let group = |w: &str| usize::from(!KRIEGSMARINE.contains(&w));
+        group(&a.1.0)
+            .cmp(&group(&b.1.0))
+            .then(a.0.total_cmp(&b.0))
     });
+    let words = rated;
 
     println!(
-        "  {:<28} {:>10}  {:>8}  {:>18}",
-        "crib", "placements", "closures", "loops alone allow"
+        "  {:<28} {:>10}  {:>8}  {:>10}  {:>9}",
+        "crib", "placements", "closures", "survive", "to judge"
     );
     let mut worth_sweeping = Vec::new();
-    for (word, menus) in words {
+    for (rate, (word, menus)) in words {
         if menus.is_empty() {
-            println!("  {word:<28} {:>10}  {:>8}  {:>18}", 0, "-", "-");
+            println!("  {word:<28} {:>10}  {:>8}", 0, "-");
             continue;
         }
         let closures: Vec<usize> = menus.iter().map(cipher_break::bombe::Menu::closures).collect();
@@ -464,15 +492,18 @@ fn bombe_plan(
             .iter()
             .map(|m| m.chance_stops(settings))
             .fold(0.0f64, f64::max);
+        let seconds = rate * settings as f64 * menus.len() as f64 * SECONDS_TO_JUDGE_A_STOP
+            / num_cpus_or_one() as f64;
         println!(
-            "  {word:<28} {:>10}  {:>8}  {:>18}",
+            "  {word:<28} {:>10}  {:>8}  {:>9.4}%  {:>8.0}s",
             menus.len(),
             format!(
                 "{}-{}",
                 closures.iter().min().copied().unwrap_or(0),
                 closures.iter().max().copied().unwrap_or(0)
             ),
-            format!("{loosest:.0}")
+            100.0 * rate,
+            seconds
         );
         worth_sweeping.push((word, menus.len(), loosest));
     }
@@ -534,7 +565,14 @@ fn bombe_one(
 fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
     let words: Vec<String> = match option(args, "--word") {
         Some(word) => vec![word.to_string()],
-        None => KRIEGSMARINE_LONG.iter().map(|w| (*w).to_string()).collect(),
+        // Short cribs first, then long ones.
+        // A crib only works if it is really there, and a guess at twenty-eight letters of German has to be right twenty-eight times over, where a naval message of any length might well contain UBOOT or VONVON.
+        // Length was assumed to buy refutation, which is what put the long guesses first; measurement says otherwise — KEINEBESONDEREN at fifteen letters leaves 0.02% of the space standing, and one closure is enough to refute everything a menu is shown.
+        None => KRIEGSMARINE
+            .iter()
+            .chain(KRIEGSMARINE_LONG)
+            .map(|w| (*w).to_string())
+            .collect(),
     };
     let naval = !flag(args, "--m3");
     let rotors = number(args, "--rotors", cipher_break::ciphers::enigma::ROTOR_COUNT);

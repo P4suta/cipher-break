@@ -849,3 +849,73 @@ fn how_much_each_shipped_crib_refutes() {
         );
     }
 }
+
+/// What a stop costs to judge along the path a sweep actually takes.
+///
+/// The first measurement of this timed deciphering and scoring and left out the candidate's key, which is a formatted string built for every stop whether or not the report will ever show it.
+/// A weak crib stops billions of times, so anything paid per stop is paid billions of times.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn what_a_stop_costs_along_the_path_the_sweep_takes() {
+    use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings};
+
+    let ct = cipher_break::to_letters(
+        "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
+    );
+    let bank = bank();
+    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+    let trace = Trace::new(false);
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: Schedule::default(),
+        seed: 1,
+        keep: 5,
+        focus: None,
+        focus_scale: None,
+        trace: &trace,
+    };
+    let mut board = Plugboard::empty();
+    for (a, b) in [(0u8, 20u8), (4, 12), (8, 15), (17, 2), (24, 9)] {
+        board.connect(a, b);
+    }
+    let rounds = 20_000u32;
+
+    // Warmed first, because the language tables are cold on the first pass and the first loop timed would otherwise be charged for filling the cache the second one reads.
+    let mut sink = 0f64;
+    for i in 0..rounds {
+        let settings = Settings::at([0, 1, 2], 0, [0; 3], [(i % 26) as u8, 0, 0]);
+        sink += ctx.score(&Enigma::new(settings, board).run(&ct));
+    }
+
+    let start = std::time::Instant::now();
+    for i in 0..rounds {
+        let settings = Settings::at([0, 1, 2], 0, [0; 3], [(i % 26) as u8, 0, 0]);
+        let plain = Enigma::new(settings, board).run(&ct);
+        sink += ctx.score(&plain);
+    }
+    let scoring = start.elapsed().as_nanos() as f64 / f64::from(rounds);
+
+    let mut length = 0usize;
+    let start = std::time::Instant::now();
+    for i in 0..rounds {
+        let settings = Settings::at([0, 1, 2], 0, [0; 3], [(i % 26) as u8, 0, 0]);
+        let plain = Enigma::new(settings, board).run(&ct);
+        let key = format!(
+            "rotors {:?} {} start {} crib at {} plugs {}",
+            settings.rotors.map(|r| r + 1),
+            "B",
+            cipher_break::from_letters(&settings.position_letters()),
+            7,
+            cipher_break::attack::describe_leads(&board)
+        );
+        length += key.len();
+        sink += ctx.score(&plain);
+    }
+    let both = start.elapsed().as_nanos() as f64 / f64::from(rounds);
+
+    println!("  decipher and score        {scoring:>8.0} ns");
+    println!("  and build the key too     {both:>8.0} ns   ({:+.0} ns, {:.0}% more)", both - scoring, 100.0 * (both - scoring) / scoring);
+    println!("  a crib stopping 2.7e9 times pays {:.0} s of that key, over 18 threads", 2.7e9 * (both - scoring) / 1e9 / 18.0);
+    assert!(sink.is_finite() && length > 0);
+}

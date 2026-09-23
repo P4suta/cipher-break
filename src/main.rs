@@ -412,10 +412,11 @@ fn cribs(ct: &[Letter], args: &[String]) {
     }
 }
 
-/// What deciphering a surviving setting and scoring it costs.
+/// What a surviving setting costs along the path a sweep actually takes it: deciphered, scored, and written down.
 ///
-/// Measured by `what_it_costs_to_judge_a_stop`: a bombe narrows and a score chooses, and the second is four times the price of the first, so a menu that lets millions through is paying for its own answer.
-const SECONDS_TO_JUDGE_A_STOP: f64 = 1.893e-6;
+/// Measured by `what_a_stop_costs_along_the_path_the_sweep_takes`: 1,800 ns to decipher and score, 340 ns more to build the key the report would show.
+/// A bombe narrows and a score chooses, and the second is four times the price of the first, so a menu that lets millions through is paying for its own answer.
+const SECONDS_TO_JUDGE_A_STOP: f64 = 2.14e-6;
 
 /// How many threads the sweep will actually get.
 fn num_cpus_or_one() -> usize {

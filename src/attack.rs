@@ -1370,7 +1370,9 @@ fn rank_enigma(mut found: Vec<(Candidate, usize)>, grams: usize, keep: usize) ->
 }
 
 /// How the leads a climb found are written out.
-fn describe_leads(board: &Plugboard) -> String {
+/// The plugboard leads, written out as the report shows them.
+#[must_use]
+pub fn describe_leads(board: &Plugboard) -> String {
     let leads: Vec<String> = board
         .pairs()
         .iter()

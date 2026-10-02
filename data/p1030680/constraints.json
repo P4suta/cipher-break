@@ -108,8 +108,14 @@
       "id": "ncm-library-catalog",
       "title": "National Cryptologic Museum Library catalog",
       "url": "https://www.nsa.gov/portals/75/documents/about/cryptologic-heritage/museum/national-cryptologic-museum-library-catalog.pdf",
-      "review_scope": "Indexed catalog entry VF 6-44 for TICOM NN 379; the report itself was not read",
-      "retrieval_status": "Web catalog excerpt read; direct PDF download returned HTTP 403"
+      "retrieval_url": "https://archive.org/download/ticom/national-cryptologic-museum-library-catalog.pdf",
+      "local_path": "reports/p1030680/sources/ncm-library-catalog.pdf",
+      "sha256": "4f0cd6ab4775598d19f02209479e48369d6c04555d1a7893e3252450a9c43a46",
+      "read_pages": [684],
+      "page_numbering": "PDF pages, counted from 1; the VF 6-44 row was checked against the rendered page",
+      "review_scope": "VF 6-44 lists both Team 4 NN 39 and Team 6 NN 379; keyword review also located DK 111-32, a January 1944 Schluessel M war-diary contribution, DK 112-11, undated key-material changes on ALDEBARAN, and DK 112-03, undated code/key-book excerpts; the listed holdings were not read",
+      "retrieval_status": "Public mirror PDF read; direct official PDF download previously returned HTTP 403",
+      "edition_limit": "PDF metadata records June 24, 2016; this is not a verified catalog edition or current holdings date"
     },
     {
       "id": "tna-hw8-104",
@@ -140,6 +146,15 @@
       "review_scope": "Entry P 4, ARC/NAID 5957379, Historians' Source Files Relating to TICOM, 1944-1963; 36 legal boxes; dated location and access annotations only"
     },
     {
+      "id": "crane-library-finding-aid",
+      "title": "NARA RG 38, Crane Library finding aid, maritime.org mirror",
+      "url": "https://www.maritime.org/doc/nara/cranelibrary.php",
+      "local_path": "reports/p1030680/sources/crane-library-finding-aid.html",
+      "sha256": "db2bd96f246bda847f866c4bcc7424890fa0b76d59e6ad419c88cf447c941e89",
+      "review_scope": "Box 82 lists Translated Documents, German Naval Cipher and W/T Procedures, Supreme Command of the Navy, July 10, 1944, identifiers 78-17 and 01287; no publication 475 entry was identified in this aid",
+      "retrieval_status": "Public finding aid read; the listed report was not read"
+    },
+    {
       "id": "easi-volume-1",
       "title": "European Axis Signal Intelligence in World War II, Volume 1, Synopsis, DOCID 3560861",
       "url": "https://www.cryptomuseum.com/intel/nsa/files/volume_1.pdf",
@@ -148,6 +163,18 @@
       "sha256": "14bb70f56f3f9974a461db8b032f62ea14f2710d387cacd438ba33684ee87018",
       "read_pages": [3, 4, 46],
       "page_numbering": "Printed pages; bibliography page 46 identifies the Team 6 narrative as IF 101"
+    },
+    {
+      "id": "easi-volume-2",
+      "title": "European Axis Signal Intelligence in World War II, Volume 2, Notes on German High Level Cryptography and Cryptanalysis, DOCID 3560816",
+      "url": "https://www.nsa.gov/portals/75/documents/news-features/declassified-documents/european-axis-sigint/volume_2_notes_on_german.pdf",
+      "retrieval_url": "https://archive.org/download/ticom/EuropeanAxisSignalIntelligenceVol.2NotesOnGermanHighLevelCryptographyAndCryptanalysis.pdf",
+      "local_path": "reports/p1030680/sources/easi-volume-2.pdf",
+      "sha256": "dbdbb4ae4831fa16eac202be50b6b6006832f7e9f91ce4687a87e3e75e886626",
+      "read_pages": [5, 91],
+      "page_numbering": "Printed pages; bibliography page 91 is PDF page 93 and was checked against the rendered scan",
+      "review_scope": "Page 5 cites a July 10, 1944 naval security report as IF 142; page 91 identifies IF-142 as Naval Cipher and W/T Procedures, Marineschluesseldienst und Marinefunkverfahren, British Naval Intelligence Division TR/PG/17626/NID",
+      "retrieval_status": "Public mirror PDF read; IF-142 itself was not obtained"
     },
     {
       "id": "easi-volume-8",
@@ -167,6 +194,28 @@
       "sha256": "943b1a0e73caa2c1b06518925e8c7ad35ff4b6530335399c6ae842d3e4df3a14",
       "review_scope": "Sheet1 rows 1564-1570, catalog numbers 2742-2746 and 2748-2749; shared-string keyword review for Thetis, Grundstellung, key tables and naval documents",
       "provenance_status": "Collector-hosted copy, last modified by Chris in 2015; entries not matched to current official call numbers or examined holdings"
+    },
+    {
+      "id": "pa-aa-ticom-collection-pdf",
+      "title": "Collector-hosted PDF export of the returned-TICOM inventory",
+      "url": "https://archive.org/download/ticom/GermanForeignMinistryPoliticalArchiveTicomCollection.pdf",
+      "local_path": "reports/p1030680/sources/pa-aa-ticom-collection.pdf",
+      "sha256": "96e38cf248f5249218807784c2d3dbb829a0199e10f0fabd90af36fe9b537cba",
+      "read_pages": [75, 112, 113],
+      "page_numbering": "PDF pages, counted from 1; pages 75 and 113 checked against rendered images",
+      "review_scope": "NR. 2742-2746 and 2748-2749; NR. 3900 lists naval telegram texts, 3907 naval-message distribution plans, and 3908 distribution and Baltic teleprinter-network details; these three entries have blank year fields",
+      "provenance_status": "PDF metadata identifies author 117-50, Calc/LibreOffice 4.2 and an October 11, 2016 creation date; this is an export of the collector-linked inventory, not independent evidence of current holdings"
+    },
+    {
+      "id": "pa-aa-ticom-s8-pdf",
+      "title": "Second collector-hosted PDF export of the returned-TICOM inventory",
+      "url": "https://archive.org/download/ticom/S8-Ticom-TargetIntelligenceCommittee.pdf",
+      "local_path": "reports/p1030680/sources/pa-aa-ticom-s8.pdf",
+      "sha256": "1b06c1b1ea0f3c2ec4b747ea1f6ea0fefa3e82e5df84926a2102341cb5cfd9bd",
+      "read_pages": [74, 111],
+      "page_numbering": "PDF pages, counted from 1; corresponding inventory rows reviewed in extracted text",
+      "review_scope": "NR. 2746, 3907 and 3908 agree with the other export and specify neither a date nor Thetis",
+      "provenance_status": "PDF metadata identifies author 117-50, Microsoft Excel Starter 2010 and an August 13, 2017 creation date; the filename does not establish a current S 8 item call number"
     },
     {
       "id": "pa-aa-digital-holdings",
@@ -398,9 +447,10 @@
       "identifier": "R.I.P. 401 printed page 47, cross-reference to publication 475 with its prefix crossed out",
       "source": "rip-401",
       "catalog_checked": "rip-finding-aid",
+      "additional_catalog_checked": ["crane-library-finding-aid"],
       "access_route": "Locate through NARA RG 38 Radio Intelligence Publications or the Crane Collection finding aids",
       "status": "cross_reference_only",
-      "unknowns": "Publication 475 is not listed in the consulted RG 38 aid; full title, item, box and Thetis coverage remain unconfirmed"
+      "unknowns": "No publication 475 entry was identified in the consulted RIP and Crane Library aids; full title, item, box and Thetis coverage remain unconfirmed"
     },
     {
       "id": "A06",
@@ -428,7 +478,7 @@
       "title": "Undated key tables among returned TICOM material",
       "identifier": "Collector-linked spreadsheet Sheet1 row 1568, NR. 2746, Deutschland, Schlüsseltafeln; nearby NR. 2742 lists M-system instructions and NR. 2748 a 1941 Kenngruppenbuch",
       "source": "pa-aa-ticom-finding-aid",
-      "additional_sources": ["pa-aa-digital-holdings"],
+      "additional_sources": ["pa-aa-digital-holdings", "pa-aa-ticom-collection-pdf", "pa-aa-ticom-s8-pdf"],
       "access_route": "Match the old inventory number to the current PA AA Invenio record before any future reading-room or reproduction request",
       "status": "unmatched_mirror_catalog_entry",
       "unknowns": "No year, net or contents are specified for NR. 2746; its current call number, digitisation and Thetis coverage remain unverified"
@@ -452,6 +502,26 @@
       "access_route": "Discovery digital microfilm; official API confirms digitisation, but returns no image-download links",
       "status": "official_metadata_only",
       "unknowns": "Full reels were not retrieved; no target-related Thetis intercept or plaintext pair has been identified"
+    },
+    {
+      "id": "A11",
+      "title": "Naval Cipher and W/T Procedures, Marineschluesseldienst und Marinefunkverfahren",
+      "identifier": "TICOM IF-142; British Naval Intelligence Division TR/PG/17626/NID; same-title July 10, 1944 translation at NARA RG 38 Crane Library, Box 82, identifiers 78-17 and 01287",
+      "source": "easi-volume-2",
+      "additional_sources": ["crane-library-finding-aid"],
+      "access_route": "Locate the report through the named NARA holding or its British publication number; no relevant public scan was located",
+      "status": "bibliography_and_same_title_catalog_entry",
+      "unknowns": "The report was not read; exact copy equivalence and any dated Thetis key-production, distribution or validity rule remain unverified"
+    },
+    {
+      "id": "A12",
+      "title": "Naval-message distribution plans and Baltic teleprinter-network details",
+      "identifier": "Returned-TICOM mirror inventory NR. 3907, Verteilerplaene, Marinesprueche; NR. 3908, Verteiler u. FS-Netz Ostsee",
+      "source": "pa-aa-ticom-collection-pdf",
+      "additional_sources": ["pa-aa-ticom-s8-pdf", "pa-aa-digital-holdings"],
+      "access_route": "Resolve old inventory numbers in the current PA AA Invenio catalog before any future reading-room or reproduction request",
+      "status": "unmatched_mirror_catalog_entries",
+      "unknowns": "Year fields are blank; a message distribution list is not established as a cipher-net allotment list, and neither entry identifies Thetis or the target"
     }
   ]
 }

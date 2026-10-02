@@ -1780,7 +1780,7 @@ fn finish_stop(
             Stop::Survived { board, known, .. } => Some((board, known)),
             Stop::Refuted => None,
         })
-        .map(|(forced, known)| {
+        .filter_map(|(forced, known)| {
             let (settings, board, plain) = complete_board(
                 stop.settings,
                 reflector.1,
@@ -1790,6 +1790,9 @@ fn finish_stop(
                 ct,
                 ctx,
             );
+            if menu.edges.iter().any(|&(i, p, _)| plain[i] != p) {
+                return None;
+            }
             let found = (
                 Candidate {
                     score: score_outside_the_crib(&plain, ctx, menu.offset, crib),
@@ -1806,7 +1809,7 @@ fn finish_stop(
                 },
                 board.pairs().len(),
             );
-            (found, (forced, known))
+            Some((found, (forced, known)))
         })
         .max_by(|a, b| a.0.0.score.total_cmp(&b.0.0.score))
 }
@@ -2057,7 +2060,8 @@ impl Attack for BombeAttack {
             enigma::REFLECTOR_COUNT as u64
         };
         let rings = self.ring_count() as u64 * self.middle_count() as u64;
-        Coverage::Exhaustive(placements * orders * reflectors * rings * (ALPHABET as u64).pow(3))
+        // The rotor sweep is exhaustive, but completing the surviving plugboards uses a shortlist and hill climbing.
+        Coverage::Searched(placements * orders * reflectors * rings * (ALPHABET as u64).pow(3))
     }
 
     fn own_null(&self) -> Option<Vec<f64>> {
@@ -2182,4 +2186,64 @@ pub fn registry(depth: usize) -> Vec<Box<dyn Attack>> {
 #[must_use]
 pub fn candidate_ic(c: &Candidate) -> f64 {
     index_of_coincidence(&c.plain)
+}
+
+#[cfg(test)]
+mod bombe_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn finishing_checks_the_whole_menu_including_disconnected_edges() {
+        let plain = crate::to_letters(
+            "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX",
+        );
+        let ct = crate::to_letters(
+            "VIDTGYBSPAXVEDJFKONPMXHTCNAAFKXIOWVCZXUTDGFSEWGFAIDHPKQVARAGUAUPWVRBFOWO",
+        );
+        let bank = Polyglot::from_bundle(include_str!("../data/models.bundle"));
+        let focus = crate::ngram::Model::parse(include_str!("../data/german-quadgrams.txt"))
+            .expect("German model");
+        let scale = Scale::build(&bank, ct.len(), 128, &mut Rng::new(1));
+        let focus_scale = Scale::for_model(&focus, ct.len(), 128, &mut Rng::new(2));
+        let ctx = Context {
+            judge: &bank,
+            scale: &scale,
+            plan: Schedule::default(),
+            seed: 1,
+            keep: 5,
+            trace: &crate::trace::QUIET,
+            focus: Some(&focus),
+            focus_scale: Some(&focus_scale),
+        };
+        let settings = Settings::at([3, 2, 7], 0, [0, 2, 20], [16, 24, 17]);
+        let reflector = (
+            "gamma/W B-thin".to_string(),
+            enigma::composite_reflector(1, 22, 0),
+        );
+        let pending = Pending {
+            partial: 0.0,
+            settings,
+            reflector: 0,
+            menu: 0,
+        };
+        for (length, recoverable) in [(16, false), (24, true)] {
+            let menu = Menu::place(&ct, &plain[..length], 0).expect("true crib");
+            let found = finish_stop(&ct, &ctx, &pending, &menu, &reflector, length, length);
+            if recoverable {
+                assert_eq!(
+                    found
+                        .expect("the longer crib recovers the message")
+                        .0
+                        .0
+                        .plain,
+                    plain
+                );
+            } else {
+                assert!(
+                    found.is_none(),
+                    "a completion that changes a disconnected crib edge must be rejected"
+                );
+            }
+        }
+    }
 }

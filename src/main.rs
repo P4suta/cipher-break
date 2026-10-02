@@ -469,8 +469,6 @@ fn bombe_plan(
     worth_sweeping
 }
 
-const FIND_CHANCE: f64 = 1e-3;
-
 const FINISHED_NOISE: usize = 25_600;
 
 fn bombe_one(
@@ -531,18 +529,11 @@ fn bombe_one(
             (fit.median, fit.chance_of_reaching(top.score))
         });
         println!(
-            "  best decipherment {:+.1}s; the best of {standing} finished tries on nothing reaches {median:+.1}s, and gets this far {chance:.2e} of the time; fluent text of this length reads {language:+.1}s",
+            "  best decipherment {:+.1}s; the approximate finishing null reaches {median:+.1}s and estimates a tail of {chance:.2e}; fluent text of this length reads {language:+.1}s",
             top.score
         );
         println!(
-            "  {}",
-            if chance < FIND_CHANCE && top.score > language {
-                "READS AS LANGUAGE"
-            } else if chance < FIND_CHANCE {
-                "FURTHER THAN CHANCE GOES. Read it: a short signal in naval shorthand reads below fluent German even when it is right"
-            } else {
-                "not further than chance goes"
-            }
+            "  this fitted null does not repeat the rotor sweep, shortlisting, or whole-crib rejection; no reading is declared without matched full-search controls"
         );
     }
     for candidate in &outcome.best {
@@ -563,15 +554,39 @@ fn bombe_one(
     let _ = std::io::stdout().flush();
 }
 
-fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
-    let words: Vec<String> = match option(args, "--word") {
+#[cfg(feature = "gpu")]
+fn bombe_device(args: &[String]) -> Result<Option<std::sync::Arc<cipher_break::gpu::Gpu>>, String> {
+    if flag(args, "--plan") {
+        return Ok(None);
+    }
+    match cipher_break::gpu::Gpu::open() {
+        Ok(gpu) => Ok(Some(std::sync::Arc::new(gpu))),
+        Err(why) if flag(args, "--gpu") => Err(why),
+        Err(_) => Ok(None),
+    }
+}
+
+#[cfg(not(feature = "gpu"))]
+fn bombe_device(args: &[String]) -> Result<(), String> {
+    if flag(args, "--gpu") && !flag(args, "--plan") {
+        return Err("--gpu requires a build with --features gpu".to_string());
+    }
+    Ok(())
+}
+
+fn bombe_words(args: &[String]) -> Vec<String> {
+    match option(args, "--word") {
         Some(word) => vec![word.to_string()],
         None => KRIEGSMARINE
             .iter()
             .chain(KRIEGSMARINE_LONG)
             .map(|w| (*w).to_string())
             .collect(),
-    };
+    }
+}
+
+fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
+    let words = bombe_words(args);
     let naval = !flag(args, "--m3");
     let rotors = number(args, "--rotors", cipher_break::ciphers::enigma::ROTOR_COUNT);
     let at = option(args, "--at")
@@ -586,7 +601,9 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
     let rings = if right_rings { ALPHABET as u64 } else { 1 }
         * if middle_rings { ALPHABET as u64 } else { 1 };
     #[cfg(feature = "gpu")]
-    let device = cipher_break::gpu::Gpu::open().ok().map(std::sync::Arc::new);
+    let device = bombe_device(args)?;
+    #[cfg(not(feature = "gpu"))]
+    bombe_device(args)?;
 
     let settings = (ALPHABET as u64).pow(3)
         * cipher_break::ciphers::enigma::rotor_orders(rotors).len() as u64

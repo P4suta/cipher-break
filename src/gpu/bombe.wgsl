@@ -321,6 +321,7 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
                 var acc: f32 = 0.0;
                 var g: u32 = 0u;
                 var grams: u32 = 0u;
+                var held_letters: u32 = 0u;
                 for (var i: u32 = 0u; i < params.n; i = i + 1u) {
                     let middle_notch = (w_notch[params.r1] >> q1) & 1u;
                     let right_notch = (w_notch[params.r2] >> q2) & 1u;
@@ -345,8 +346,10 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
                     c = through_backward(params.r2, c, s2);
                     if (((r.board.known >> c) & 1u) == 1u) { c = board_get(r.board, c); }
 
+                    if (i >= offset && i < offset + params.crib) { continue; }
+                    held_letters = held_letters + 1u;
                     g = (g % params.modulus) * 26u + c;
-                    if (i + 1u >= params.order) {
+                    if (held_letters >= params.order) {
                         acc = acc + logp[g];
                         grams = grams + 1u;
                     }

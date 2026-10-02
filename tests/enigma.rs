@@ -213,9 +213,7 @@ mod device {
         use cipher_break::bombe::Menu;
         use cipher_break::ciphers::enigma::{ROTOR_COUNT, naval_reflectors, rotor_orders};
 
-        let Ok(gpu) = Gpu::open() else {
-            return;
-        };
+        let gpu = Gpu::open().expect("the requested GPU check requires a hardware device");
         let ct = cipher_break::to_letters(
             "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
         );
@@ -279,9 +277,7 @@ mod device {
         use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_with};
         use cipher_break::ciphers::enigma::{Settings, reflector_wiring};
 
-        let Ok(gpu) = Gpu::open() else {
-            return;
-        };
+        let gpu = Gpu::open().expect("the requested GPU check requires a hardware device");
         let (plain, ct) = planted_bombe_message();
         let crib = to_letters("VONVONJAWE");
         let menus: Vec<Menu> = (0..=ct.len() - crib.len())
@@ -376,9 +372,7 @@ mod device {
         use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_with};
         use cipher_break::ciphers::enigma::{Settings, reflector_wiring};
 
-        let Ok(gpu) = Gpu::open() else {
-            return;
-        };
+        let gpu = Gpu::open().expect("the requested GPU check requires a hardware device");
         for (rotors, ring) in [([2usize, 0, 4], 13u8), ([2, 6, 5], 10)] {
             let truth = Settings::at(rotors, 0, [0, 0, ring], [7, 19, 3 + ring]);
             let mut board = Plugboard::empty();
@@ -763,8 +757,8 @@ mod device {
 
             let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
             let trace = Trace::new(false);
-            let ctx = context(&bank, &scale, None, None, &trace, 1);
-            let (_, _, cpu_plain) = climb_plugboard(
+            let ctx = context(&bank, &scale, Some(model), None, &trace, 1);
+            let (cpu_board, _, cpu_plain) = climb_plugboard(
                 case.settings(),
                 wirings[case.reflector_index()],
                 case.plugs.len(),
@@ -774,6 +768,11 @@ mod device {
             );
             let here = model.score(&cpu_plain);
             let board = Plugboard::from_mapping(device[0].1);
+            assert_eq!(
+                board, cpu_board,
+                "{}: CPU and GPU must climb with the same judge",
+                case.label
+            );
             let device_board_here = model
                 .score(&Enigma::with_reflector(case.settings(), case.reflector(), board).run(&ct));
             println!(
@@ -868,9 +867,7 @@ fn a_ring_swept_bombe_reads_a_short_signal_with_ten_leads() {
     use cipher_break::attack::BombeAttack;
     use cipher_break::gpu::Gpu;
 
-    let Ok(gpu) = Gpu::open() else {
-        return;
-    };
+    let gpu = Gpu::open().expect("the requested GPU check requires a hardware device");
     let gpu = std::sync::Arc::new(gpu);
     let mut failures = Vec::new();
     let text = "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX";
@@ -896,15 +893,13 @@ fn a_ring_swept_bombe_reads_a_short_signal_with_ten_leads() {
             focus_scale: Some(&quad_scale),
             trace: &trace,
         };
-        let right = |c: &cipher_break::attack::Candidate| {
-            c.plain.iter().zip(&plain).filter(|(a, b)| a == b).count() * 10 >= plain.len() * 9
-        };
+        let right = |c: &cipher_break::attack::Candidate| c.plain == plain;
         for length in [16usize, 14] {
             let crib = to_letters(&text[..length]);
-            if cipher_break::bombe::Menu::place(&ct, &crib, 0).is_none_or(|m| m.closures() == 0) {
-                println!("  crib of {length}: no loop at the start, nothing to sweep");
-                continue;
-            }
+            assert!(
+                cipher_break::bombe::Menu::place(&ct, &crib, 0).is_some_and(|m| m.closures() > 0),
+                "the planted recovery check must exercise a closing menu"
+            );
             let attack = BombeAttack {
                 gpu: Some(gpu.clone()),
                 stops: std::sync::atomic::AtomicU64::new(0),
@@ -961,9 +956,7 @@ fn a_right_ring_sweep_reads_the_short_signal_too() {
     use cipher_break::attack::BombeAttack;
     use cipher_break::gpu::Gpu;
 
-    let Ok(gpu) = Gpu::open() else {
-        return;
-    };
+    let gpu = Gpu::open().expect("the requested GPU check requires a hardware device");
     let text = "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX";
     let plain = to_letters(text);
     let ct = short_signal_with_ten_leads(&plain, [11, 4, 22]);
@@ -1654,9 +1647,7 @@ fn the_naval_attack_breaks_a_short_message_with_the_rings_swept() {
     use cipher_break::attack::{Attack, ENIGMA_LEADS, GpuEnigmaNaval};
     use cipher_break::gpu::Gpu;
 
-    let Ok(gpu) = Gpu::open() else {
-        return;
-    };
+    let gpu = Gpu::open().expect("the requested GPU check requires a hardware device");
     let gpu = std::sync::Arc::new(gpu);
     let mut failed = Vec::new();
     for case in CASES
@@ -1692,9 +1683,7 @@ fn the_naval_attack_breaks_a_short_message_with_the_rings_swept() {
 
         let start = std::time::Instant::now();
         let found = attack.best(&ct, &ctx);
-        let at = found.iter().position(|c| {
-            c.plain.iter().zip(&plain).filter(|(a, b)| a == b).count() * 10 >= plain.len() * 9
-        });
+        let at = found.iter().position(|c| c.plain == plain);
         println!(
             "  {:<32} {:>3.0}s: plaintext at {at:?}",
             case.label,
@@ -1717,9 +1706,7 @@ fn the_message() {
     use cipher_break::attack::{Attack, ENIGMA_LEADS, GpuEnigmaNaval};
     use cipher_break::gpu::Gpu;
 
-    let Ok(gpu) = Gpu::open() else {
-        return;
-    };
+    let gpu = Gpu::open().expect("the requested GPU check requires a hardware device");
     let ct = cipher_break::to_letters(
         "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
     );

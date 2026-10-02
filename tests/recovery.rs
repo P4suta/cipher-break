@@ -5,7 +5,7 @@ use cipher_break::alphabet::from_letters;
 use cipher_break::alphabet::{Letter, to_letters};
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Context, complete_board, score_outside_the_crib};
-use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_all_with};
+use cipher_break::bombe::{Menu, Positions, Scratch, Stop, complete_menu, scan_all_with};
 use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings, composite_reflector};
 use cipher_break::ngram::Model;
 use cipher_break::polyglot::{Polyglot, Scale};
@@ -66,15 +66,13 @@ fn compatible_stop(ct: &[Letter], truth: Settings) -> (Plugboard, u32) {
     let positions = Positions::of(truth, reflector(), CRIB_LENGTH);
     scan_all_with(&menu, &positions, &mut Scratch::new())
         .into_iter()
-        .find_map(|stop| match stop {
-            Stop::Survived {
-                board: forced,
-                known,
-                ..
-            } if (0..26u8).all(|l| (known >> l) & 1 == 0 || forced.map(l) == board().map(l)) => {
-                Some((forced, known))
-            }
-            _ => None,
+        .filter_map(|stop| match stop {
+            Stop::Survived { board, known, .. } => Some((board, known)),
+            Stop::Refuted => None,
+        })
+        .flat_map(|partial| complete_menu(&menu, &positions, partial, 10))
+        .find(|(forced, known)| {
+            (0..26u8).all(|l| (known >> l) & 1 == 0 || forced.map(l) == board().map(l))
         })
         .expect("the CPU menu must retain the ten-lead key")
 }
@@ -215,30 +213,27 @@ fn sweep_recovery(
         );
         let positions = Positions::of(initial, reflector(), CRIB_LENGTH);
         for stop in scan_all_with(&menu, &positions, &mut Scratch::new()) {
-            if let Stop::Survived {
-                board: forced,
-                known,
-                ..
-            } = stop
-            {
-                let (key, plugs, read) = complete_board(
-                    initial,
-                    reflector(),
-                    (forced, known),
-                    10,
-                    CRIB_LENGTH,
-                    ct,
-                    ctx,
-                );
-                assert_eq!(
-                    Enigma::with_reflector(key, reflector(), plugs).run(&read),
-                    ct
-                );
-                if read[..CRIB_LENGTH] != crib {
-                    continue;
+            if let Stop::Survived { board, known, .. } = stop {
+                for (forced, known) in complete_menu(&menu, &positions, (board, known), 10) {
+                    let (key, plugs, read) = complete_board(
+                        initial,
+                        reflector(),
+                        (forced, known),
+                        10,
+                        CRIB_LENGTH,
+                        ct,
+                        ctx,
+                    );
+                    assert_eq!(
+                        Enigma::with_reflector(key, reflector(), plugs).run(&read),
+                        ct
+                    );
+                    if read[..CRIB_LENGTH] != crib {
+                        continue;
+                    }
+                    let score = score_outside_the_crib(&read, ctx, 0, CRIB_LENGTH);
+                    completed.push((score, key, plugs, read));
                 }
-                let score = score_outside_the_crib(&read, ctx, 0, CRIB_LENGTH);
-                completed.push((score, key, plugs, read));
             }
         }
     }

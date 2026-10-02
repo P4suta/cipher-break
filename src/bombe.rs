@@ -273,6 +273,72 @@ pub fn scan_all_with(menu: &Menu, positions: &Positions, scratch: &mut Scratch) 
     out
 }
 
+pub fn complete_menu<'a>(
+    menu: &'a Menu,
+    positions: &'a Positions,
+    (board, known): (Plugboard, u32),
+    leads: usize,
+) -> impl Iterator<Item = (Plugboard, u32)> + 'a {
+    let mut pending = vec![(board, known)];
+    let letters = menu.letters();
+    std::iter::from_fn(move || {
+        while let Some((mut board, mut known)) = pending.pop() {
+            if !propagate(menu, positions, &mut board, &mut known) || board.pairs().len() > leads {
+                continue;
+            }
+            let next = letters
+                .iter()
+                .copied()
+                .filter(|&l| known & (1 << l) == 0)
+                .max_by_key(|&l| menu.starts[l as usize + 1] - menu.starts[l as usize]);
+            let Some(next) = next else {
+                return Some((board, known));
+            };
+            for guess in (0..ALPHABET as u8).rev() {
+                let (mut trial, mut fixed) = (board, known);
+                if fix_lead(&mut trial, &mut fixed, next, guess) {
+                    pending.push((trial, fixed));
+                }
+            }
+        }
+        None
+    })
+}
+
+fn fix_lead(board: &mut Plugboard, known: &mut u32, a: Letter, b: Letter) -> bool {
+    if (*known & (1 << a) != 0 && board.map(a) != b)
+        || (*known & (1 << b) != 0 && board.map(b) != a)
+    {
+        return false;
+    }
+    board.connect(a, b);
+    *known |= (1 << a) | (1 << b);
+    true
+}
+
+fn propagate(menu: &Menu, positions: &Positions, board: &mut Plugboard, known: &mut u32) -> bool {
+    loop {
+        let before = *known;
+        for &(i, p, c) in &menu.edges {
+            let pair = if *known & (1 << p) != 0 {
+                Some((c, positions.at(i, board.map(p))))
+            } else if *known & (1 << c) != 0 {
+                Some((p, positions.at(i, board.map(c))))
+            } else {
+                None
+            };
+            if let Some((a, b)) = pair
+                && !fix_lead(board, known, a, b)
+            {
+                return false;
+            }
+        }
+        if before == *known {
+            return true;
+        }
+    }
+}
+
 fn survived(scratch: &Scratch, start: Letter, guess: Letter) -> Stop {
     let mut board = Plugboard::empty();
     let mut known = 0u32;
@@ -474,6 +540,60 @@ mod tests {
             Stop::Refuted => panic!("the true setting was refuted by its own crib"),
         }
         let _ = plain;
+    }
+
+    #[test]
+    fn completing_components_preserves_the_key_and_every_menu_edge() {
+        let (settings, reflector, truth, plain, ct) = planted();
+        let menu = Menu::place(&ct, &plain[..16], 0).expect("true crib");
+        let positions = Positions::of(settings, reflector, menu.edges.len());
+        let found: Vec<_> = scan_all_with(&menu, &positions, &mut Scratch::new())
+            .into_iter()
+            .filter_map(|stop| match stop {
+                Stop::Survived { board, known, .. } => Some((board, known)),
+                Stop::Refuted => None,
+            })
+            .flat_map(|partial| complete_menu(&menu, &positions, partial, 10))
+            .collect();
+        assert!(!found.is_empty());
+        assert!(found.iter().any(|(board, known)| {
+            (0..26u8).all(|l| known & (1 << l) == 0 || board.map(l) == truth.map(l))
+        }));
+        for (board, known) in found {
+            assert!(board.pairs().len() <= 10);
+            assert!(menu.letters().iter().all(|&l| known & (1 << l) != 0));
+            let read = Enigma::with_reflector(settings, reflector, board).run(&ct);
+            assert_eq!(read[..16], plain[..16]);
+            for l in 0..26u8 {
+                assert_eq!(board.map(board.map(l)), l);
+                if known & (1 << l) != 0 {
+                    assert_ne!(known & (1 << board.map(l)), 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_fixed_complete_board_still_checks_edges_and_the_lead_limit() {
+        let (settings, reflector, truth, plain, ct) = planted();
+        let menu = Menu::place(&ct, &plain[..16], 0).expect("true crib");
+        let positions = Positions::of(settings, reflector, menu.edges.len());
+        let known = (1 << ALPHABET) - 1;
+        assert_eq!(
+            complete_menu(&menu, &positions, (truth, known), 5).count(),
+            1
+        );
+        assert_eq!(
+            complete_menu(&menu, &positions, (truth, known), 4).count(),
+            0
+        );
+        let mut wrong = settings;
+        wrong.positions[2] = Indicator::new((wrong.positions[2].value() + 1) % 26);
+        let wrong_positions = Positions::of(wrong, reflector, menu.edges.len());
+        assert_eq!(
+            complete_menu(&menu, &wrong_positions, (truth, known), 5).count(),
+            0
+        );
     }
 
     #[test]

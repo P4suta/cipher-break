@@ -273,12 +273,11 @@ fn build(sources: &Path, recovery_path: &Path) -> Result<(Value, Value)> {
     } else {
         Value::Null
     };
-    let recovery_status = recovery["status"]
-        .as_str()
-        .unwrap_or("pending: cloud hardware recovery has not completed");
+    let recovery_status = recovery_status(&recovery, &provenance);
     let model_sha = sha(&root.join("data/german-quadgrams.txt"))?;
     let mut jobs = vec![json!({
         "id": "recovery", "status": recovery_status, "result": recovery,
+        "matches_current_provenance": recovery["provenance_sha256"] == json!(provenance),
         "result_sha256": if recovery_path.exists() { Some(sha(recovery_path)?) } else { None },
         "argv": ["mise", "x", "--", "cargo", "xtask", "cloud", "run", "gpu", "--standard", "--recovery"],
         "input": "published P1030698 and synthetic double-step starts", "model": "data/german-quadgrams.txt",
@@ -424,6 +423,15 @@ fn string<'a>(value: &'a Value, name: &str) -> Result<&'a str> {
         .with_context(|| format!("missing string {name}"))
 }
 
+fn recovery_status<'a>(recovery: &'a Value, provenance: &BTreeMap<String, String>) -> &'a str {
+    if !recovery.is_null() && recovery["provenance_sha256"] != json!(provenance) {
+        return "stale_provenance";
+    }
+    recovery["status"]
+        .as_str()
+        .unwrap_or("pending: cloud hardware recovery has not completed")
+}
+
 pub fn prior_runs(folder: &Path) -> Result<Value> {
     if !folder.exists() {
         return Ok(json!([]));
@@ -512,6 +520,20 @@ fn number_before(line: &str, marker: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_recovery_result_cannot_outlive_its_source_hashes() {
+        let current = BTreeMap::from([("src/bombe.rs".to_owned(), "new".to_owned())]);
+        for status in ["passed", "gpu_passed", "failed"] {
+            let mut result = json!({"status": status, "provenance_sha256": current});
+            assert_eq!(recovery_status(&result, &current), status);
+            result["provenance_sha256"]["src/bombe.rs"] = json!("old");
+            assert_eq!(recovery_status(&result, &current), "stale_provenance");
+            result["provenance_sha256"] = Value::Null;
+            assert_eq!(recovery_status(&result, &current), "stale_provenance");
+        }
+        assert!(recovery_status(&Value::Null, &current).starts_with("pending"));
+    }
 
     #[test]
     fn self_enciphering_offsets_are_rejected_in_observed_and_null_runs() {

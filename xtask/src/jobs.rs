@@ -58,6 +58,7 @@ fn quick() -> Result<()> {
             "warnings",
         ],
         vec!["cargo", "test", "--locked", "--package", "xtask"],
+        vec!["cargo", "test", "--locked", "--release", "--lib", "bombe"],
         vec![
             "cargo",
             "test",

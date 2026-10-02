@@ -2,7 +2,7 @@
 
 use crate::alphabet::{ALPHABET, Letter, from_letters};
 use crate::anneal::{Schedule, anneal};
-use crate::bombe::{Menu, Positions, Scratch, Stop, scan_all_with, scan_with};
+use crate::bombe::{Menu, Positions, Scratch, Stop, complete_menu, scan_all_with, scan_with};
 use crate::ciphers::enigma::{self, Enigma, Plugboard, Settings};
 use crate::ciphers::{
     autokey, bifid, hill, periodic, playfair, porta, substitution, transposition,
@@ -1780,6 +1780,7 @@ fn finish_stop(
             Stop::Survived { board, known, .. } => Some((board, known)),
             Stop::Refuted => None,
         })
+        .flat_map(|partial| complete_menu(menu, &positions, partial, ENIGMA_LEADS))
         .filter_map(|(forced, known)| {
             let (settings, board, plain) = complete_board(
                 stop.settings,
@@ -2193,7 +2194,7 @@ mod bombe_recovery_tests {
     use super::*;
 
     #[test]
-    fn finishing_checks_the_whole_menu_including_disconnected_edges() {
+    fn finishing_recovers_the_whole_menu_including_disconnected_edges() {
         let plain = crate::to_letters(
             "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX",
         );
@@ -2226,23 +2227,43 @@ mod bombe_recovery_tests {
             reflector: 0,
             menu: 0,
         };
-        for (length, recoverable) in [(16, false), (24, true)] {
+        for length in [16, 24] {
             let menu = Menu::place(&ct, &plain[..length], 0).expect("true crib");
             let found = finish_stop(&ct, &ctx, &pending, &menu, &reflector, length, length);
-            if recoverable {
-                assert_eq!(
-                    found
-                        .expect("the longer crib recovers the message")
-                        .0
-                        .0
-                        .plain,
-                    plain
+            let recovered = found
+                .expect("all menu components must survive finishing")
+                .0
+                .0;
+            assert_eq!(
+                recovered.plain, plain,
+                "recover the complete published message with a {length}-letter crib"
+            );
+            let finish = |cipher: &[Letter], settings: Settings| {
+                let menu = Menu::place(cipher, &plain[..length], 0)?;
+                if menu.closures() == 0 {
+                    return None;
+                }
+                let stop = Pending {
+                    settings,
+                    ..pending
+                };
+                finish_stop(cipher, &ctx, &stop, &menu, &reflector, length, length)
+                    .map(|result| result.0.0.score)
+            };
+            let mut wrong = settings;
+            wrong.positions[2] =
+                crate::enigma_types::Indicator::new((wrong.positions[2].value() + 1) % 26);
+            assert!(finish(&ct, wrong).is_none_or(|score| score < recovered.score));
+            let mut rng = Rng::new(20_261_002);
+            for control in 0..8 {
+                let mut shuffled = ct.clone();
+                rng.shuffle(&mut shuffled);
+                let score = finish(&shuffled, settings);
+                println!(
+                    "crib {length}, fixed-setting shuffle {control}: {score:?}; real {}",
+                    recovered.score
                 );
-            } else {
-                assert!(
-                    found.is_none(),
-                    "a completion that changes a disconnected crib edge must be rejected"
-                );
+                assert!(score.is_none_or(|score| score < recovered.score));
             }
         }
     }

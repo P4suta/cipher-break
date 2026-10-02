@@ -110,6 +110,137 @@
       "url": "https://www.nsa.gov/portals/75/documents/about/cryptologic-heritage/museum/national-cryptologic-museum-library-catalog.pdf",
       "review_scope": "Indexed catalog entry VF 6-44 for TICOM NN 379; the report itself was not read",
       "retrieval_status": "Web catalog excerpt read; direct PDF download returned HTTP 403"
+    },
+    {
+      "id": "tna-hw8-104",
+      "title": "TNA HW 8/104, History of 30 Commando and its Sigint operations",
+      "url": "https://discovery.nationalarchives.gov.uk/details/r/C11079152",
+      "retrieval_url": "https://discovery.nationalarchives.gov.uk/API/records/v1/details/C11079152",
+      "local_path": "reports/p1030680/sources/tna-hw8-104-details.json",
+      "sha256": "773f901365c0f7489a3d3b2c539875cfc23786066af7f658e324d6b16ecbdf0e",
+      "review_scope": "Official record metadata only; covering dates 1942-04-01 to 1946-02-21; digitised is false and links/scannedLists are empty",
+      "retrieval_status": "Official API read successfully; report not read"
+    },
+    {
+      "id": "tna-hw8-116",
+      "title": "TNA HW 8/116, Accession Lists of Captured Documents",
+      "url": "https://discovery.nationalarchives.gov.uk/details/r/C11140271",
+      "retrieval_url": "https://discovery.nationalarchives.gov.uk/API/records/v1/details/C11140271",
+      "local_path": "reports/p1030680/sources/tna-hw8-116-details.json",
+      "sha256": "092d90f49289daeb5ecef78d9977ad1be19e41e3bc8f5a4c2538102e6f972f48",
+      "review_scope": "Official record metadata only; German accession-list series PU/G/1-62; covering dates 1939-09-02 to 1945-12-13; digitised is false",
+      "retrieval_status": "Official API read successfully; accession lists not read"
+    },
+    {
+      "id": "nara-hms-2017",
+      "title": "NARA RG 457 Holdings Management System, October 2017, released report",
+      "url": "https://www.governmentattic.org/25docs/NARA-NSArg457HMS_2017.pdf",
+      "local_path": "reports/p1030680/sources/nara-rg457-hms-2017.pdf",
+      "sha256": "325074406bbbbadeeb2910d899229975c0a5f0c3808dc20820ecab796791216b",
+      "review_scope": "Entry P 4, ARC/NAID 5957379, Historians' Source Files Relating to TICOM, 1944-1963; 36 legal boxes; dated location and access annotations only"
+    },
+    {
+      "id": "easi-volume-1",
+      "title": "European Axis Signal Intelligence in World War II, Volume 1, Synopsis, DOCID 3560861",
+      "url": "https://www.cryptomuseum.com/intel/nsa/files/volume_1.pdf",
+      "official_url": "https://media.defense.gov/2021/Jul/14/2002762720/-1/-1/0/VOLUME_1_SYNOPSIS.PDF",
+      "local_path": "reports/p1030680/sources/easi-volume-1.pdf",
+      "sha256": "14bb70f56f3f9974a461db8b032f62ea14f2710d387cacd438ba33684ee87018",
+      "read_pages": [3, 4, 46],
+      "page_numbering": "Printed pages; bibliography page 46 identifies the Team 6 narrative as IF 101"
+    },
+    {
+      "id": "easi-volume-8",
+      "title": "European Axis Signal Intelligence in World War II, Volume 8, Miscellaneous, DOCID 3560798",
+      "url": "https://www.cryptomuseum.com/intel/nsa/files/volume_8.pdf",
+      "local_path": "reports/p1030680/sources/easi-volume-8.pdf",
+      "sha256": "505d82021bd6cf4c2cac35bde6e104a4be9eba1f95e3d0ef2c9d727034d9eec7",
+      "read_pages": [51, 52, 53, 54],
+      "page_numbering": "Printed pages; Chapter X describes TICOM operations, not a naval daily-key inventory"
+    },
+    {
+      "id": "pa-aa-ticom-finding-aid",
+      "title": "Collector-linked spreadsheet finding aid for returned TICOM material at the Political Archive of the Federal Foreign Office",
+      "url": "https://drive.google.com/file/d/0B_oIJbGCCNYeNGRoS1hTSmNfOGc/view",
+      "discovery_url": "https://chris-intel-corner.blogspot.com/2016/10/finding-aid-for-ticom-collection-in.html",
+      "local_path": "reports/p1030680/sources/pa-aa-ticom-finding-aid.xlsx",
+      "sha256": "943b1a0e73caa2c1b06518925e8c7ad35ff4b6530335399c6ae842d3e4df3a14",
+      "review_scope": "Sheet1 rows 1564-1570, catalog numbers 2742-2746 and 2748-2749; shared-string keyword review for Thetis, Grundstellung, key tables and naval documents",
+      "provenance_status": "Collector-hosted copy, last modified by Chris in 2015; entries not matched to current official call numbers or examined holdings"
+    },
+    {
+      "id": "pa-aa-digital-holdings",
+      "title": "Political Archive of the Federal Foreign Office, digitised holdings and catalogue access",
+      "url": "https://archiv.diplo.de/arc-de/digitalisierte-und-einsehbare-bestaende-invenio--2404424",
+      "access_instructions_url": "https://archiv.diplo.de/arc-de/im-archiv-forschen/bestellen-und-zitieren-mit-invenio",
+      "review_scope": "Public holdings list does not list S 8; instructions distinguish catalogue access, digitised files and reading-room orders",
+      "retrieval_status": "Public pages read; current item-level Invenio lookup not completed because no browser connection was available"
+    },
+    {
+      "id": "ticom-team6",
+      "title": "TICOM Team 6 narrative, 11 April-6 July 1945, issued 5 September 1945, copy 32",
+      "url": "https://archive.org/download/ticom/TicomTeam6.pdf",
+      "local_path": "reports/p1030680/sources/TicomTeam6.pdf",
+      "sha256": "84b4ce86d48ce78c5db3c0425af63407ba33a383c7fa57e1eb9c207af78abf89",
+      "read_pages": [1, 4, 8, 11, 13, 18, 19, 21, 25],
+      "page_numbering": "PDF pages, counted from 1; PDF pages 11 and 13 are printed 10 and 12",
+      "review_scope": "Narrative capture and dispatch entries; full-text keyword review; cover and May 8/13/14 entries checked against images",
+      "identity_limit": "The title and covered dates match the NN 379 catalog entry and IF 101 bibliography; their exact copy equivalence and the cover's handwritten reference are not established"
+    },
+    {
+      "id": "ticom-i38",
+      "title": "TICOM I-38, Frowein interrogation on German naval four-wheel Enigma security",
+      "url": "https://archive.org/download/ticom/TicomI-38.pdf",
+      "local_path": "reports/p1030680/sources/TicomI-38.pdf",
+      "sha256": "4406a93dc068d0e0881b05c2e18a7af48d063c0a122fe38aac9a63e44f2edd72",
+      "read_pages": [1, 5],
+      "page_numbering": "PDF page 5 is printed 5, section 31; cover gives interrogation date 21 June 1945 and issue date 14 July 1945"
+    },
+    {
+      "id": "quelle-2499",
+      "title": "Doppelbuchstabentauschtafeln, Kennwort Quelle, Pruef-Nr. 2499",
+      "url": "https://www.cryptomuseum.com/crypto/enigma/files/DoppelTafeln_2499.pdf",
+      "local_path": "reports/p1030680/sources/DoppelTafeln_2499.pdf",
+      "sha256": "6d94709c4fe282c0570ba0d95b16a8e111548ce73f274f76d869ecc5911af7c4",
+      "read_pages": [1, 3, 4],
+      "page_numbering": "PDF pages, counted from 1; cover and Tafel A",
+      "review_scope": "Cover's same-number Tauschtafelplan requirement and the ES/KO inverse pairs, compared with the publisher's table 1772"
+    },
+    {
+      "id": "published-quelle-1772",
+      "title": "Quelle Tafel A, Pruef-Nr. 1772, publisher photograph",
+      "url": "https://enigma.hoerenberg.com/cms/download.php?cat=60_The%20U534%20messages&file=Tauschtafel_Quelle_A.jpg",
+      "local_path": "reports/p1030680/sources/Tauschtafel_Quelle_A.jpg",
+      "sha256": "e43c7246e4cc5b02965dbfe6b3adcc222b29135fd8b2669fced08512183e07c3",
+      "review_scope": "Header and the ES-to-VR and KO-to-VA entries"
+    },
+    {
+      "id": "published-bruno-1772a",
+      "title": "Tauschtafelplan Bruno, Quelle, Pruefnr. 1772a, publisher photograph",
+      "url": "https://enigma.hoerenberg.com/cms/download.php?cat=60_The%20U534%20messages&file=Tauschtafelplan_Bruno_Quelle.jpg",
+      "local_path": "reports/p1030680/sources/Tauschtafelplan_Bruno_Quelle.jpg",
+      "sha256": "cb9a3ad5667fd49ef58a281a91eebc8c6592fe53e03034b800213c3203f4b546",
+      "review_scope": "Header, handwritten Mai 45 at column six and printed A at day 1"
+    },
+    {
+      "id": "tna-defe3-577",
+      "title": "TNA DEFE 3/577, intercepted Axis radio intelligence, 29 April-3 May 1945",
+      "url": "https://discovery.nationalarchives.gov.uk/details/r/C1910474",
+      "retrieval_url": "https://discovery.nationalarchives.gov.uk/API/records/v1/details/C1910474",
+      "local_path": "reports/p1030680/sources/tna-defe3-577-details.json",
+      "sha256": "c31e3a9d04989c599271d8c104a920c2ac22d90e28c833a99096b4a910a84bd3",
+      "review_scope": "Official metadata confirms covering dates and digitised: true; links and scannedLists are empty",
+      "retrieval_status": "Metadata read; the record webpage requested JavaScript verification, and no full-reel download URL was obtained"
+    },
+    {
+      "id": "tna-defe3-578",
+      "title": "TNA DEFE 3/578, intercepted Axis radio intelligence, 3-17 May 1945",
+      "url": "https://discovery.nationalarchives.gov.uk/details/r/C1910475",
+      "retrieval_url": "https://discovery.nationalarchives.gov.uk/API/records/v1/details/C1910475",
+      "local_path": "reports/p1030680/sources/tna-defe3-578-details.json",
+      "sha256": "2495fbcbecf3416fd0c347bdba5acce934d50818db39a8117a8c8dcedf4bc875",
+      "review_scope": "Official metadata confirms covering dates and digitised: true; links and scannedLists are empty",
+      "retrieval_status": "Metadata read; full reel not retrieved"
     }
   ],
   "constraints": [
@@ -197,6 +328,31 @@
       "search_effect": "Prioritize locating publication 475 and examining the listed holdings; do not infer that they contain a surviving Thetis daily key.",
       "target_key_restriction": false,
       "unknowns": "No consulted scan provides the target's Thetis key or Grund table."
+    },
+    {
+      "id": "H11",
+      "claim": "TICOM I-38 section 31 reports a December 1944 decision to use only two-turnover wheels at the right.",
+      "sources": ["ticom-i38"],
+      "status": "verified_interrogation_statement",
+      "search_effect": "VI/VII/VIII at the right may prioritize 126 of 336 orders; no order is excluded without establishing Thetis compliance on the target date.",
+      "target_key_restriction": false,
+      "unknowns": "The report does not name Thetis, establish the target's settings or select VIII specifically."
+    },
+    {
+      "id": "H12",
+      "claim": "Team 6 records Z 29's books reaching Minden on May 8 without Flusslauf, followed by separate Flusslauf recovery on May 13 and dispatch on May 14.",
+      "sources": ["ticom-team6"],
+      "status": "verified_field_narrative",
+      "search_effect": "Use these capture events to locate item inventories; the recovered bigram booklet is not identified as a Thetis Grund table.",
+      "target_key_restriction": false
+    },
+    {
+      "id": "H13",
+      "claim": "Quelle copy 2499 repeats the inverse VA-to-KO and VR-to-ES pairs seen in publisher copy 1772; its cover requires a matching-number selection plan.",
+      "sources": ["quelle-2499", "published-quelle-1772", "published-bruno-1772a"],
+      "status": "verified_selected_pairs",
+      "search_effect": "Retain the existing indicator readings; two matching pairs do not establish whole-edition compatibility or the Thetis machine key.",
+      "target_key_restriction": false
     }
   ],
   "archival_leads": [
@@ -250,10 +406,52 @@
       "id": "A06",
       "title": "Narrative and Report of Proceedings of TICOM Team 6, 11 April-6 July 1945",
       "identifier": "TICOM NN 379; National Cryptologic Museum Library shelf VF 6-44",
-      "source": "ncm-library-catalog",
-      "access_route": "Library holding or a future copy request; check inventory for captured Grund and bigram tables",
-      "status": "catalog_entry_only",
-      "unknowns": "The report was not read and no surviving Thetis table is identified by the catalog title"
+      "source": "ticom-team6",
+      "possible_parallel_reference": "EASI Volume 1 printed page 46 lists IF 101 with the same report title and date range; equivalence to NN 379 remains unverified",
+      "additional_sources": ["ncm-library-catalog", "easi-volume-1", "easi-volume-8"],
+      "access_route": "Public 25-page same-title narrative saved; locate the item inventories for its Z 29 and Flusslauf captures",
+      "status": "same_title_public_report_reviewed",
+      "unknowns": "Exact catalog-copy equivalence and a surviving Thetis Grund-table item remain unconfirmed; the narrative is not an item inventory"
+    },
+    {
+      "id": "A07",
+      "title": "German naval captured-document accession lists and 30 Assault Unit history",
+      "identifier": "TNA HW 8/116, C11140271, German lists ULTRA/ZIP/NS/PU/G/1-62; TNA HW 8/104, C11079152",
+      "source": "tna-hw8-116",
+      "additional_sources": ["tna-hw8-104", "ticom-team6"],
+      "access_route": "TNA Kew reading-room holdings or a future reproduction request; official API identifies both as not digitised",
+      "status": "official_catalog_entries_only",
+      "unknowns": "The accession lists and history were not read; look for May 8 Z 29 and May 13 Flusslauf inventories without assuming they contain Thetis or Grund tables"
+    },
+    {
+      "id": "A08",
+      "title": "Undated key tables among returned TICOM material",
+      "identifier": "Collector-linked spreadsheet Sheet1 row 1568, NR. 2746, Deutschland, Schlüsseltafeln; nearby NR. 2742 lists M-system instructions and NR. 2748 a 1941 Kenngruppenbuch",
+      "source": "pa-aa-ticom-finding-aid",
+      "additional_sources": ["pa-aa-digital-holdings"],
+      "access_route": "Match the old inventory number to the current PA AA Invenio record before any future reading-room or reproduction request",
+      "status": "unmatched_mirror_catalog_entry",
+      "unknowns": "No year, net or contents are specified for NR. 2746; its current call number, digitisation and Thetis coverage remain unverified"
+    },
+    {
+      "id": "A09",
+      "title": "TICOM historians' source-file collection",
+      "identifier": "NARA RG 457, Entry P 4, ARC/NAID 5957379, 36 legal boxes in the October 2017 holdings report",
+      "source": "nara-hms-2017",
+      "access_route": "Current NARA catalog record 5957379 and collection finding aid; the 2017 physical shelf location is not assumed current",
+      "status": "dated_collection_level_record_only",
+      "access_limit": "The report's classification field says Declassified in Full, but its notes also say some boxes are fully restricted under FOIA and mention access restrictions on boxes 1 and 2",
+      "unknowns": "The current Team 6 folder and box within this collection, and any naval captured-key inventory, were not established"
+    },
+    {
+      "id": "A10",
+      "title": "ULTRA reports around the target date",
+      "identifier": "TNA DEFE 3/577, C1910474, 29 April-3 May 1945; DEFE 3/578, C1910475, 3-17 May 1945",
+      "source": "tna-defe3-577",
+      "additional_sources": ["tna-defe3-578"],
+      "access_route": "Discovery digital microfilm; official API confirms digitisation, but returns no image-download links",
+      "status": "official_metadata_only",
+      "unknowns": "Full reels were not retrieved; no target-related Thetis intercept or plaintext pair has been identified"
     }
   ]
 }

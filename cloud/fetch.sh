@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-#
-# Bring a run's results home, or list the runs when no id is given.
 set -euo pipefail
 
 project=$(gcloud config get-value project 2>/dev/null)

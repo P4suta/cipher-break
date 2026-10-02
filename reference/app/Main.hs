@@ -1,7 +1,5 @@
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 
--- | The command line: @train@ learns a language, @analyze@ describes a
--- ciphertext and @solve@ reads it.
 module Main (main) where
 
 import Cipher.Alphabet (Letter, alphabetSize, fromLetters, letterChar, toLetters)
@@ -51,23 +49,12 @@ defaultModel = "../data/english-quadgrams.txt"
 defaultModels :: FilePath
 defaultModels = "../data/models"
 
--- | Periods worth trying: past a quarter of the text a column holds too few
--- letters for any statistic to mean anything.
 maxPeriod :: Int
 maxPeriod = 16
 
--- | How many random starting keys each hill climb gets on top of the two fixed
--- ones.
 restarts :: Int
 restarts = 12
 
--- | How an annealing run is shaped: steps, restarts, and the temperatures it
--- falls between.
---
--- The temperatures have to match the scale of the score, not look plausible on
--- their own. One swap in a square moves a bifid plaintext everywhere at once,
--- so the steps in the score are large, and a schedule tuned for small ones
--- never accepts an uphill move and is a greedy climb wearing a disguise.
 data Schedule = Schedule
   { scheduleSteps :: Int
   , scheduleRestarts :: Int
@@ -147,7 +134,6 @@ readOption name fallback opts = case reads (option name "" opts) of
   [(v, "")] -> v
   _ -> fallback
 
--- | Everything that can be said about the ciphertext before guessing a key.
 analyze :: Int -> [Letter] -> IO ()
 analyze trials ct = do
   printf "ciphertext   %s\n" (fromLetters ct)
@@ -223,7 +209,6 @@ analyze trials ct = do
         (show (repeatPositions r))
         (show (repeatDistances r))
 
--- | Run every attack and print the best readings.
 solve :: [String] -> [Letter] -> IO ()
 solve opts ct = do
   let dictPath = option "--dict" defaultDict opts
@@ -242,7 +227,6 @@ solve opts ct = do
       likely = score model
       keys = [toLetters w | w <- S.toList (lexWords lexicon)]
       proposals = [(fam, key) | fam <- families, key <- keys]
-      -- The n-gram model is cheap and keeps the field open; the word cover is the costly judge and only ever sees the shortlist.
       byKeyword = rescore english (searchKeys likely 400 ct proposals)
       byPeriod = periodAttack english [1 .. maxPeriod] ct
       byClimb = rescore english (climbAttack likely restarts [1 .. maxPeriod] ct)
@@ -274,13 +258,6 @@ report lexicon likely i c = do
   printf "      %s\n" (fromLetters (candPlain c))
   printf "      %s\n" (unwords (segment lexicon (candPlain c)))
 
--- | Undo the period, then show every reading the remaining unknown allows.
---
--- Superposition recovers the key only up to its first letter, so what it hands
--- back is the plaintext under one shift that no amount of further statistics
--- can pin down. There are 26 of those, and 26 more if the family reverses the
--- alphabet on the way, as Beaufort does. Fifty-two lines is a small enough
--- haystack to read, and reading them needs no guess about the language.
 reduce :: Int -> [Letter] -> IO ()
 reduce period ct = do
   let shifts = alignment period ct
@@ -295,7 +272,6 @@ reduce period ct = do
     line txt k =
       printf "  %s  %s\n" [letterChar k] (fromLetters (map (subtract k) txt))
 
--- | Print the triage table.
 report' :: [Verdict] -> IO ()
 report' vs = do
   printf "%-22s %10s %10s %8s %8s\n" "statistic" "observed" "null mean" "z" "P"
@@ -310,12 +286,6 @@ report' vs = do
         (verdictZ v)
         (verdictP v)
 
--- | Every key space this tool can exhaust.
---
--- Each of these ciphers fails completely under a wrong key, with no partial
--- credit to muddle a judge, which is what makes exhausting them worthwhile at
--- all. The judge itself is passed in: the index of coincidence filters, and
--- the bank of language models decides.
 searches :: Schedule -> ([Letter] -> Double) -> [Search]
 searches plan judge =
   [ Search ("vigenere period " ++ show n) $ \ct ->
@@ -379,7 +349,6 @@ searches plan judge =
           ]
        ]
 
--- | Pick searches by name, or all of them.
 chosen :: Schedule -> ([Letter] -> Double) -> String -> [Search]
 chosen plan judge "all" = searches plan judge
 chosen plan judge name = filter ((name `isPrefixOf`) . searchName) (searches plan judge)
@@ -409,10 +378,5 @@ runSweep bank nulls shortlist keep ct search = do
         (trialLabel t)
         (fromLetters (trialPlain t))
 
--- | How well a text fits the best of the languages on hand.
---
--- Carried as a statistic like any other, so that it too is reported against
--- what random letters and real prose score on it, rather than as a number to
--- be judged by eye.
 languageFit :: Polyglot -> Statistic
 languageFit bank = Statistic "language fit" Upper (polyglotScore bank)

@@ -1,11 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Turning evidence into a conclusion, and a conclusion into something to read.
-//!
-//! The rule the whole tool is built on applies here most of all: a leading score is not a solution.
-//! A candidate is reported as a reading only when it clears the bar real text of that length clears, *and* stands clear of what the same search found in shuffled text.
-//! Anything else is reported as what it is — the best of a large number of tries, which is a different thing.
-
 use crate::alphabet::{ALPHABET, Letter, from_letters};
 use crate::attack::Coverage;
 use crate::polyglot::{Calibration, Polyglot, Scale};
@@ -15,48 +9,25 @@ use crate::triage::Verdict as StatVerdict;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-/// How a run ended.
 pub enum Conclusion {
-    /// A candidate reads as language and stands clear of its null.
     Read {
-        /// Which attack found it.
         attack: String,
-        /// The key.
         key: String,
-        /// The plaintext.
         plain: Vec<Letter>,
-        /// The language it was recognised as.
         language: String,
-        /// What it scored.
         score: f64,
-        /// What real text of *that candidate's* length scores.
         reference: Calibration,
     },
-    /// Nothing read.
-    /// The best of what was tried is reported for what it is.
     Unread {
-        /// The best score anything reached.
         best: f64,
-        /// What noise reached under the same searches.
         noise: f64,
-        /// How many keys were tried in total.
         keys: u64,
-        /// How many attacks were exhaustive.
         exhaustive: usize,
-        /// Attacks whose margin could not be judged, and why.
         unjudged: Vec<(String, usize, usize)>,
-        /// Attacks ruled out with no key tried, and why.
         impossible: Vec<(String, &'static str)>,
     },
 }
 
-/// How much a candidate outruns what its own attack achieves on noise.
-///
-/// This, and not the raw score, is what decides.
-/// A sixteen-letter Vigenere key has sixteen free choices over a short text and can bend it towards a language whatever the text is; a Caesar shift has one choice and cannot.
-/// If both reach the same score, only one of them has said anything, and the difference shows in what the same search does to shuffled text.
-///
-/// This tool read a plain Caesar cipher as a sixteen-letter Vigenere key until selection was changed from the score to this.
 #[must_use]
 pub fn merit(outcome: &Outcome, score: f64) -> f64 {
     match outcome.z() {
@@ -68,21 +39,12 @@ pub fn merit(outcome: &Outcome, score: f64) -> f64 {
     }
 }
 
-/// How far above its null a candidate must stand before it is called a reading.
 pub const MERIT_BAR: f64 = 4.0;
 
-/// How many nulls an exhausted key space needs before its margin is believed.
-///
-/// An exhaustive sweep's null answers a narrow question — what is the largest of this many draws — and a few runs pin it down.
 pub const MIN_NULLS_EXHAUSTIVE: usize = 3;
 
-/// How many nulls a searched key space needs.
-///
-/// A search that anneals over 25 factorial squares does not merely draw from a distribution, it hunts through one, and what it reaches on noise varies a great deal from run to run.
-/// A margin computed from three such runs is a margin computed from a deviation estimated on three numbers, and this tool reported a keyed bifid square as a German plaintext on exactly that: a candidate 1.3 below what real text of the length scores, five deviations above a null that three samples had put too low.
 pub const MIN_NULLS_SEARCHED: usize = 8;
 
-/// How many nulls an outcome needs before its margin means anything.
 #[must_use]
 pub fn nulls_required(coverage: Coverage) -> usize {
     match coverage {
@@ -92,16 +54,6 @@ pub fn nulls_required(coverage: Coverage) -> usize {
     }
 }
 
-/// Decide what a set of outcomes amounts to.
-///
-///
-/// The margin over the null is required as well as the language bar, because an annealing search over 25 factorial squares will clear the language bar on pure noise given enough restarts.
-/// That is not a hypothetical: on a 72-letter text this tool does exactly that, and the null is the only thing that catches it.
-/// Calibrations, one per text length, computed as they are needed.
-///
-/// A candidate is not always as long as the ciphertext.
-/// A null cipher hides 49 letters inside 147, and 49 letters of English score lower than 147 do under the same models — shorter samples are noisier and the mean drifts with them.
-/// Judging the short candidate against the long calibration is how this tool missed a message hidden as every third letter.
 pub struct Calibrator<'a> {
     bank: Option<(&'a Polyglot, &'a Scale)>,
     fixed: Option<Calibration>,
@@ -110,7 +62,6 @@ pub struct Calibrator<'a> {
 }
 
 impl<'a> Calibrator<'a> {
-    /// A calibrator over a bank of models and the scale they are read on.
     #[must_use]
     pub fn new(bank: &'a Polyglot, scale: &'a Scale, seed: u64) -> Self {
         Calibrator {
@@ -121,7 +72,6 @@ impl<'a> Calibrator<'a> {
         }
     }
 
-    /// A calibrator that answers the same way at every length.
     #[must_use]
     pub fn fixed(calibration: Calibration) -> Self {
         Calibrator {
@@ -132,11 +82,8 @@ impl<'a> Calibrator<'a> {
         }
     }
 
-    /// The calibration for texts of a given length.
-    ///
     /// # Panics
-    ///
-    /// Panics if the calibrator was built with neither a bank nor a fixed answer, which the constructors make impossible.
+    /// Panics if neither a fixed calibration nor a model bank is present.
     pub fn at(&mut self, len: usize) -> Calibration {
         if let Some(c) = self.fixed {
             return c;
@@ -152,15 +99,12 @@ impl<'a> Calibrator<'a> {
     }
 }
 
-/// Weigh every candidate against the language bar, its own null, and the size of the key space that produced it.
 #[must_use]
 pub fn conclude(
     outcomes: &[Outcome],
     calibrator: &mut Calibrator,
     judge_name: impl Fn(&[Letter]) -> String,
 ) -> Conclusion {
-    // Every candidate that clears both bars, with what it costs to believe it.
-    // A Caesar shift and a period-three Vigenere key of DDD produce the same plaintext; the first is the explanation worth printing, and "smallest key space that suffices" is what says so without a table of special cases.
     let mut passing: Vec<(&Outcome, usize, u64, f64)> = Vec::new();
     for outcome in outcomes {
         for (i, candidate) in outcome.best.iter().enumerate() {
@@ -170,7 +114,6 @@ pub fn conclude(
             {
                 continue;
             }
-            // A margin is only as good as the null it is measured against.
             if outcome.null.len() < nulls_required(outcome.coverage) {
                 continue;
             }
@@ -181,11 +124,6 @@ pub fn conclude(
             if !clear {
                 continue;
             }
-            // A null that was run and could not discriminate is not the same as no null at all.
-            // When shuffled runs all land on one number, or land on nothing, the margin is undefined — and an undefined margin used to let a candidate through on its raw score, which is the one thing this tool exists not to do.
-            // Every outcome that reaches here has enough shuffles behind it,
-            // so a margin exists and must be finite and clear.
-            // A null that was run and could not discriminate — every shuffle landing on the same number, or on nothing — leaves the margin undefined, and an undefined margin used to let a candidate through on its raw score, which is the one thing this tool exists not to do.
             let m = merit(outcome, candidate.score);
             if !(m.is_finite() && m >= MERIT_BAR) {
                 continue;
@@ -249,14 +187,12 @@ pub fn conclude(
     }
 }
 
-/// A heading with a rule under it.
 #[must_use]
 pub fn heading(title: &str) -> String {
     let rule = "─".repeat(72usize.saturating_sub(title.chars().count() + 3));
     format!("\n\x1b[1m{title}\x1b[0m {rule}\n")
 }
 
-/// Render the statistics table.
 #[must_use]
 pub fn statistics_table(verdicts: &[StatVerdict], population: &str) -> String {
     let mut out = format!(
@@ -282,49 +218,29 @@ pub fn statistics_table(verdicts: &[StatVerdict], population: &str) -> String {
     out
 }
 
-/// What the best of `n` tries would score if there were nothing to find.
-///
-/// A search returns its best, and the best of a large search is high whatever the search was for: that is what "best of" means.
-/// So a bar that does not move with the size of the search is a bar any big enough search crosses, and a fixed threshold for "this reads as language" called a decipherment of noise a reading the first time a sweep of six hundred million settings was measured against it.
-///
-/// The growth is measured from `samples` rather than assumed.
-/// The textbook figure — the mean plus `sqrt(2 ln n)` spreads — is a claim about a Gaussian tail, and the tail of a decipherment's score is heavier than that: on this tool's own message it under-called the best of twenty-five thousand tries by a whole point.
-/// Blocks of increasing size give the median of their bests, a line through those says how the best grows with the logarithm of the count, and that line is extended to the count a sweep actually made.
 #[must_use]
 pub fn best_of_n(samples: &[f64], n: u64) -> f64 {
     best_of_n_fit(samples, n).map_or(f64::INFINITY, |fit| fit.median)
 }
 
-/// Where the best of `n` tries lands, and how widely.
 #[derive(Clone, Copy, Debug)]
 pub struct BestOfN {
-    /// The median of the best of `n`: half of all searches of that size on nothing reach it.
     pub median: f64,
-    /// How far the best moves for each factor of e in the count, which is also how widely it scatters.
-    ///
-    /// The best of a block of tries from a tail like this one is spread as a Gumbel variable, whose location grows by exactly its scale for every factor of e in the block; so the slope the growth is measured by is the spread, and does not have to be measured twice.
     pub spread: f64,
 }
 
 impl BestOfN {
-    /// How often the best of `n` tries on nothing reaches `score`.
-    ///
-    /// A median says where the best of a search usually lands and nothing about how far past it chance will go; a find that clears the median by a point clears it about one search in ten.
     #[must_use]
     pub fn chance_of_reaching(&self, score: f64) -> f64 {
         if self.spread <= 0.0 || !self.spread.is_finite() {
             return if score > self.median { 0.0 } else { 1.0 };
         }
-        // Gumbel: the median sits ln(1/ln 2) scales above the location.
         let location = self.median - self.spread * (1.0 / std::f64::consts::LN_2).ln();
         let z = (score - location) / self.spread;
         -(-(-z).exp()).exp_m1()
     }
 }
 
-/// The best of `n` as a distribution rather than a number.
-///
-/// Blocks of increasing size give the median of their bests, and a line through those against the logarithm of the size gives both where the best of `n` lands and how widely it scatters.
 #[must_use]
 pub fn best_of_n_fit(samples: &[f64], n: u64) -> Option<BestOfN> {
     if samples.len() < BLOCKS_FOR_GROWTH.iter().max().copied().unwrap_or(1) || n == 0 {
@@ -363,17 +279,8 @@ pub fn best_of_n_fit(samples: &[f64], n: u64) -> Option<BestOfN> {
     })
 }
 
-/// The block sizes the growth is measured over.
-///
-/// Spread evenly in the logarithm, because that is the axis the best of a search grows along, and wide enough apart that a line through them is a line and not a slope between two neighbours.
 const BLOCKS_FOR_GROWTH: &[usize] = &[100, 400, 1_600, 6_400, 25_600];
 
-/// How many letters a message must have before one key fits it and the rest do not.
-///
-/// Shannon's unicity distance: a key space of `keys` needs `log2(keys)` bits of evidence to single one of them out, and each letter of a redundant language supplies `redundancy` of them.
-/// Below it, several keys produce readable text and no amount of searching can say which was meant; above it, the answer is unique and the only question left is whether it can be reached.
-///
-/// It is the first thing worth knowing about a message and the last thing anyone asks: a tool that hunts for hours without saying whether the hunt is even well posed is answering a question nobody checked.
 #[must_use]
 pub fn unicity_distance(keys: u64, redundancy: f64) -> f64 {
     if keys <= 1 || redundancy <= 0.0 {
@@ -382,19 +289,12 @@ pub fn unicity_distance(keys: u64, redundancy: f64) -> f64 {
     (keys as f64).log2() / redundancy
 }
 
-/// How many bits each letter of a language carries beyond what a random letter would.
-///
-/// Measured from the model rather than looked up: a model's own mean score on text it generated is the entropy of the grams it counts, and the gap from there to a uniform alphabet is what a cryptanalyst has to spend.
-///
-/// A gram of `order` letters is charged to all of them, which overstates the entropy — the joint entropy of a gram is never below `order` times the conditional entropy of its last letter — and so understates the redundancy and overstates how long a message has to be.
-/// That is the safe direction for a number whose job is to say whether a search is worth starting.
 #[must_use]
 pub fn redundancy(gram_score_nats: f64, order: usize) -> f64 {
     let per_letter = -gram_score_nats / order.max(1) as f64;
     (ALPHABET as f64).log2() - per_letter / std::f64::consts::LN_2
 }
 
-/// Render one sweep's result as a table row.
 #[must_use]
 pub fn outcome_row(o: &Outcome) -> String {
     if let Some(why) = o.impossible() {
@@ -416,7 +316,6 @@ pub fn outcome_row(o: &Outcome) -> String {
     )
 }
 
-/// The header of the sweep table.
 #[must_use]
 pub fn outcome_header() -> String {
     format!(
@@ -425,7 +324,6 @@ pub fn outcome_header() -> String {
     )
 }
 
-/// Render a conclusion.
 #[must_use]
 pub fn conclusion(c: &Conclusion, cal: &Calibration) -> String {
     match c {
@@ -492,14 +390,9 @@ mod tests {
     fn the_bar_a_search_must_clear_rises_with_the_size_of_the_search() {
         use super::best_of_n;
 
-        // Thirty thousand draws of pure noise.
         let mut rng = crate::rng::Rng::new(5);
         let samples: Vec<f64> = (0..30_000)
-            .map(|_| {
-                // Something with a tail: twelve uniforms summed is near enough Gaussian,
-                // and the point is only that the best of many is higher than the best of few.
-                (0..12).map(|_| rng.unit()).sum::<f64>() - 6.0
-            })
+            .map(|_| (0..12).map(|_| rng.unit()).sum::<f64>() - 6.0)
             .collect();
 
         let few = best_of_n(&samples, 1_000);
@@ -508,7 +401,6 @@ mod tests {
             many > few,
             "the best of a billion tries has to beat the best of a thousand: {many} vs {few}"
         );
-        // And it is the logarithm that matters, not the count: a thousandfold search costs about as much again as the last thousandfold did.
         let more = best_of_n(&samples, 1_000_000);
         assert!(
             (many - more - (more - few)).abs() < (more - few),
@@ -542,7 +434,6 @@ mod tests {
         let c = cal();
         assert!(c.floor() > c.noise_mean);
         assert!(c.floor() < c.language_mean);
-        // Real prose scores below model-drawn text; the bar has to allow for it.
         assert!(c.reads_as_language(13.0));
     }
 
@@ -562,7 +453,6 @@ mod tests {
 
     #[test]
     fn a_null_that_could_not_discriminate_is_not_a_licence() {
-        // Four shuffles that all landed on the same number: the margin is undefined, and an undefined margin must not read as a clear one.
         let mut searched = outcome(20.0, vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
         searched.coverage = Coverage::Searched(0);
         assert!(matches!(
@@ -573,8 +463,6 @@ mod tests {
 
     #[test]
     fn with_no_null_at_all_nothing_can_be_read() {
-        // `--nulls 0` is a request to skip the calibration, and this tool does not have a verdict without one.
-        // The attack is named as unjudged rather than trusted.
         let mut o = outcome(20.0, vec![]);
         o.coverage = Coverage::Exhaustive(10);
         match conclude(&[o], &mut Calibrator::fixed(cal()), |_| "en".into()) {
@@ -585,7 +473,6 @@ mod tests {
 
     #[test]
     fn a_margin_from_too_few_nulls_is_not_believed() {
-        // The false positive this rule exists for: an annealing attack whose three nulls happened to fall low.
         let mut searched = outcome(16.7, vec![15.5, 14.9, 15.2]);
         searched.coverage = Coverage::Searched(0);
         assert!(matches!(
@@ -629,8 +516,6 @@ mod tests {
 
     #[test]
     fn the_simpler_attack_wins_a_tie_on_score() {
-        // Both reach -7.0.
-        // The one whose null stays far below has said something; the one whose null follows it up has not.
         let mut narrow = outcome(20.0, vec![1.0, 1.1, 0.9, 1.0]);
         narrow.name = "caesar".into();
         let mut loose = outcome(20.0, vec![19.4, 19.6, 19.5, 19.5]);
@@ -654,7 +539,6 @@ mod tests {
 
     #[test]
     fn a_score_the_null_also_reaches_is_not_read() {
-        // The annealing trap: a high score that noise reaches just as easily.
         let outcomes = vec![outcome(20.0, vec![20.5, 19.2, 20.1, 19.9])];
         assert!(matches!(
             conclude(&outcomes, &mut Calibrator::fixed(cal()), |_| "en".into()),
@@ -683,7 +567,6 @@ mod tests {
 
     #[test]
     fn every_outcome_is_considered_and_not_just_the_first() {
-        // A weak outcome first and a strong one second: the strong one must still be found, which a loop that stops at the first failure would miss.
         let weak = outcome(1.0, vec![1.0, 1.1, 0.9, 1.0]);
         let strong = outcome(20.0, vec![1.0, 1.1, 0.9, 1.0]);
         assert!(matches!(

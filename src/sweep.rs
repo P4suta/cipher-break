@@ -1,58 +1,34 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Running a key space, and knowing what its best result is worth.
-//!
-//! Trying 157,248 keys and keeping the one that scores highest is not evidence of anything on its own: the largest of 157,248 draws from a harmless distribution is large too.
-//! Every sweep here therefore runs twice — once on the ciphertext and once on shuffles of it, which have the same letters in an order known to mean nothing — and reports both.
-//! The margin between them is the finding.
-
 use crate::alphabet::Letter;
 use crate::attack::{Attack, Candidate, Context, Coverage};
 use crate::rng::Rng;
 use crate::stats::moments;
 
-/// What a sweep found, and what the same sweep finds in noise.
 pub struct Outcome {
-    /// The attack that produced it.
     pub name: String,
-    /// The family the attack belongs to.
     pub family: &'static str,
-    /// How much of the key space was covered.
     pub coverage: Coverage,
-    /// The best candidates, highest first.
     pub best: Vec<Candidate>,
-    /// The best score the same attack reached on each shuffled text.
     pub null: Vec<f64>,
 }
 
 impl Outcome {
-    /// The score of the leading candidate.
     #[must_use]
     pub fn leader(&self) -> f64 {
         self.best.first().map_or(f64::NEG_INFINITY, |c| c.score)
     }
 
-    /// The highest score noise reached.
     #[must_use]
     pub fn null_max(&self) -> f64 {
         self.null.iter().copied().fold(f64::NEG_INFINITY, f64::max)
     }
 
-    /// Mean and deviation of the null.
     #[must_use]
     pub fn null_moments(&self) -> (f64, f64) {
         moments(&self.null)
     }
 
-    /// How far the leader stands above the null, in deviations of the null.
-    ///
-    /// Returns `None` when no null was run, because then there is nothing to
-    /// stand above, and also when the null has no spread at all.
-    ///
-    /// A null whose runs all landed on the same number says how far above it
-    /// something is only in units of nothing. Dividing by that produced an
-    /// infinite margin in a report, which reads as certainty and means the
-    /// opposite: it is the one case where the null has told us least.
     #[must_use]
     pub fn z(&self) -> Option<f64> {
         if self.null.len() < 2 {
@@ -66,7 +42,6 @@ impl Outcome {
         Some((self.leader() - mean) / sd)
     }
 
-    /// Whether the attack was ruled out without trying a key.
     #[must_use]
     pub fn impossible(&self) -> Option<&'static str> {
         match self.coverage {
@@ -76,7 +51,6 @@ impl Outcome {
     }
 }
 
-/// Run an attack on a ciphertext, then on shuffles of it.
 #[must_use]
 pub fn run(attack: &dyn Attack, ct: &[Letter], ctx: &Context, nulls: usize) -> Outcome {
     let coverage = attack.coverage(ct);
@@ -90,8 +64,6 @@ pub fn run(attack: &dyn Attack, ct: &[Letter], ctx: &Context, nulls: usize) -> O
         };
     }
     let best = attack.best(ct, ctx);
-    // An attack that measured its own noise is believed, and the shuffles are not run.
-    // Running them anyway would cost as much again as the attack, nine times over for a sweep that already sifted six hundred million settings and watched what the accidents among them scored.
     if let Some(null) = attack.own_null() {
         return Outcome {
             name: attack.name(),
@@ -235,7 +207,6 @@ mod tests {
 
     #[test]
     fn z_is_the_margin_in_deviations_of_the_null() {
-        // Leader 5, null mean 2, deviation 1: three deviations clear.
         let z = made(Some(5.0), vec![1.0, 3.0])
             .z()
             .expect("two nulls are enough");
@@ -244,8 +215,6 @@ mod tests {
 
     #[test]
     fn a_null_with_no_spread_gives_no_z() {
-        // Every run landed on the same number, so "how many deviations above it" is a question about nothing.
-        // It used to answer infinity.
         assert!(made(Some(5.0), vec![2.0, 2.0, 2.0, 2.0]).z().is_none());
         assert!(made(Some(5.0), vec![2.0, 2.000_000_1]).z().is_none());
         assert!(made(Some(5.0), vec![2.0, 3.0]).z().is_some());

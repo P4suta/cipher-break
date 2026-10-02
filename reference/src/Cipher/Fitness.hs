@@ -1,12 +1,5 @@
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 
--- | How English a candidate plaintext looks.
---
--- Letter frequency alone is a weak judge over 72 letters, so the judge here is
--- a word list: the best split of the text into dictionary words, scoring a
--- word of length @n@ as @n^2@ and charging a flat penalty for every letter
--- left over. Squaring is what makes the measure discriminating, because a long
--- real word beats any pile of two-letter fragments that covers the same span.
 module Cipher.Fitness
   ( Lexicon (..)
   , loadLexicon
@@ -23,27 +16,20 @@ import Data.List (maximumBy)
 import Data.Ord (comparing)
 import qualified Data.Set as S
 
--- | A word list, upper-cased, with the longest entry length it holds.
 data Lexicon = Lexicon
   { lexWords :: S.Set String
   , lexMaxLen :: Int
   }
 
--- | Every letter left outside a word costs this much.
 gapPenalty :: Double
 gapPenalty = -6
 
--- | Entries longer than this are dropped; nothing that long helps the split.
 lengthCap :: Int
 lengthCap = 14
 
 loadLexicon :: FilePath -> IO Lexicon
 loadLexicon path = lexiconFrom . lines <$> readFile path
 
--- | Build a lexicon from raw lines, keeping only plain ASCII words.
---
--- One-letter entries are limited to @A@, @I@ and @O@: a word list that admits
--- every single letter as a word can cover any text at all and stops judging.
 lexiconFrom :: [String] -> Lexicon
 lexiconFrom ws = Lexicon (S.fromList kept) lengthCap
   where
@@ -53,10 +39,6 @@ lexiconFrom ws = Lexicon (S.fromList kept) lengthCap
        in (n >= 2 && n <= lengthCap) || u `elem` ["A", "I", "O"]
     trim = filter (`notElem` " \t\r\n")
 
--- | The best split of a text: its score, and the pieces it was split into.
---
--- Unmatched letters appear in the split in lower case, so a near miss is
--- readable rather than merely low-scoring.
 cover :: Lexicon -> [Letter] -> (Double, [String])
 cover _ [] = (0, [])
 cover lex' ls = table ! 0
@@ -81,10 +63,8 @@ cover lex' ls = table ! 0
           , let (s, ws) = table ! (i + l)
           ]
 
--- | 'cover' as a per-letter score, so texts of different lengths compare.
 wordCover :: Lexicon -> [Letter] -> Double
 wordCover lex' ls = fst (cover lex' ls) / fromIntegral (max 1 (length ls))
 
--- | The pieces 'cover' split the text into.
 segment :: Lexicon -> [Letter] -> [String]
 segment lex' = snd . cover lex'

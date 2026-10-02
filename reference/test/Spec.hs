@@ -1,6 +1,5 @@
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 
--- | Checks with no dependency beyond base, so the suite runs wherever GHC does.
 module Main (main) where
 
 import Cipher.Alphabet (Letter, fromLetters, toLetters)
@@ -44,15 +43,12 @@ import Data.List (sort)
 import Data.Maybe (isJust)
 import System.Exit (exitFailure)
 
--- | A stretch of ordinary English, long enough for a column statistic to bite.
 plaintext :: String
 plaintext =
   "ITISACAPITALMISTAKETOTHEORIZEBEFOREONEHASDATAINSENSIBLYONEBEGINS\
   \TOTWISTFACTSTOSUITTHEORIESINSTEADOFTHEORIESTOSUITFACTSTHEWORLDIS\
   \FULLOFOBVIOUSTHINGSWHICHNOBODYBYANYCHANCEEVEROBSERVES"
 
--- | More English, so a model trained inside the suite has something to learn
--- from beyond the sentence it is asked about.
 corpus :: String
 corpus =
   plaintext
@@ -71,19 +67,6 @@ main = do
   mapM_ (\(name, ok) -> putStrLn ((if ok then "ok   " else "FAIL ") ++ name)) results
   unless (all snd results) exitFailure
 
--- | Break a bifid square this suite planted itself.
---
--- The negative results this tool reports are only worth what its positive ones
--- are, so the search that returns nothing on the real ciphertext has to be
--- shown breaking one it was handed. It needs the shipped models rather than a
--- few hundred letters of corpus: a search over 25 factorial squares is guided
--- by the judge, and a judge trained on one paragraph guides it nowhere.
---
--- The temperatures matter more than they look. One swap in a square moves a
--- bifid plaintext everywhere at once, so the steps in the score are large; a
--- schedule that starts at 0.3 never accepts an uphill move and is a greedy
--- climb wearing a disguise. This attack failed on a 300-letter planted key
--- until that was noticed.
 plantedBifid :: IO (String, Bool)
 plantedBifid = do
   bank <- loadPolyglot "../data/models"
@@ -261,11 +244,7 @@ checks =
     )
   , ("Hill leaves a trailing odd letter alone", length (Hill.apply (Hill.Matrix 3 3 2 5) (toLetters "ABC")) == 3)
   , ( "an exhaustive Hill search brings a planted key within reach"
-    , -- The index of coincidence cannot pick the key out on its own: swapping
-      -- the rows of the deciphering matrix swaps the letters within every
-      -- digraph, which leaves the letter counts and so the statistic exactly
-      -- as they were. It is a filter, not a verdict, and this is the property
-      -- a sweep may lean on.
+    ,
       let ct = Hill.apply (Hill.Matrix 3 3 2 5) (toLetters plaintext)
           top = best 40 indexOfCoincidence [(show m, Hill.apply m ct) | m <- Hill.matrices]
        in any ((== toLetters plaintext) . trialPlain) top
@@ -286,8 +265,7 @@ checks =
     )
   , ("an empty Porta key changes nothing", Porta.apply [] (toLetters plaintext) == toLetters plaintext)
   , ( "bifid deciphers back to the plaintext"
-    , -- A square holds 25 letters, so the omitted one has to be gone from the
-      -- text too; a text still carrying it has no coordinates to encipher.
+    ,
       and
         [ Bifid.decipherBifid n sq (Bifid.encipherBifid n sq msg) == msg
         | n <- [1, 2, 5, 7]
@@ -326,8 +304,7 @@ checks =
        in snd (anneal fit step 400 (1.0, 0.01) [0, 0, 0, 0, 0] (seed 8)) >= fit target - 1e-9
     )
   , ( "the Enigma matches the textbook vector"
-    , -- The same vector the Rust implementation asserts, so a drift between
-      -- the two shows up as one of them failing rather than as a mystery.
+    ,
       fromLetters (run (machine (settingsAt (Triple 0 1 2) 0 (Triple 0 0 0) (Triple 0 0 0)) emptyBoard) (toLetters "AAAAA"))
         == "BDZGO"
     )
@@ -344,8 +321,7 @@ checks =
        in compatible (run (machine settings emptyBoard) plain) plain
     )
   , ( "the middle rotor takes the left one with it from its own notch"
-    , -- Rotor II notches at E, so a middle rotor resting there carries the
-      -- left rotor on the very next keypress.
+    ,
       let moved = settingsAt (Triple 0 1 2) 0 (Triple 0 0 0) (Triple 0 4 0)
           still = settingsAt (Triple 0 1 2) 0 (Triple 0 0 0) (Triple 0 0 0)
           firstFew s = take 3 (run (machine s emptyBoard) (replicate 3 0))

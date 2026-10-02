@@ -6,11 +6,8 @@
 *.o
 *.dyn_hi
 *.dyn_o
-# njutest writes a directory per run; the verdict belongs in a commit message,
-# not in the tree.
 /reports/
 
-# Local configuration and credentials.
 .env
 .env.*
 !.env.example

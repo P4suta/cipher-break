@@ -1,17 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The Enigma attacks, shown working on messages this file enciphered.
-//!
-//! Every planted case is declared once, in [`CASES`], and both the attacks and
-//! the diagnostic run from that one table. They used to be written out
-//! separately, and a diagnostic that planted `start HEW` while the test it was
-//! meant to explain planted `start LLP` cost an hour of looking in the wrong
-//! place. A fact measured about one message says nothing about another.
-//!
-//! The sweeps are slow — a naval one is six hundred million settings, or
-//! sixteen billion with the ring — so the heavy tests are `#[ignore]` and run
-//! on purpose with `cargo test -- --ignored`.
-
 use cipher_break::alphabet::{Letter, from_letters, to_letters};
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Attack, Context};
@@ -26,73 +14,49 @@ use cipher_break::polyglot::{Polyglot, Scale};
 use cipher_break::rng::Rng;
 use cipher_break::trace::Trace;
 
-/// A Kriegsmarine signal in the shape they were actually sent in.
 const SIGNAL: &str = "VONVONJAWEGENDERSITUATIONXXMELDEICHXXFEINDKONVOIINSICHTXXMARQUADRATBE";
 
-/// A longer one, for the searches that need more evidence than a short signal carries.
 const LONG_SIGNAL: &str = "VONVONJAWEGENDERSITUATIONXXMELDEICHXXFEINDKONVOIINSICHTXXMARQUADRATBE\
                            XXDREISCHIFFEUNDZWEIZERSTOERERXXKURSNORDOSTXXGESCHWINDIGKEITACHTXX\
                            GREIFEBEIMORGENGRAUENANXXERBITTEUNTERSTUETZUNGDURCHZWEIBOOTEXXENDE";
 
-/// The right ring setting one planted case uses, as a letter index.
 const MIDDLE_RING_F: u8 = 5;
 
 const RIGHT_RING_T: u8 = 19;
 
-/// A sweep that holds the right ring at A.
 #[cfg(feature = "gpu")]
 const RINGS_HELD: usize = 1;
 
-/// A sweep that tries every right-ring setting.
 #[cfg(feature = "gpu")]
 const RINGS_SWEPT: usize = cipher_break::alphabet::ALPHABET;
 
-/// How deep the rank diagnostic looks before reporting "not found".
 #[cfg(feature = "gpu")]
 const RANK_DEPTH: usize = 200_000;
 
-/// How many settings a cross-check between the two backends needs.
 #[cfg(feature = "gpu")]
 const CROSS_CHECK_KEEP: usize = 4;
 
-/// How long a shortlist the planted-case attacks are given.
 #[cfg(feature = "gpu")]
 const PLANTED_SHORTLIST: usize = 60_000;
 
-/// How many of the device's boards each planted case finishes here.
 #[cfg(feature = "gpu")]
 const PLANTED_FINISH: usize = 64;
 
-/// How many candidates a planted case is allowed to return.
 const PLANTED_KEEP: usize = 5;
 
-/// How many random texts the planted cases calibrate against.
 const PLANTED_SAMPLES: usize = 128;
 
-/// A message this file enciphered, with everything needed to attack it again.
 pub struct Planted {
-    /// How the case is named in output.
     pub label: &'static str,
-    /// The plaintext.
     pub text: &'static str,
-    /// Which rotors, right to left as the machine holds them.
     pub rotors: [usize; 3],
-    /// Ring settings, left to right.
     pub rings: [u8; 3],
-    /// Starting positions, left to right.
     pub positions: [u8; 3],
-    /// The Greek rotor, its setting and the thin reflector.
     pub greek: (usize, u8, usize),
-    /// The plugboard leads.
     pub plugs: &'static [(u8, u8)],
-    /// How many right-rotor ring settings an attack must sweep to contain it.
     pub sweep_rings: usize,
 }
 
-/// Every planted case, declared once.
-///
-/// The `sweep_rings` column is not a preference; it is what the case requires.
-/// A rotor sweep runs with the rings at zero, which reproduces any wiring but only one notch timing, so a case whose right ring is not `A` is outside a one-ring sweep by construction and no amount of searching will find it.
 pub const CASES: &[Planted] = &[
     Planted {
         label: "naval, short, ring A",
@@ -114,8 +78,6 @@ pub const CASES: &[Planted] = &[
         plugs: &[(1, 20), (8, 15), (17, 2)],
         sweep_rings: 1,
     },
-    // The case this tool actually faces, and the one the table was missing.
-    // Everything else here is either long enough to be easy or has its right ring at A.
     Planted {
         label: "naval, short, right ring T",
         text: SIGNAL,
@@ -126,8 +88,6 @@ pub const CASES: &[Planted] = &[
         plugs: &[(1, 20), (8, 15), (17, 2)],
         sweep_rings: 26,
     },
-    // The middle ring decides where the middle rotor steps, and in seventy letters it steps two or three times.
-    // The sweep holds it at A; nothing here ever asked whether that mattered.
     Planted {
         label: "naval, short, middle ring F",
         text: SIGNAL,
@@ -151,7 +111,6 @@ pub const CASES: &[Planted] = &[
 ];
 
 impl Planted {
-    /// The settings the machine was set to.
     #[must_use]
     pub fn settings(&self) -> Settings {
         Settings {
@@ -162,19 +121,16 @@ impl Planted {
         }
     }
 
-    /// The composite reflector the Greek rotor and thin reflector make.
     #[must_use]
     pub fn reflector(&self) -> [u8; cipher_break::alphabet::ALPHABET] {
         composite_reflector(self.greek.0, self.greek.1, self.greek.2)
     }
 
-    /// Which of the 104 naval reflectors that is.
     #[must_use]
     pub fn reflector_index(&self) -> usize {
         self.greek.0 * 52 + self.greek.2 * 26 + self.greek.1 as usize
     }
 
-    /// The board that was fitted.
     #[must_use]
     pub fn board(&self) -> Plugboard {
         let mut board = Plugboard::empty();
@@ -184,22 +140,17 @@ impl Planted {
         board
     }
 
-    /// The plaintext, as letters.
     #[must_use]
     pub fn plain(&self) -> Vec<Letter> {
         to_letters(self.text)
     }
 
-    /// What the machine produced.
     #[must_use]
     pub fn ciphertext(&self) -> Vec<Letter> {
         Enigma::with_reflector(self.settings(), self.reflector(), self.board()).run(&self.plain())
     }
 }
 
-/// A message a bombe is known to break, and the plaintext it should come back with.
-///
-/// Shared so that a test about the bombe's answer and a test about the bombe's null are asking about the same sweep; the last time two bombe tests planted different settings, the disagreement between them cost an hour to find.
 fn planted_bombe_message() -> (Vec<u8>, Vec<u8>) {
     let settings = Settings::at([2, 0, 4], 0, [0; 3], [7, 19, 3]);
     let mut board = Plugboard::empty();
@@ -211,12 +162,10 @@ fn planted_bombe_message() -> (Vec<u8>, Vec<u8>) {
     (plain, ct)
 }
 
-/// The models the shipped binary carries.
 fn bank() -> Polyglot {
     Polyglot::from_bundle(include_str!("../data/models.bundle"))
 }
 
-/// The German quadgram model the binary carries.
 fn german() -> Option<Model> {
     Model::parse(include_str!("../data/german-quadgrams.txt"))
 }
@@ -258,7 +207,6 @@ fn every_planted_case_deciphers_back() {
 mod device {
     use super::*;
 
-    /// What a naval bombe costs on the device, against what it costs on the processor.
     #[test]
     #[ignore = "a measurement, not a check"]
     fn what_a_naval_bombe_costs_on_the_device() {
@@ -289,7 +237,6 @@ mod device {
         let reflectors: Vec<[u8; 26]> = naval_reflectors().into_iter().map(|(_, w)| w).collect();
         let orders = rotor_orders(ROTOR_COUNT);
 
-        // One rotor order of the three hundred and thirty-six, timed and multiplied.
         let start = std::time::Instant::now();
         let found = gpu.sweep_bombe(&BombeJob {
             ct: &ct,
@@ -326,9 +273,6 @@ mod device {
     use cipher_break::attack::{GpuEnigmaNaval, LEAD_MARGIN, climb_plugboard};
     use cipher_break::gpu::{BombeJob, EnigmaHit, EnigmaJob, Gpu};
 
-    /// The device bombe must refute exactly what the processor's bombe refutes.
-    ///
-    /// Not approximately and not "about the same number": a bombe's whole worth is that its negatives are exact, and a device that refutes one setting the processor would have kept has thrown away the only thing it was built to produce.
     #[test]
     #[ignore = "a rotor sweep, and it needs a device"]
     fn the_device_refutes_exactly_what_the_processor_refutes() {
@@ -339,7 +283,6 @@ mod device {
             return;
         };
         let (plain, ct) = planted_bombe_message();
-        // Short enough that a great many settings survive, because a comparison of two zeroes proves nothing at all — the first version of this test swept a crib strong enough to refute everything and agreed with itself about that.
         let crib = to_letters("VONVONJAWE");
         let menus: Vec<Menu> = (0..=ct.len() - crib.len())
             .filter_map(|o| Menu::place(&ct, &crib, o))
@@ -347,8 +290,6 @@ mod device {
             .collect();
         assert!(!menus.is_empty(), "the crib has to sit somewhere");
 
-        // One rotor order and one reflector, every position of them: enough that a disagreement shows up and few enough that the processor can do it too.
-        // The order the message was actually enciphered on, so the true setting is in the sweep and has to survive it on both sides.
         let orders = vec![[2usize, 0, 4]];
         let reflector = reflector_wiring(0);
         let bank = bank();
@@ -376,7 +317,6 @@ mod device {
             keep: 8,
         });
 
-        // The same sweep, on the processor.
         let mut expected: u64 = 0;
         let reach = menus
             .iter()
@@ -415,7 +355,6 @@ mod device {
             "the two bombes disagree about which settings survive"
         );
 
-        // And the setting the message was really enciphered on is among them.
         let truth = [7u8, 19, 3];
         let mut kept = false;
         for menu in &menus {
@@ -431,10 +370,6 @@ mod device {
         let _ = (&plain, &bank);
     }
 
-    /// A bombe with the rings swept has to keep a setting whose right ring is not A, and refute exactly what the processor refutes.
-    ///
-    /// The right ring decides when the middle rotor steps.
-    /// Held at A, a bombe steps it at the wrong letter, and a crib laid across that step is refuted at the very setting that enciphered it: the first half of this test shows that happening, the second that sweeping the rings stops it.
     #[test]
     #[ignore = "a rotor sweep with the rings in it, and it needs a device"]
     fn a_bombe_with_the_rings_swept_keeps_a_ring_away_from_a() {
@@ -444,9 +379,7 @@ mod device {
         let Ok(gpu) = Gpu::open() else {
             return;
         };
-        // Once with rotors whose rings all count, once with naval rotors in the middle and on the right, whose rings past the half turn the sweep skips as copies.
         for (rotors, ring) in [([2usize, 0, 4], 13u8), ([2, 6, 5], 10)] {
-            // The wiring of the planted bombe message, with the right ring at N: the indicator moves with the ring so the wiring is entered where it was, and the middle rotor now steps at the tenth letter instead of the twenty-third, inside the crib.
             let truth = Settings::at(rotors, 0, [0, 0, ring], [7, 19, 3 + ring]);
             let mut board = Plugboard::empty();
             for (a, b) in [(0u8, 20u8), (4, 12), (8, 15), (17, 2), (24, 9)] {
@@ -478,7 +411,6 @@ mod device {
                 )
             };
 
-            // Held at A, the best it can do is the same wiring with the step in the wrong place.
             let held = Settings::at(rotors, 0, [0; 3], [7, 19, 3]);
             assert!(
                 !survives(held, &mut scratch),
@@ -511,7 +443,6 @@ mod device {
                 keep: 64,
             });
 
-            // The same sweep on the processor, skipping exactly the middle rings the device skips.
             let expected = processor_stops_with_rings(rotors, reflector, &menus, reach);
             println!("  processor {expected} stops, device {} stops", found.stops);
             assert_eq!(
@@ -535,10 +466,6 @@ mod device {
         }
     }
 
-    /// Where the true setting stands after each stage of the naval pipeline, on its own rotor order.
-    ///
-    /// One order of the three hundred and thirty-six, so a question about which stage loses a planted message takes seconds rather than a quarter of an hour on a rented device.
-    /// A setting counts as the truth when its decipherment with an empty board is the true setting's, which is what makes a ring moved with its indicator the same answer.
     #[test]
     #[ignore = "a diagnostic, not a check"]
     fn where_each_stage_leaves_the_truth_on_one_order() {
@@ -630,7 +557,6 @@ mod device {
         }
     }
 
-    /// How many settings a bombe on the processor leaves standing on one rotor order, every ring swept.
     fn processor_stops_with_rings(
         rotors: [usize; 3],
         reflector: [u8; cipher_break::alphabet::ALPHABET],
@@ -696,9 +622,6 @@ mod device {
         }
     }
 
-    /// Where the true setting lands in the rotor sweep, case by case.
-    ///
-    /// This is the diagnostic that decides which half of an attack to look at when it fails: a true setting near the front means the sweep is fine and the stage after it is losing the answer; a true setting nowhere means no downstream work will help.
     #[test]
     #[ignore = "a full rotor sweep per case; run with --ignored"]
     fn where_the_true_setting_ranks() {
@@ -717,7 +640,6 @@ mod device {
                 .iter()
                 .position(|&o| o == case.rotors)
                 .expect("order");
-            // The sweep holds the rings at zero and moves the indicator with the right ring, so this is the setting it could return.
             let wanted = [
                 settings.positions[0],
                 settings.positions[1]
@@ -756,9 +678,6 @@ mod device {
         }
     }
 
-    /// The device and the processor have to agree on the very same setting.
-    ///
-    /// Comparing only the answers a search returns hides a shader that is subtly wrong: it will confidently return the best of the wrong things.
     #[test]
     #[ignore = "needs a GPU; run with --ignored"]
     fn scores_a_setting_exactly_as_the_processor_does() {
@@ -801,10 +720,6 @@ mod device {
         }
     }
 
-    /// The device's plugboard climb has to score its boards on the machine it was given.
-    ///
-    /// Every planted case, rings and all.
-    /// Checking only the case with every ring at A let a climb that ignored the middle ring pass here while it lost every setting that needed one.
     #[test]
     #[ignore = "needs a GPU; run with --ignored"]
     fn climbs_a_plugboard_exactly_as_the_processor_does() {
@@ -867,9 +782,6 @@ mod device {
                 device[0].0,
                 board.pairs().len()
             );
-            // What the device says its board scores has to be what that board scores.
-            // Reaching the processor's board is not required: the processor also swaps each lead out for a better one after the greedy pass, and the device does not, so with a ring away from A the device can stop on a poorer board.
-            // What it must never do is score a board on a machine other than the one it was given.
             assert!(
                 (device[0].0 - device_board_here).abs() < 1e-4,
                 "{}: device scored its board {:.4}, the processor scores that board {device_board_here:.4}",
@@ -879,7 +791,6 @@ mod device {
         }
     }
 
-    /// Break every planted case, each swept to the depth it needs.
     #[test]
     #[ignore = "a full attack per case; run with --ignored"]
     fn breaks_every_planted_case() {
@@ -929,7 +840,6 @@ mod device {
     }
 }
 
-/// A seventy-two letter signal enciphered as the message this tool faces was: a naval machine, ten leads, the middle ring at F and the right at T.
 #[cfg(feature = "gpu")]
 fn short_signal_with_ten_leads(plain: &[Letter], starts: [u8; 3]) -> Vec<Letter> {
     let settings = Settings::at([2, 0, 1], 0, [0, MIDDLE_RING_F, RIGHT_RING_T], starts);
@@ -951,11 +861,6 @@ fn short_signal_with_ten_leads(plain: &[Letter], starts: [u8; 3]) -> Vec<Letter>
     Enigma::with_reflector(settings, composite_reflector(0, 9, 0), board).run(plain)
 }
 
-/// The bombe on the message this tool faces: seventy-two letters, ten leads, rings away from A, and a crib of the kind a real message opens with.
-///
-/// The plaintext is P1030698, a seventy-two letter signal U-534 received on the same day as the message it could not read, in the same net's style: the abbreviations and spelled-out numbers that make a short signal read badly as German.
-/// The crib is its first sixteen letters.
-/// Three things have to hold for a bombe to break a message like this, and each was once missing: the rings have to be swept, or the middle rotor steps at the wrong letter and the true setting is refuted; the board the crib leaves unfinished has to be finished, or the true setting reads as noise; and what it reads as has to be judged against noise finished the same way.
 #[cfg(feature = "gpu")]
 #[test]
 #[ignore = "a bombe with the rings swept over six rotor orders; needs a device"]
@@ -970,12 +875,10 @@ fn a_ring_swept_bombe_reads_a_short_signal_with_ten_leads() {
     let mut failures = Vec::new();
     let text = "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX";
     let plain = to_letters(text);
-    // Twice: once with the right rotor turning the middle one inside the crib, once only after it, where every right ring agrees with the crib and only the rest of the message can say which is right.
     for starts in [[11u8, 4, 22], [11, 4, 10]] {
         let ct = short_signal_with_ten_leads(&plain, starts);
         let bank = bank();
         let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
-        // The judge can be swapped for a model from a file, to measure what a narrower one buys.
         let quad = std::env::var("CB_FOCUS")
             .ok()
             .and_then(|path| Model::parse(&std::fs::read_to_string(path).ok()?))
@@ -996,10 +899,8 @@ fn a_ring_swept_bombe_reads_a_short_signal_with_ten_leads() {
         let right = |c: &cipher_break::attack::Candidate| {
             c.plain.iter().zip(&plain).filter(|(a, b)| a == b).count() * 10 >= plain.len() * 9
         };
-        // Sixteen letters, then fourteen: a shorter crib leaves more standing, and the bar the true reading has to clear rises with the count.
         for length in [16usize, 14] {
             let crib = to_letters(&text[..length]);
-            // A crib that closes no loop at its place refutes nothing, and there is no bombe to run.
             if cipher_break::bombe::Menu::place(&ct, &crib, 0).is_none_or(|m| m.closures() == 0) {
                 println!("  crib of {length}: no loop at the start, nothing to sweep");
                 continue;
@@ -1053,9 +954,6 @@ fn a_ring_swept_bombe_reads_a_short_signal_with_ten_leads() {
     );
 }
 
-/// The same signal, with only the right ring swept.
-///
-/// The middle rotor never reaches its notch inside this crib, so the middle ring is invisible to it: a sweep holding the middle ring at A stops on the right setting's copy, and the finish has to find the middle ring at F from the rest of the message.
 #[cfg(feature = "gpu")]
 #[test]
 #[ignore = "a bombe with the right ring swept over six rotor orders; needs a device"]
@@ -1114,13 +1012,6 @@ fn a_right_ring_sweep_reads_the_short_signal_too() {
     );
 }
 
-/// The bombe, shown breaking a message it was given the words to.
-///
-/// A three-rotor machine with five plugboard leads and a thirty-seven letter crib, carrying a plugboard no amount of n-gram scoring would see through on this length.
-///
-/// The crib is long on purpose.
-/// A menu contradicts only where it forces a letter twice, which needs a cycle in its graph, and a graph of sixteen edges over twenty-odd letters is a forest.
-/// Bletchley's cribs ran to twenty and thirty letters for this reason and not for want of shorter guesses.
 #[test]
 #[ignore = "a rotor sweep per crib placement; run with --ignored"]
 fn the_bombe_breaks_a_message_it_has_a_crib_for() {
@@ -1178,10 +1069,6 @@ fn the_bombe_breaks_a_message_it_has_a_crib_for() {
     );
 }
 
-/// Where a bombe sweep's time actually goes.
-///
-/// Three guesses at this were wrong in a row — the allocation, the repeated trace, the per-hypothesis clearing — and each cost a rebuild to disprove.
-/// Measuring the parts separately is faster than guessing at them.
 #[cfg(feature = "gpu")]
 #[test]
 #[ignore = "a measurement, not an assertion; run with --ignored --nocapture"]
@@ -1190,7 +1077,6 @@ fn where_the_bombe_spends_its_time() {
     use cipher_break::crib::placements;
     use std::time::Instant;
 
-    /// Enough settings that a timing is a timing and not a cache miss.
     const N: usize = 200_000;
 
     let case = &CASES[0];
@@ -1255,9 +1141,6 @@ fn where_the_bombe_spends_its_time() {
     );
 }
 
-/// What a stop costs to judge, which is what decides how many of them a sweep can afford to produce.
-///
-/// A bombe narrows and a score chooses; the second only works if the first hands it a pile it can get through.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn what_it_costs_to_judge_a_stop() {
@@ -1292,10 +1175,6 @@ fn what_it_costs_to_judge_a_stop() {
     assert!(sink.is_finite());
 }
 
-/// A bombe offers no null of its own, and the reason is worth a test.
-///
-/// Its survivors are settings a menu could not refute, and surviving a menu says nothing about how the decipherment reads: they are random settings, so any null built from them is built from the same numbers as the thing it would judge.
-/// Cutting the sweep into slices and taking each slice's best was tried, and it reported a margin of 13.5 on a crib whose best decipherment began QZZENANDFUNBATVGOBGZOIEX — the score being judged is the largest of those slice maxima by construction.
 #[test]
 fn a_bombe_offers_no_null_of_its_own() {
     use cipher_break::attack::{Attack, BombeAttack};
@@ -1325,10 +1204,6 @@ fn a_bombe_offers_no_null_of_its_own() {
     let _ = ct;
 }
 
-/// Whether a menu that closes one loop refutes anything, which decides whether it is worth sweeping.
-///
-/// Counting closures says it refutes nothing: one closure is what makes a stop possible and leaves a sweep exactly as it found it.
-/// Counting closures leaves out Turing's diagonal board, which forces the other end of every lead it sets and so contradicts far more often than the loops alone can account for — the whole point of the thing.
 #[test]
 fn a_weak_menu_still_refutes_most_of_what_it_is_shown() {
     use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_with};
@@ -1337,7 +1212,6 @@ fn a_weak_menu_still_refutes_most_of_what_it_is_shown() {
     let ct = cipher_break::to_letters(
         "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
     );
-    // A menu for each of the two counts the loop arithmetic writes off entirely.
     let weak: Vec<Menu> = [0usize, 1]
         .iter()
         .filter_map(|&want| {
@@ -1354,7 +1228,6 @@ fn a_weak_menu_still_refutes_most_of_what_it_is_shown() {
     assert!(!weak.is_empty(), "no weak menu to measure");
 
     for menu in &weak {
-        // One rotor order and one reflector: enough settings that a rate is a rate.
         let crib_len = menu.edges.len();
         let orders = rotor_orders(5);
         let reflector = cipher_break::ciphers::enigma::reflector_wiring(0);
@@ -1401,10 +1274,6 @@ fn a_weak_menu_still_refutes_most_of_what_it_is_shown() {
     }
 }
 
-/// How much of the search space each crib in the shipped lists actually refutes.
-///
-/// The one number that decides whether a crib is worth an hour, measured rather than reasoned: the loop arithmetic that used to answer this was wrong by five orders of magnitude and wrong in both directions.
-/// Short cribs matter because they are the ones that might really be in the message — a guess at twenty-eight letters of German has to be right twenty-eight times over — and the question is whether they still bite.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn how_much_each_shipped_crib_refutes() {
@@ -1470,7 +1339,6 @@ fn how_much_each_shipped_crib_refutes() {
         }
         let shown = u64::from(span) * menus.len() as u64;
         let rate = survived as f64 / shown as f64;
-        // What a naval sweep of this crib would leave to decipher and score, at 1.9 microseconds each.
         let naval = rate * (336.0 * 104.0 * f64::from(span)) * menus.len() as f64;
         let closures: Vec<usize> = menus.iter().map(Menu::closures).collect();
         println!(
@@ -1488,10 +1356,6 @@ fn how_much_each_shipped_crib_refutes() {
     }
 }
 
-/// What a stop costs to judge along the path a sweep actually takes.
-///
-/// The first measurement of this timed deciphering and scoring and left out the candidate's key, which is a formatted string built for every stop whether or not the report will ever show it.
-/// A weak crib stops billions of times, so anything paid per stop is paid billions of times.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn what_a_stop_costs_along_the_path_the_sweep_takes() {
@@ -1519,7 +1383,6 @@ fn what_a_stop_costs_along_the_path_the_sweep_takes() {
     }
     let rounds = 20_000u32;
 
-    // Warmed first, because the language tables are cold on the first pass and the first loop timed would otherwise be charged for filling the cache the second one reads.
     let mut sink = 0f64;
     for i in 0..rounds {
         let settings = Settings::at([0, 1, 2], 0, [0; 3], [(i % 26) as u8, 0, 0]);
@@ -1565,10 +1428,6 @@ fn what_a_stop_costs_along_the_path_the_sweep_takes() {
     assert!(sink.is_finite() && length > 0);
 }
 
-/// A bombe must not be credited with the crib it planted itself.
-///
-/// The crib is in every candidate a bombe returns, right or wrong, because placing it is what the bombe did.
-/// Counting those letters is counting the question as part of the answer, and on a seventy-two letter message an eight-letter crib was enough to push a decipherment of noise past the bar for calling something a reading.
 #[test]
 fn a_bombe_is_not_credited_with_the_crib_it_planted() {
     use cipher_break::attack::score_outside_the_crib;
@@ -1590,7 +1449,6 @@ fn a_bombe_is_not_credited_with_the_crib_it_planted() {
         trace: &trace,
     };
 
-    // The candidate that first tripped the bar: noise, with STANDORT sitting in it at letter twenty-three because that is where the bombe put it.
     let noise = cipher_break::to_letters(
         "DRWIBTARUAXRMGLDIRBEINSSTANDORTSZIIRNAMTIMULTRECEMMTAMMKMAEIURFFFNGOEOJO",
     );
@@ -1602,8 +1460,6 @@ fn a_bombe_is_not_credited_with_the_crib_it_planted() {
         "cutting out eight letters of fluent German should lower the score, not raise it"
     );
 
-    // And a crib that is genuinely there costs its candidate nothing it deserves:
-    // the rest of a true decipherment is language too.
     let german = cipher_break::to_letters(
         "KEINEBESONDERENVORKOMMNISSEXXSTANDORTMARQUADRATSIEBENXXWETTERBERICHTXXAB",
     );
@@ -1622,7 +1478,6 @@ fn a_bombe_is_not_credited_with_the_crib_it_planted() {
     );
 }
 
-/// Where the best of a very large search sits when there is nothing in it.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn what_the_best_of_a_big_search_scores_on_nothing() {
@@ -1668,7 +1523,6 @@ fn what_the_best_of_a_big_search_scores_on_nothing() {
     let (mean, sd) = cipher_break::stats::moments(&scores);
     println!("  a random naval decipherment of this message scores {mean:+.2} +/- {sd:.2}");
 
-    // How the best of a block actually grows with the block's size, measured rather than assumed: the score's right tail is not Gaussian, and the textbook mean + sd*sqrt(2 ln N) is a guess about a shape nobody checked.
     println!("  {:>10}  {:>9}  {:>9}", "block", "best of it", "predicted");
     let mut points: Vec<(f64, f64)> = Vec::new();
     for size in [100usize, 400, 1_600, 6_400, 25_600] {
@@ -1686,7 +1540,6 @@ fn what_the_best_of_a_big_search_scores_on_nothing() {
         println!("  {size:>10}  {median:>9.2}  {guess:>9.2}");
         points.push(((size as f64).ln(), median));
     }
-    // A straight line through the measured points, extended to the size of a real sweep.
     let n = points.len() as f64;
     let sx: f64 = points.iter().map(|p| p.0).sum();
     let sy: f64 = points.iter().map(|p| p.1).sum();
@@ -1709,11 +1562,6 @@ fn what_the_best_of_a_big_search_scores_on_nothing() {
     println!("  and real German of this length reaches +18.0");
 }
 
-/// How much of the middle ring's twenty-six is genuinely new.
-///
-/// The middle rotor's wiring is entered at the indicator minus the ring, and its notch fires at the indicator whatever the ring.
-/// So moving the ring by k and the indicator by k leaves the wiring where it was and moves only the notch — which matters solely if the left rotor steps during the message, and in seventy letters the middle rotor only advances two or three times.
-/// If most settings never cross that notch, most of the twenty-six is a copy of a setting the sweep already covers, and the space to search is far smaller than it looks.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn how_much_of_the_middle_ring_is_new() {
@@ -1735,9 +1583,7 @@ fn how_much_of_the_middle_ring_is_new() {
         let right = rng.below(26) as u8;
         let m = rng.below(26) as u8;
 
-        // The setting as the sweep would enumerate it, with the middle ring at m.
         let with_ring = Settings::at(rotors, 0, [0, m, right], [p0, p1, p2]);
-        // The setting the sweep already covers: ring at A, indicator moved to keep the wiring where it was.
         let shifted = Settings::at(rotors, 0, [0, 0, right], [p0, (p1 + 26 - m) % 26, p2]);
 
         let a = Enigma::new(with_ring, Plugboard::empty()).run(&ct);
@@ -1757,25 +1603,19 @@ fn how_much_of_the_middle_ring_is_new() {
     );
 }
 
-/// How deep in the pack a true setting sits when the message is short and the rings are swept.
-///
-/// The rank test says only that it is past two hundred thousand of sixteen billion.
-/// This says how far past, which is what decides whether any shortlist could ever reach it.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn how_many_wrong_settings_outscore_a_true_one() {
     use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings, rotor_orders};
 
-    let case = &CASES[2]; // naval, short, right ring T
+    let case = &CASES[2];
     let ct = case.ciphertext();
-    // The model the sweep itself steers by, so the numbers are the sweep's numbers.
     let bank = bank();
     let german = bank.model_named("de").expect("german");
     let truth = german.score(
         &Enigma::with_reflector(case.settings(), case.reflector(), Plugboard::empty()).run(&ct),
     );
 
-    // Where a wrong setting's score falls, measured over the same space the sweep covers.
     let orders = rotor_orders(8);
     let reflectors = cipher_break::ciphers::enigma::naval_reflectors();
     let mut rng = Rng::new(404);
@@ -1807,11 +1647,6 @@ fn how_many_wrong_settings_outscore_a_true_one() {
     println!("  a shortlist would have to be that long before the truth was in it");
 }
 
-/// The naval attack has to break a short message with every ring swept.
-///
-/// This is the case the tool actually faces and the one nothing tested.
-/// It failed for two reasons that only showed up together: the shortlist held sixty thousand settings where the true one sat near three hundred thousand, and the trigram model that steers the sweep leaves a true setting twenty-two thousandth even after a board is grown on it — past any finish worth paying for.
-/// The quadgram model, shown the same climbed boards, puts it nine hundred and eighty-fifth, which a finish does reach.
 #[cfg(feature = "gpu")]
 #[test]
 #[ignore = "a sixteen-billion sweep and a million plugboard climbs"]
@@ -1845,7 +1680,6 @@ fn the_naval_attack_breaks_a_short_message_with_the_rings_swept() {
             focus_scale: Some(&quad_scale),
             trace: &trace,
         };
-        // The middle ring multiplies the field by about eleven once the duplicates are skipped, and a true setting sinks with it: three hundred thousandth of sixteen billion becomes something near four million.
         let attack = GpuEnigmaNaval {
             shortlist: 10_000_000,
             leads: ENIGMA_LEADS,
@@ -1876,7 +1710,6 @@ fn the_naval_attack_breaks_a_short_message_with_the_rings_swept() {
     );
 }
 
-/// The naval sweep, with the stages that were missing, on the message this repository exists for.
 #[cfg(feature = "gpu")]
 #[test]
 #[ignore = "the real thing"]
@@ -1906,8 +1739,6 @@ fn the_message() {
         trace: &trace,
     };
 
-    // What this same pipeline reaches on the same letters in a different order.
-    // A million settings each given ten plugboard leads is forty-seven bits of freedom applied a million times, and the only honest question is what that reaches when there is nothing to find.
     let mut null_rng = Rng::new(7);
     let mut nulls: Vec<f64> = Vec::new();
     for _ in 0..NULL_SHUFFLES {
@@ -1955,6 +1786,5 @@ fn the_message() {
     let _ = &gpu;
 }
 
-/// How many shuffles the real message is measured against.
 #[cfg(feature = "gpu")]
 const NULL_SHUFFLES: usize = 4;

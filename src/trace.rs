@@ -1,33 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! What each stage of an attack did, recorded while it does it.
-//!
-//! An attack that returns the wrong answer has several places the answer could have been lost, and guessing between them is how an afternoon disappears.
-//! This module exists because that happened here three times: the rotor sweep was blamed when the plugboard stage was at fault, the plugboard kernel was blamed when the ranking was at fault, and a planted test was blamed when the test itself was outside the search space.
-//!
-//! Each of those was settled by writing a throwaway diagnostic.
-//! A trace is the same information, kept, and available from the command line rather than from a new test each time.
-//!
-//! It is free when off: a disabled trace takes a reference and returns.
-
 use std::fmt::Write as _;
 use std::sync::Mutex;
 use std::time::Instant;
 
-/// One thing that happened.
 #[derive(Clone, Debug)]
 pub struct Event {
-    /// Which stage of which attack.
     pub stage: String,
-    /// What happened, in words.
     pub detail: String,
-    /// Seconds since the trace began.
     pub at: f64,
 }
 
-/// A record of an attack's progress.
-///
-/// Shared across the threads an attack runs on, so the lock is held only long enough to push, and never while anything is computed.
 pub struct Trace {
     enabled: bool,
     started: Instant,
@@ -40,13 +23,9 @@ impl Default for Trace {
     }
 }
 
-/// A trace that records nothing, for the runs that should not be traced.
-///
-/// The nulls are run with this: they repeat the whole attack on shuffled text and would bury the real run's events in copies of themselves.
 pub static QUIET: std::sync::LazyLock<Trace> = std::sync::LazyLock::new(|| Trace::new(false));
 
 impl Trace {
-    /// A trace that records, or one that does not.
     #[must_use]
     pub fn new(enabled: bool) -> Self {
         Trace {
@@ -56,15 +35,11 @@ impl Trace {
         }
     }
 
-    /// Whether anything is being recorded.
     #[must_use]
     pub fn enabled(&self) -> bool {
         self.enabled
     }
 
-    /// Record something.
-    ///
-    /// Takes the detail as a closure so that a disabled trace costs nothing but the call — the formatting never happens.
     pub fn note<F, S>(&self, stage: &str, detail: F)
     where
         F: FnOnce() -> S,
@@ -83,13 +58,11 @@ impl Trace {
         }
     }
 
-    /// Everything recorded so far.
     #[must_use]
     pub fn events(&self) -> Vec<Event> {
         self.events.lock().map(|e| e.clone()).unwrap_or_default()
     }
 
-    /// The trace as a table.
     #[must_use]
     pub fn render(&self) -> String {
         let events = self.events();

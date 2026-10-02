@@ -1,11 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Playfair and its four-square relative.
-//!
-//! Both encipher two letters at a time from squares of 25, which flattens single-letter statistics and puts them out of reach of everything that counts letters.
-//! Playfair leaves one tell, and it is decisive: its rules can never send a pair of distinct letters to a pair of equal ones, so a ciphertext holding a doubled letter on an even boundary did not come from it, whatever else it came from.
-//! That is a whole cipher ruled out for the cost of one scan, with no key tried and no language assumed.
-
 use crate::alphabet::Letter;
 use crate::square::{Square, at, positions};
 
@@ -53,19 +47,16 @@ fn transform(direction: i32, sq: &Square, ls: &[Letter]) -> Vec<Letter> {
     out
 }
 
-/// Encipher a prepared plaintext.
 #[must_use]
 pub fn encipher(sq: &Square, pt: &[Letter]) -> Vec<Letter> {
     transform(1, sq, pt)
 }
 
-/// Decipher.
 #[must_use]
 pub fn decipher(sq: &Square, ct: &[Letter]) -> Vec<Letter> {
     transform(-1, sq, ct)
 }
 
-/// Decipher into an existing buffer.
 pub fn decipher_into(sq: &Square, ct: &[Letter], out: &mut [Letter]) {
     let pos = positions(sq);
     let mut i = 0;
@@ -80,13 +71,11 @@ pub fn decipher_into(sq: &Square, ct: &[Letter], out: &mut [Letter]) {
     }
 }
 
-/// Whether a ciphertext could have come from Playfair at all.
 #[must_use]
 pub fn possible(ct: &[Letter]) -> bool {
     ct.chunks(2).all(|p| p.len() < 2 || p[0] != p[1])
 }
 
-/// Four-square, given the two keyed squares and the plain one.
 #[must_use]
 pub fn encipher_four(
     top_right: &Square,
@@ -109,7 +98,6 @@ pub fn encipher_four(
     out
 }
 
-/// The inverse of [`encipher_four`], into an existing buffer.
 pub fn decipher_four_into(
     top_right: &Square,
     bottom_left: &Square,
@@ -144,7 +132,6 @@ mod tests {
             .into_iter()
             .filter(|&l| l != missing)
             .collect();
-        // Playfair never enciphers a digraph of two equal letters.
         let mut out: Vec<u8> = Vec::new();
         for l in raw {
             if out.len() % 2 == 1 && *out.last().expect("non-empty") == l {
@@ -179,14 +166,10 @@ mod tests {
 
     #[test]
     fn the_three_rules_are_three_different_rules() {
-        // A square in reading order, so the geometry is readable in the test.
-        let sq = omitting(9); // omits J, so the square is ABCDE FGHIK ...
-        // Same row: each letter moves one right, wrapping.
+        let sq = omitting(9);
         assert_eq!(encipher(&sq, &to_letters("AB")), to_letters("BC"));
         assert_eq!(encipher(&sq, &to_letters("DE")), to_letters("EA"));
-        // Same column: each moves one down, wrapping.
         assert_eq!(encipher(&sq, &to_letters("AF")), to_letters("FL"));
-        // A rectangle: each takes the other's column.
         assert_eq!(encipher(&sq, &to_letters("AG")), to_letters("BF"));
     }
 

@@ -1,19 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Porta's cipher: periodic, but not built from shifts.
-//!
-//! Porta matters because it is the hole in superposition.
-//! Each column is a reciprocal substitution rather than a rotation, so lining the columns up by a shift finds nothing however faithfully the period is there.
-//! What still holds is that every column is monoalphabetic, which the plain index of coincidence within the columns can see.
-//! Its key space is thirteen wide per column rather than 26, which puts short periods within reach of trying them all.
-
 use crate::alphabet::{ALPHABET, Letter};
 
-/// Key letters pair up, so there are thirteen tables rather than 26.
 pub const TABLES: usize = ALPHABET / 2;
 
-/// One letter under one table.
-/// The transformation is its own inverse.
 #[inline]
 #[must_use]
 pub fn substitute(table: usize, l: Letter) -> Letter {
@@ -26,7 +16,6 @@ pub fn substitute(table: usize, l: Letter) -> Letter {
     }
 }
 
-/// Apply a repeating list of tables across a text.
 #[must_use]
 pub fn apply(tables: &[usize], ls: &[Letter]) -> Vec<Letter> {
     if tables.is_empty() {
@@ -38,7 +27,6 @@ pub fn apply(tables: &[usize], ls: &[Letter]) -> Vec<Letter> {
         .collect()
 }
 
-/// Apply into an existing buffer.
 pub fn apply_into(tables: &[usize], ls: &[Letter], out: &mut [Letter]) {
     if tables.is_empty() {
         out.copy_from_slice(ls);

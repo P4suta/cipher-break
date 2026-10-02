@@ -1,22 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! An n-gram model of a language, and the fitness function built from it.
-//!
-//! Single-letter frequency is a poor judge of a short candidate: it cannot tell `THEREFORE` from an anagram of it.
-//! An n-gram model judges the order of the letters too, which is what lets a search climb towards a plaintext instead of merely recognising one it has already found.
-//!
-//! The on-disk format is shared with the Haskell reference implementation under `reference/`, so a model trained by either can be read by both.
-
 use crate::alphabet::{ALPHABET, Letter, from_letters, to_letters};
 
-/// The weight an unseen gram is given, as a share of one occurrence.
-///
-/// A gram the corpus never showed is not impossible, only unseen.
-/// Without a floor a single unlucky gram would veto an otherwise perfect plaintext; with a floor too close to one, a model stops distinguishing anything.
 const UNSEEN_WEIGHT: f64 = 0.01;
 use std::fmt::Write as _;
 
-/// Log probabilities for every gram of a fixed order.
 #[derive(Clone, Debug)]
 pub struct Model {
     order: usize,
@@ -30,9 +18,6 @@ fn slots(order: usize) -> usize {
 }
 
 impl Model {
-    /// Build a model from raw gram counts.
-    ///
-    /// A gram the corpus never showed is not impossible, only unseen, so it gets a floor rather than negative infinity; without one a single unlucky gram would veto an otherwise perfect plaintext.
     #[must_use]
     pub fn from_counts(order: usize, counts: Vec<u32>) -> Self {
         let total = counts.iter().map(|&c| f64::from(c)).sum::<f64>().max(1.0);
@@ -55,7 +40,6 @@ impl Model {
         }
     }
 
-    /// Count every gram of a corpus.
     #[must_use]
     pub fn train(order: usize, corpus: &[Letter]) -> Self {
         let mut counts = vec![0u32; slots(order)];
@@ -65,19 +49,16 @@ impl Model {
         Self::from_counts(order, counts)
     }
 
-    /// The order of the model.
     #[must_use]
     pub fn order(&self) -> usize {
         self.order
     }
 
-    /// How many grams the corpus held.
     #[must_use]
     pub fn total(&self) -> f64 {
         self.total
     }
 
-    /// Mean log probability per gram, so texts of different lengths compare.
     #[must_use]
     pub fn score(&self, ls: &[Letter]) -> f64 {
         let mut sum = 0.0f64;
@@ -89,18 +70,12 @@ impl Model {
         if n == 0 { 0.0 } else { sum / n as f64 }
     }
 
-    /// The log probability of one gram index, for callers that batch the index arithmetic themselves.
     #[inline]
     #[must_use]
     pub fn logp_at(&self, gram: usize) -> f32 {
         self.logp[gram]
     }
 
-    /// Generate text from the model.
-    ///
-    /// This is what lets the tool calibrate itself.
-    /// Deciding whether a candidate "looks like a language" needs to know what a real text of that length scores, and asking for a corpus at solve time is a burden no user should carry.
-    /// The models already hold the answer: text drawn from a language's own model scores like text from that language.
     #[must_use]
     pub fn sample(&self, len: usize, rng: &mut crate::rng::Rng) -> Vec<Letter> {
         let context_slots = ALPHABET.pow((self.order - 1) as u32);
@@ -134,13 +109,11 @@ impl Model {
         out
     }
 
-    /// The whole log-probability table, for a device that wants its own copy.
     #[must_use]
     pub fn log_table(&self) -> &[f32] {
         &self.logp
     }
 
-    /// The model as text: a header, then one line per gram above the cutoff.
     #[must_use]
     pub fn render(&self, cutoff: u32) -> String {
         let mut out = format!("order {}\n", self.order);
@@ -152,7 +125,6 @@ impl Model {
         out
     }
 
-    /// Read a model back.
     #[must_use]
     pub fn parse(text: &str) -> Option<Model> {
         let mut lines = text.lines();
@@ -180,7 +152,6 @@ impl Model {
     }
 }
 
-/// The letters a gram index stands for.
 #[must_use]
 pub fn spell(order: usize, mut i: usize) -> Vec<Letter> {
     let mut out = vec![0u8; order];
@@ -191,9 +162,6 @@ pub fn spell(order: usize, mut i: usize) -> Vec<Letter> {
     out
 }
 
-/// The gram indices of a text, as base-26 numbers.
-///
-/// The index is carried forward one letter at a time rather than rebuilt from each window, which is what keeps training over millions of letters linear.
 pub struct Grams<'a> {
     order: usize,
     modulus: usize,
@@ -203,7 +171,6 @@ pub struct Grams<'a> {
 }
 
 impl<'a> Grams<'a> {
-    /// Iterate the grams of a text.
     #[must_use]
     pub fn new(order: usize, ls: &'a [Letter]) -> Self {
         Grams {
@@ -220,8 +187,6 @@ impl Iterator for Grams<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {
-        // An order of zero has no grams.
-        // The Haskell reference has always said so; this said every letter was one, because `seen >= 0` is always true and the modulus was one, so every gram was index zero.
         if self.order == 0 {
             return None;
         }

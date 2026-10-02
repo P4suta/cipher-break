@@ -1,32 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//
-// One thread, many keys. The thread derives a key from its index, deciphers
-// the ciphertext without ever storing it, and accumulates one log probability
-// per language as it goes.
-//
-// Nothing in this kernel is an array in function scope. The first version of
-// it kept the key in `array<u32, 16>` and the accumulators in
-// `array<f32, 32>`, which is 192 bytes a thread and spills out of registers
-// into device memory; it beat eighteen processor cores by only a little. The
-// accumulators are now five explicit `vec4<f32>` and the key is packed five
-// bits to a digit into three words, so a thread's whole working set is a
-// couple of dozen registers.
-//
-// The table is read as `vec4<f32>` for the same reason: with the language
-// count padded to a multiple of four, every read is one aligned vector load
-// instead of four scalar ones.
 
 struct Params {
     n: u32,
     period: u32,
-    langs: u32,          // padded to a multiple of four
+    langs: u32,
     order: u32,
-    modulus: u32,        // 26^(order-1), for carrying the gram index forward
+    modulus: u32,
     family: u32,
     count: u32,
     threads: u32,
     prefix_len: u32,
-    vec_per_gram: u32,   // langs / 4
+    vec_per_gram: u32,
     pad0: u32,
     pad1: u32,
     prefix: array<u32, 16>,
@@ -39,7 +23,6 @@ struct Params {
 
 const NEG: f32 = -1.0e30;
 
-/// One key digit out of the three packed words.
 fn digit(k0: u32, k1: u32, k2: u32, i: u32) -> u32 {
     let w = i / 6u;
     let sh = (i % 6u) * 5u;
@@ -69,7 +52,6 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>) {
             break;
         }
 
-        // Pack the key: the prefix the host fixed, then the digits of i.
         var k0: u32 = 0u;
         var k1: u32 = 0u;
         var k2: u32 = 0u;
@@ -113,16 +95,13 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>) {
             let c = ct[pos];
             var p: u32;
             if (params.family == 0u) {
-                p = (c + 26u - k) % 26u;          // Vigenere
+                p = (c + 26u - k) % 26u;
             } else if (params.family == 1u) {
-                p = (k + 26u - c) % 26u;          // Beaufort
+                p = (k + 26u - c) % 26u;
             } else {
-                p = (c + k) % 26u;                // variant Beaufort
+                p = (c + k) % 26u;
             }
 
-            // Carry the gram index forward: drop the oldest letter, add the
-            // new one. `modulus` is 26^(order-1), so this never needs the
-            // wider multiply the naive form does.
             g = (g % modulus) * 26u + p;
 
             if (pos + 1u >= params.order) {

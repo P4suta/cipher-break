@@ -1,20 +1,4 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//
-// Grow a plugboard for each of many rotor settings, one thread per setting.
-//
-// This is the half of the Enigma attack that the rotor sweep hands off to, and
-// on a processor it is what limits how many settings the sweep may keep. A
-// greedy climb is 325 candidate leads times ten rounds times the length of the
-// message, which is a few million machine steps per setting: affordable for a
-// few hundred settings and not for a hundred thousand.
-//
-// Moving it here is what makes a long shortlist possible, and a long shortlist
-// is exactly what a short message needs — the true setting is often not first
-// under an empty board, only near the front.
-//
-// The board is packed five bits to a letter into five words. It is the one
-// piece of per-thread state, and at twenty bytes it stays in registers, which
-// the first version of the rotor kernel taught this file to care about.
 
 struct Params {
     n: u32,
@@ -24,15 +8,15 @@ struct Params {
     modulus: u32,
     order: u32,
     reflectors: u32,
-    margin_bits: u32,   // the improvement a lead must show, as f32 bits
+    margin_bits: u32,
 };
 
 @group(0) @binding(0) var<storage, read> ct: array<u32>;
 @group(0) @binding(1) var<storage, read> tables: array<u32>;
 @group(0) @binding(2) var<storage, read> logp: array<f32>;
 @group(0) @binding(3) var<storage, read> params: Params;
-@group(0) @binding(4) var<storage, read> settings: array<u32>;   // 8 words each
-@group(0) @binding(5) var<storage, read_write> out: array<u32>;  // 6 words each
+@group(0) @binding(4) var<storage, read> settings: array<u32>;
+@group(0) @binding(5) var<storage, read_write> out: array<u32>;
 
 const FORWARD: u32 = 0u;
 const BACKWARD: u32 = 208u;
@@ -61,7 +45,6 @@ fn identity_board(board: ptr<function, array<u32, 5>>) {
     for (var i = 0u; i < 26u; i = i + 1u) { plug_put(board, i, i); }
 }
 
-/// Join two letters, releasing whatever either was joined to.
 fn connect(board: ptr<function, array<u32, 5>>, a: u32, b: u32) {
     let oa = plug(board, a);
     let ob = plug(board, b);
@@ -87,7 +70,6 @@ fn through_backward(rotor: u32, c: u32, pos: u32) -> u32 {
     return (w_backward[rotor * 26u + (c + pos) % 26u] + 26u - pos) % 26u;
 }
 
-/// Run the machine over the ciphertext and score what comes out.
 fn score(
     board: ptr<function, array<u32, 5>>,
     r0: u32, r1: u32, r2: u32, refl: u32, middle: u32, ring: u32,
@@ -144,8 +126,6 @@ fn climb(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
     let tid = gid.x;
     if (tid >= params.candidates) { return; }
 
-    // The middle ring travels with the setting.
-    // Without it every candidate the sweep found with the middle ring away from A was climbed on the wrong wiring, and a planted message with its middle ring at F never came back.
     let base = tid * 9u;
     let r0 = settings[base];
     let r1 = settings[base + 1u];

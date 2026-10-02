@@ -1,28 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The three ciphers that reuse a key letter every `n` positions.
-//!
-//! They differ only in the arithmetic joining plaintext, key and ciphertext,
-//! so one [`Family`] parameter lets every attack cover all three at once instead of being written three times.
-
 use crate::alphabet::{ALPHABET, Letter};
 
-/// Which member of the Vigenere family a key is read under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Family {
-    /// `c = p + k`
     Vigenere,
-    /// `c = k - p`, an involution: enciphering twice returns the plaintext.
     Beaufort,
-    /// `c = p - k`, the Vigenere table used backwards.
     VariantBeaufort,
 }
 
-/// All three, for attacks that sweep the family.
 pub const FAMILIES: [Family; 3] = [Family::Vigenere, Family::Beaufort, Family::VariantBeaufort];
 
 impl Family {
-    /// The short name used in reports and keys.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
@@ -32,7 +21,6 @@ impl Family {
         }
     }
 
-    /// One plaintext letter under one key letter.
     #[inline]
     #[must_use]
     pub fn encipher_letter(self, k: Letter, p: Letter) -> Letter {
@@ -44,7 +32,6 @@ impl Family {
         }
     }
 
-    /// One ciphertext letter under one key letter.
     #[inline]
     #[must_use]
     pub fn decipher_letter(self, k: Letter, c: Letter) -> Letter {
@@ -57,7 +44,6 @@ impl Family {
     }
 }
 
-/// Encipher under a repeating key; an empty key is the identity.
 #[must_use]
 pub fn encipher(fam: Family, key: &[Letter], pt: &[Letter]) -> Vec<Letter> {
     if key.is_empty() {
@@ -69,7 +55,6 @@ pub fn encipher(fam: Family, key: &[Letter], pt: &[Letter]) -> Vec<Letter> {
         .collect()
 }
 
-/// The inverse of [`encipher`].
 #[must_use]
 pub fn decipher(fam: Family, key: &[Letter], ct: &[Letter]) -> Vec<Letter> {
     if key.is_empty() {
@@ -81,7 +66,6 @@ pub fn decipher(fam: Family, key: &[Letter], ct: &[Letter]) -> Vec<Letter> {
         .collect()
 }
 
-/// Decipher into an existing buffer, for search loops that cannot afford an allocation per key.
 pub fn decipher_into(fam: Family, key: &[Letter], ct: &[Letter], out: &mut [Letter]) {
     if key.is_empty() {
         out.copy_from_slice(ct);

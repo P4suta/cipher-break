@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 [tool_alias]
-# Install the pinned compiler through GHCup on every platform.
 ghc = "asdf:mise-plugins/mise-ghcup"
 
 [tools]
@@ -27,7 +26,6 @@ run = "cargo test --release"
 
 [tasks."test:reference"]
 description = "Run the Haskell reference suite"
-# After the build, not beside it: both write the same dist-newstyle, and run side by side under `check` they collide on its package database.
 depends = ["build:reference"]
 dir = "reference"
 run = "cabal test --test-show-details=direct"
@@ -47,8 +45,6 @@ depends = ["build", "build:reference", "lint", "test", "test:reference", "agree"
 [tasks.agree]
 description = "Check that Rust and the Haskell reference agree on the same ciphertext"
 depends = ["build", "test:reference"]
-# Two implementations are only worth having while they answer alike.
-# This compares the statistic both compute without any search in it, so a drift in the arithmetic shows up before it can hide inside a sweep.
 run = """
 set -e
 rust=$(cargo run --release --quiet -- report data/ciphertext.txt --plain | awk '/^  cipher-break/{for (i = 1; i < NF; i++) if ($i == "IC") print $(i + 1)}')
@@ -76,7 +72,6 @@ done
 
 [tasks."cloud:run"]
 description = "Run a command on a throwaway GCP Spot VM: mise run cloud:run gpu -- <command>"
-# The VM deletes itself when the command ends, and `--max-run-duration` deletes it if it never does.
 run = "cloud/run.sh"
 
 [tasks."cloud:fetch"]

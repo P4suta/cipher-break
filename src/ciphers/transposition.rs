@@ -1,16 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Ciphers that move letters without changing them.
-//!
-//! A transposition leaves every letter count exactly as it found it, so the index of coincidence passes straight through and identifies the class outright: a ciphertext whose index of coincidence is not that of some language was not produced by one of these.
-//! That is worth more than the small key spaces below, because it settles the whole family at once.
-
 use crate::alphabet::Letter;
 
-/// Undo a columnar transposition: read the columns back in key order.
-///
-/// The text was written across a grid of the given width and taken off column by column in the order the key gives.
-/// Recovering it means giving each column back its length — the last row is usually short — and interleaving.
 #[must_use]
 pub fn columnar(key: &[usize], ct: &[Letter]) -> Vec<Letter> {
     let width = key.len();
@@ -42,7 +33,6 @@ pub fn columnar(key: &[usize], ct: &[Letter]) -> Vec<Letter> {
     out
 }
 
-/// Every column order for a width, which is tractable only while it is small.
 #[must_use]
 pub fn permutations(width: usize) -> Vec<Vec<usize>> {
     let mut out = Vec::new();
@@ -63,7 +53,6 @@ fn permute(current: &mut Vec<usize>, k: usize, out: &mut Vec<Vec<usize>>) {
     }
 }
 
-/// Undo a rail fence of the given height.
 #[must_use]
 pub fn rail_fence(rails: usize, ct: &[Letter]) -> Vec<Letter> {
     if rails < 2 {
@@ -86,7 +75,6 @@ mod tests {
     use super::*;
     use crate::alphabet::{from_letters, to_letters};
 
-    /// Encipher, so the test has something a key is known to undo.
     fn columnar_encipher(key: &[usize], pt: &[Letter]) -> Vec<Letter> {
         let width = key.len();
         let mut out = Vec::with_capacity(pt.len());

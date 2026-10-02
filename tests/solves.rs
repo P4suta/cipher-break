@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The tool has to break ciphers it is handed before its silence means anything.
-//!
-//! Each test plants a key in real text, hands the ciphertext to the same catalogue a user would get, and requires the plaintext back.
-//! A negative result on an unknown message is worth exactly what this file is worth.
-
 use cipher_break::alphabet::{Letter, from_letters, to_letters};
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Context, registry};
@@ -17,13 +12,11 @@ use cipher_break::sweep;
 const PLAIN: &str = "ITISACAPITALMISTAKETOTHEORIZEBEFOREONEHASDATAINSENSIBLYONEBEGINS\
                      TOTWISTFACTSTOSUITTHEORIESINSTEADOFTHEORIESTOSUITFACTS";
 
-/// The models the shipped binary carries.
 fn bank() -> Polyglot {
     let bundle = include_str!("../data/models.bundle");
     Polyglot::from_bundle(bundle)
 }
 
-/// Run the catalogue the way `cb` does and return what it concluded.
 fn solve(ct: &[Letter]) -> Conclusion {
     let bank = bank();
     let scale = Scale::build(&bank, ct.len(), 128, &mut Rng::new(0x5CA1E));

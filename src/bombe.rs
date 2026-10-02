@@ -1,58 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Turing's bombe: the attack that does not care how many plugs there are.
-//!
-//! Every other Enigma attack here weighs evidence, and on a short message with a full plugboard there is not enough of it.
-//! A decipherment with the rotors right and the board empty has twenty of its twenty-six letters wrong, which no n-gram model can recognise.
-//!
-//! The bombe does not look at the plaintext at all.
-//! Given a crib — a guess at what some stretch of the message says — it asks a different question: is there *any* plugboard under which this rotor setting turns the ciphertext into the crib?
-//! Assume one lead, follow where the crib forces the rest, and see whether the forcing contradicts itself.
-//! A contradiction refutes the setting outright, whatever the board, and a setting that survives hands back most of the board as a by-product.
-//!
-//! Two properties make it work.
-//! The reflector makes every position's transformation an involution with no fixed point, so a deduction can be followed in either direction.
-//! And the plugboard is an involution too, which is what Turing's diagonal board exploits: knowing that `A` is plugged to `Q` is knowing that `Q` is plugged to `A`, and half the contradictions come from that alone.
-
 use crate::alphabet::{ALPHABET, Letter};
 use crate::ciphers::enigma::{Enigma, Plugboard, Settings};
 
-/// A crib placed against a ciphertext, as the graph the bombe walks.
-///
-/// Each edge is one position of the message: the letter the crib says was typed, the letter that came out, and where in the message it happened.
 #[derive(Clone, Debug)]
 pub struct Menu {
-    /// Where the crib starts in the ciphertext.
     pub offset: usize,
-    /// One per crib position: the message index, the crib letter, the cipher letter.
     pub edges: Vec<(usize, Letter, Letter)>,
-    /// The letter to start every hypothesis from.
-    ///
-    /// The one on the most edges.
-    /// A deduction about it immediately forces everything around it, so a wrong setting contradicts in fewer steps than it would from a letter on the edge of the graph.
     hub: Letter,
-    /// For each letter, the edges that touch it, as (position, other letter), laid end to end.
-    ///
-    /// A deduction about one letter only travels along the edges that letter is on.
-    /// Walking the whole menu for each of them costs the length of the crib per deduction where this costs the two or three edges that actually meet there, and a naval sweep makes that difference tens of billions of times.
-    ///
-    /// One run of memory rather than twenty-six: a sweep holds every menu at once and reads them in turn, and twenty-six separately allocated lists per menu scatter across the cache the one structure the inner loop never stops touching.
     incident: Vec<(u32, Letter)>,
-    /// Where each letter's edges begin in `incident`, with a final entry for the end.
     starts: [u32; ALPHABET + 1],
 }
 
-/// Where a true rotor setting sits when the whole naval space is scored at the length this tool was built for.
-///
-/// Measured rather than assumed: `where_the_true_setting_ranks` plants a known setting in a message of about seventy letters and finds it a hundred and forty-sixth of six hundred million.
-/// A short message simply does not carry enough German for the score to put the truth first, and that is the whole reason a bombe earns its place — it throws away the accidents before the score has to choose between them.
 pub const RANK_OF_TRUTH_WHEN_SHORT: u64 = 146;
 
 impl Menu {
-    /// Place a crib and build its menu.
-    ///
-    /// Returns `None` when the placement is impossible — a letter over itself,
-    /// which no Enigma can produce.
     #[must_use]
     pub fn place(ct: &[Letter], crib: &[Letter], offset: usize) -> Option<Menu> {
         if crib.is_empty() || offset + crib.len() > ct.len() {
@@ -66,7 +28,6 @@ impl Menu {
         if edges.iter().any(|&(_, p, c)| p == c) {
             return None;
         }
-        // Counted first so the run can be filled in one pass with no growing and no gaps.
         let mut degree = [0u32; ALPHABET];
         for &(_, p, c) in &edges {
             degree[p as usize] += 1;
@@ -96,39 +57,22 @@ impl Menu {
         })
     }
 
-    /// The most settings that could survive this menu for no reason at all, out of `settings` swept.
-    ///
-    /// Each closure forces a letter that is already forced, and two forcings agree by chance one time in twenty-six, so the loops alone let through at most one setting in `26^(c-1)`.
-    ///
-    /// A loose bound and not a prediction: it counts only the loops, and Turing's diagonal board forces the other end of every lead it sets, which contradicts far more often than the loops can account for.
-    /// Measured on this tool's own sweeps the bound overshoots by twenty times to a hundred thousand, and the cliff is not where it puts it: a menu with one closure, which the bound writes off entirely, refuted every one of the seventeen thousand settings it was shown, while a menu with none let 99.7% through.
-    /// So a stop against a small bound is worth a great deal, and a large bound is worth nothing at all: it says only that the loops did not settle the matter, not that the sweep will not.
     #[must_use]
     pub fn chance_stops(&self, settings: u64) -> f64 {
         let exponent = self.closures().saturating_sub(1) as i32;
         settings as f64 / (ALPHABET as f64).powi(exponent)
     }
 
-    /// Whether a stop from this menu would mean something on its own.
-    ///
-    /// True when the sweep is expected to leave nothing standing by chance, so that anything still standing is standing for a reason and needs no score to vouch for it.
     #[must_use]
     pub fn decisive_over(&self, settings: u64) -> bool {
         self.chance_stops(settings) < 1.0
     }
 
-    /// Where a true setting would sit among this menu's survivors, once they are scored.
-    ///
-    /// The bombe leaves `chance_stops` settings standing for no reason, and a known fraction of the whole space outscores a true setting at this length, so the accidents that both survive and outscore it are what stand between the truth and the top of the report.
     #[must_use]
     pub fn expected_rank_of_truth(&self, settings: u64, rank_over_all: u64) -> f64 {
         1.0 + rank_over_all as f64 * self.chance_stops(settings) / settings as f64
     }
 
-    /// What fraction of the settings shown to this menu survive it, measured on one rotor order and one reflector.
-    ///
-    /// The only honest answer to "is this crib worth an hour", and the one number that no amount of counting loops would give: the loop arithmetic was wrong here by five orders of magnitude, and wrong in both directions.
-    /// One rotor order stands in for all of them because the rate is a property of the menu's shape, not of which rotors happen to be in the machine, and every setting of that order is tried rather than sampled.
     #[must_use]
     pub fn survival_rate(&self, rotors: [usize; 3], reflector: [u8; ALPHABET]) -> f64 {
         let span = (ALPHABET as u32).pow(3);
@@ -159,9 +103,6 @@ impl Menu {
         f64::from(survived) / f64::from(span)
     }
 
-    /// How many times the menu forces a letter that something else has already forced.
-    ///
-    /// The cycle rank of the graph the crib and its ciphertext make together, and the only thing that gives a bombe anything to contradict: every closure is a place where two chains of deduction must agree, and disagreeing is how a setting is refuted.
     #[must_use]
     pub fn closures(&self) -> usize {
         let mut parent: [usize; ALPHABET] = std::array::from_fn(|i| i);
@@ -177,13 +118,11 @@ impl Menu {
         loops
     }
 
-    /// The letter every hypothesis starts from: the one on the most edges.
     #[must_use]
     pub fn hub(&self) -> Letter {
         self.hub
     }
 
-    /// The letters the menu touches.
     #[must_use]
     pub fn letters(&self) -> Vec<Letter> {
         let mut seen = [false; ALPHABET];
@@ -195,7 +134,6 @@ impl Menu {
     }
 }
 
-/// The representative of a letter's group, with the path flattened as it goes.
 fn find(parent: &mut [usize; ALPHABET], mut x: usize) -> usize {
     while parent[x] != x {
         parent[x] = parent[parent[x]];
@@ -204,30 +142,16 @@ fn find(parent: &mut [usize; ALPHABET], mut x: usize) -> usize {
     x
 }
 
-/// What a scan of one rotor setting concluded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Stop {
-    /// Every hypothesis contradicted itself; the setting is refuted.
     Refuted,
-    /// A hypothesis survived, with the plugboard it forces.
-    ///
-    /// The board is partial: it holds the leads the crib reached, and says nothing about letters the crib never used.
     Survived {
-        /// The lead that was assumed.
         assumed: (Letter, Letter),
-        /// What the crib then forced.
         board: Plugboard,
-        /// A bit for every letter whose lead the crib decided, including the letters it decided are not plugged.
-        ///
-        /// The board alone cannot say which is which: a letter the crib proved unplugged and a letter it never reached both map to themselves.
-        /// Finishing a stop needs the difference, because the first must stay as it is and the second is still free.
         known: u32,
     },
 }
 
-/// The transformation one position of the message applies, with no plugboard.
-///
-/// Recorded ahead of the scan because a setting's rotors step the same way whatever is assumed about the board, so this is computed once and consulted 26 times.
 #[derive(Clone, Debug)]
 pub struct Positions {
     machine: Enigma,
@@ -235,7 +159,6 @@ pub struct Positions {
 }
 
 impl Positions {
-    /// Record where the rotors stand at each of the first `length` positions.
     #[must_use]
     pub fn of(settings: Settings, reflector: [u8; ALPHABET], length: usize) -> Positions {
         let mut machine = Enigma::with_reflector(settings, reflector, Plugboard::empty());
@@ -243,15 +166,11 @@ impl Positions {
         Positions { machine, offsets }
     }
 
-    /// Point an existing record at a new setting, without rebuilding it.
     pub fn aim(&mut self, settings: Settings, reflector: [u8; ALPHABET], length: usize) {
         self.machine.aim(settings, reflector);
         self.retrace(settings, length);
     }
 
-    /// Move only the starting positions, keeping the rotors and reflector.
-    ///
-    /// The inner loop of a crib sweep walks 17,576 starting positions with everything else held still, and re-copying three rotor wirings at each of them costs more than the trace it is preparing for.
     pub fn restart(&mut self, settings: Settings, length: usize) {
         self.machine.restart(settings.positions);
         self.retrace(settings, length);
@@ -262,11 +181,6 @@ impl Positions {
         self.machine.restart(settings.positions);
     }
 
-    /// What position `i` does to a letter.
-    ///
-    /// Answered on demand rather than tabulated. Building all twenty-six
-    /// answers per position was measured and is a loss below about twenty
-    /// menus: the table costs more to fill than the questions cost to ask.
     #[inline]
     #[must_use]
     pub fn at(&self, i: usize, l: Letter) -> Letter {
@@ -274,12 +188,6 @@ impl Positions {
     }
 }
 
-/// Room for one scan, kept between scans.
-///
-/// A hypothesis needs to know, for each letter, whether anything has forced it yet and to what.
-/// Clearing that between hypotheses is 52 bytes a time, which is twenty-two menus times twenty-six hypotheses times six hundred million settings of pure zeroing — eighteen terabytes of it on one naval crib.
-///
-/// A generation counter removes the clearing entirely: a slot counts as known only if it was stamped this time round, so the previous round's contents need not be touched.
 pub struct Scratch {
     generation: u32,
     stamp: [u32; ALPHABET],
@@ -294,7 +202,6 @@ impl Default for Scratch {
 }
 
 impl Scratch {
-    /// Somewhere to work.
     #[must_use]
     pub fn new() -> Scratch {
         Scratch {
@@ -307,7 +214,6 @@ impl Scratch {
 
     #[inline]
     fn begin(&mut self) {
-        // On the one wrap in four billion, clear rather than let a stale stamp read as fresh.
         self.generation = self.generation.wrapping_add(1);
         if self.generation == 0 {
             self.stamp = [0; ALPHABET];
@@ -317,7 +223,6 @@ impl Scratch {
 
     #[inline]
     fn known(&self, l: Letter) -> Option<Letter> {
-        // The modulo is free — the compiler folds it away on a letter — and earns its place by being what tells the compiler the index is in bounds, so the check goes too.
         let i = l as usize % ALPHABET;
         if self.stamp[i] == self.generation {
             Some(self.value[i])
@@ -334,17 +239,11 @@ impl Scratch {
     }
 }
 
-/// Scan one rotor setting against a menu.
-///
-/// Assumes each possible lead for the menu's first letter in turn, follows the
-/// crib wherever it leads, and reports the first assumption that does not
-/// contradict itself.
 #[must_use]
 pub fn scan(menu: &Menu, positions: &Positions) -> Stop {
     scan_with(menu, positions, &mut Scratch::new())
 }
 
-/// The same, reusing a caller's workspace.
 #[must_use]
 pub fn scan_with(menu: &Menu, positions: &Positions, scratch: &mut Scratch) -> Stop {
     if menu.edges.is_empty() {
@@ -359,9 +258,6 @@ pub fn scan_with(menu: &Menu, positions: &Positions, scratch: &mut Scratch) -> S
     Stop::Refuted
 }
 
-/// Every hypothesis about the hub that survives, not only the first.
-///
-/// A bombe that is only asked whether a setting survives can stop at the first hypothesis that does; one that is going to read the message cannot, because on a short crib two hypotheses can survive the same setting and only one of them is the board that was really fitted.
 #[must_use]
 pub fn scan_all_with(menu: &Menu, positions: &Positions, scratch: &mut Scratch) -> Vec<Stop> {
     if menu.edges.is_empty() {
@@ -377,7 +273,6 @@ pub fn scan_all_with(menu: &Menu, positions: &Positions, scratch: &mut Scratch) 
     out
 }
 
-/// What a surviving hypothesis forced, read out of the workspace before the next one overwrites it.
 fn survived(scratch: &Scratch, start: Letter, guess: Letter) -> Stop {
     let mut board = Plugboard::empty();
     let mut known = 0u32;
@@ -394,14 +289,6 @@ fn survived(scratch: &Scratch, start: Letter, guess: Letter) -> Stop {
     }
 }
 
-/// Follow one assumption through the menu.
-///
-/// Answers whether the forcing held together; the workspace holds what it
-/// forced.
-///
-/// Deductions are driven from a worklist rather than by sweeping every edge
-/// until nothing changes, and each one travels only the edges its letter is
-/// actually on.
 fn follow(
     menu: &Menu,
     positions: &Positions,
@@ -412,8 +299,6 @@ fn follow(
     scratch.begin();
     let mut waiting = 0usize;
 
-    // A lead is an involution, so setting one end sets the other, and either end may be the one that disagrees.
-    // That is Turing's diagonal board, and half the contradictions come from it alone.
     macro_rules! settle {
         ($a:expr, $b:expr) => {{
             let mut ok = true;
@@ -445,7 +330,6 @@ fn follow(
         let Some(u) = scratch.known(from) else {
             continue;
         };
-        // Each edge joins its two letters through the machine at that position, in either direction, because the machine there is an involution.
         let l = from as usize % ALPHABET;
         let (first, last) = (menu.starts[l] as usize, menu.starts[l + 1] as usize);
         for &(i, to) in &menu.incident[first..last] {
@@ -470,7 +354,6 @@ mod tests {
     fn a_menu_says_how_many_settings_it_lets_through_by_chance() {
         use crate::alphabet::to_letters;
 
-        // Each closure divides the residue by twenty-six, and the first one buys nothing: it is what makes a stop possible at all.
         let ct =
             to_letters("JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF");
         let crib = to_letters("KEINEBESONDERENVORKOMMNISSE");
@@ -479,7 +362,6 @@ mod tests {
         let expected = settings as f64 / 26f64.powi(menu.closures() as i32 - 1);
         assert!((menu.chance_stops(settings) - expected).abs() < 1e-6);
 
-        // The bar is exactly where the residue falls below one whole setting.
         assert_eq!(
             menu.decisive_over(settings),
             menu.chance_stops(settings) < 1.0
@@ -490,8 +372,6 @@ mod tests {
     fn a_menu_with_one_closure_decides_nothing() {
         use crate::alphabet::to_letters;
 
-        // One closure leaves the sweep exactly as it found it: every setting still standing.
-        // This is the case the sweep used to run for an hour and report as though it had refuted something.
         let ct = to_letters("BCDEFG");
         let crib = to_letters("ABABAB");
         let Some(menu) = Menu::place(&ct, &crib, 0) else {
@@ -543,8 +423,6 @@ mod tests {
 
     #[test]
     fn a_star_of_fresh_letters_has_no_loops() {
-        // Every edge joins a letter seen for the first time to the same hub.
-        // A star has no cycles, so nothing is ever forced twice and the menu refutes nothing — which is exactly what a bombe must not be handed.
         let ct = to_letters("ZZZZZZ");
         let menu = Menu::place(&ct, &to_letters("ABCDEF"), 0).expect("placed");
         assert_eq!(menu.closures(), 0);
@@ -552,7 +430,6 @@ mod tests {
 
     #[test]
     fn a_repeated_pair_closes_a_loop() {
-        // The same two letters meeting twice is one closure: the crib forces that pair around two different positions, and the two answers may disagree.
         let ct = to_letters("BABABA");
         let menu = Menu::place(&ct, &to_letters("ABABAB"), 0).expect("placed");
         assert_eq!(menu.closures(), 5);
@@ -560,13 +437,9 @@ mod tests {
 
     #[test]
     fn a_menu_without_closures_refutes_nothing() {
-        // Stated as a test because it is the trap: a crib of all-distinct letters will accept every rotor setting there is and look like a working attack while doing nothing.
         let (settings, reflector, _, _, ct) = planted();
         let star: Vec<Letter> = (0..6)
-            .map(|i| {
-                // Pick letters that differ from the ciphertext so the placement is legal.
-                (0..ALPHABET as u8).find(|&l| l != ct[i]).expect("a letter")
-            })
+            .map(|i| (0..ALPHABET as u8).find(|&l| l != ct[i]).expect("a letter"))
             .collect();
         if let Some(menu) = Menu::place(&ct, &star, 0)
             && menu.closures() == 0
@@ -594,7 +467,6 @@ mod tests {
         let positions = Positions::of(settings, reflector, ct.len());
         match scan(&menu, &positions) {
             Stop::Survived { board: found, .. } => {
-                // Every lead the crib reached must be one that was really there.
                 for (a, b) in found.pairs() {
                     assert_eq!(board.map(a), b, "invented a lead {a}-{b}");
                 }

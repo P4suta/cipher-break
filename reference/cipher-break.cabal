@@ -2,10 +2,7 @@ cabal-version:   3.0
 name:            cipher-break-reference
 version:         0.1.0.0
 synopsis:        The readable reference implementation of cipher-break
-description:
-  Diagnostics and attacks for the Vigenere family: index of coincidence by
-  period, Kasiski examination, chi-squared column solving and a dictionary
-  attack on the key, all ranked by a dictionary-driven fitness function.
+description:     Haskell reference for classical cipher analysis.
 license:         MIT OR Apache-2.0
 license-files:   ../LICENSE-MIT ../LICENSE-APACHE
 author:          Yasunobu

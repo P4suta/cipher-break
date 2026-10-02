@@ -1,11 +1,5 @@
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 
--- | An n-gram model of a language, and the fitness function built from it.
---
--- Single-letter frequency is a poor judge of a 72-letter candidate: it cannot
--- tell @THEREFORE@ from an anagram of it. An n-gram model judges the order of
--- the letters as well, which is what lets a search climb towards a plaintext
--- instead of merely recognising one it has already found.
 module Cipher.Ngram
   ( Model (..)
   , mkModel
@@ -21,8 +15,6 @@ import Cipher.Alphabet (Letter, alphabetSize, fromLetters, toLetters)
 import Data.Array.Unboxed (UArray, accumArray, elems, listArray, (!))
 import Data.Maybe (mapMaybe)
 
--- | Counts of every gram of a fixed order, with the log probabilities derived
--- from them.
 data Model = Model
   { modelOrder :: !Int
   , modelTotal :: !Double
@@ -30,15 +22,9 @@ data Model = Model
   , modelLogProb :: UArray Int Double
   }
 
--- | How many distinct grams an order has.
 slots :: Int -> Int
 slots n = alphabetSize ^ n
 
--- | Build the derived log-probability table.
---
--- A gram the corpus never showed is not impossible, only unseen, so it gets a
--- floor rather than negative infinity; without one a single unlucky gram would
--- veto an otherwise perfect plaintext.
 mkModel :: Int -> UArray Int Int -> Model
 mkModel order cs = Model order total cs table
   where
@@ -47,11 +33,6 @@ mkModel order cs = Model order total cs table
     table =
       listArray (0, slots order - 1) [if c == 0 then unseen else log (fromIntegral c / total) | c <- elems cs]
 
--- | The gram indices of a text, as base-26 numbers.
---
--- The index is carried forward one letter at a time instead of being rebuilt
--- from each window, which is what keeps training over a twelve-million-letter
--- corpus linear.
 grams :: Int -> [Letter] -> [Int]
 grams order ls
   | order < 1 = []
@@ -70,7 +51,6 @@ train order ls = mkModel order cs
     cs :: UArray Int Int
     cs = accumArray (+) 0 (0, slots order - 1) [(g, 1) | g <- grams order ls]
 
--- | Mean log probability per gram, so texts of different lengths compare.
 score :: Model -> [Letter] -> Double
 score m ls
   | null gs = 0
@@ -79,11 +59,6 @@ score m ls
     gs = grams (modelOrder m) ls
     table = modelLogProb m
 
--- | The model as text: a header, then one line per gram the corpus showed.
---
--- Grams below the cutoff are dropped; at order four most of them are a single
--- accidental crossing of two words and they cost more to store than they are
--- worth.
 render :: Int -> Model -> String
 render cutoff m =
   unlines $
@@ -93,7 +68,6 @@ render cutoff m =
         , c >= cutoff
         ]
 
--- | The letters a gram index stands for, most significant first.
 spell :: Int -> Int -> [Letter]
 spell order i = reverse (take order (go i))
   where

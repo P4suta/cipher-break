@@ -1,13 +1,5 @@
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 
--- | Playfair and its two-square and four-square relatives.
---
--- All three encipher two letters at a time from squares of 25, which flattens
--- single-letter statistics and puts them out of reach of everything that
--- counts letters. Playfair leaves one tell, and it is decisive: its rules can
--- never send a pair of distinct letters to a pair of equal ones, so a
--- ciphertext holding a doubled letter on an even boundary did not come from
--- it, whatever else it came from.
 module Cipher.Playfair
   ( decipherPlayfair
   , encipherPlayfair
@@ -51,15 +43,9 @@ encipherPlayfair sq = unpair . map (step 1 sq) . pairs
 decipherPlayfair :: Square -> [Letter] -> [Letter]
 decipherPlayfair sq = unpair . map (step (-1) sq) . pairs
 
--- | Whether a ciphertext could have come from Playfair at all.
---
--- One check, no key, no search: a repeated letter inside a digraph is
--- impossible under every one of the three rules.
 playfairPossible :: [Letter] -> Bool
 playfairPossible = all (uncurry (/=)) . pairs
 
--- | Four-square, given the two keyed squares; the plain square is the third
--- argument, and is usually the alphabet in order.
 encipherFourSquare :: Square -> Square -> Square -> [Letter] -> [Letter]
 encipherFourSquare topRight bottomLeft plain = unpair . map mix . pairs
   where

@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Frequency statistics: the numbers every classical attack rests on.
-
 use crate::alphabet::{ALPHABET, Letter};
 
-/// How often each of the 26 letters occurs.
 #[must_use]
 pub fn counts(ls: &[Letter]) -> [u32; ALPHABET] {
     let mut out = [0u32; ALPHABET];
@@ -14,10 +11,6 @@ pub fn counts(ls: &[Letter]) -> [u32; ALPHABET] {
     out
 }
 
-/// The probability that two letters drawn without replacement match.
-///
-/// Random text sits near `0.0385`, which is `1/26`, and English near `0.0667`.
-/// A text enciphered with a long key looks random by this measure, which is what makes the statistic a period detector rather than a language detector.
 #[must_use]
 pub fn index_of_coincidence(ls: &[Letter]) -> f64 {
     let n = ls.len();
@@ -32,14 +25,12 @@ pub fn index_of_coincidence(ls: &[Letter]) -> f64 {
     total as f64 / (n * (n - 1)) as f64
 }
 
-/// Letter frequencies of English prose, as fractions summing to one.
 pub const ENGLISH: [f64; ALPHABET] = [
     0.081_67, 0.014_92, 0.027_82, 0.042_53, 0.127_02, 0.022_28, 0.020_15, 0.060_94, 0.069_66,
     0.001_53, 0.007_72, 0.040_25, 0.024_06, 0.067_49, 0.075_07, 0.019_29, 0.000_95, 0.059_87,
     0.063_27, 0.090_56, 0.027_58, 0.009_78, 0.023_60, 0.001_50, 0.019_74, 0.000_74,
 ];
 
-/// Pearson's statistic against [`ENGLISH`]; smaller is more English.
 #[must_use]
 pub fn chi_squared(ls: &[Letter]) -> f64 {
     let n = ls.len();
@@ -56,9 +47,6 @@ pub fn chi_squared(ls: &[Letter]) -> f64 {
         .sum()
 }
 
-/// Split a text into the `n` positions a single key letter enciphered.
-///
-/// Each column is a monoalphabetic cipher, which is the whole reason a period is worth finding.
 #[must_use]
 pub fn columns(n: usize, ls: &[Letter]) -> Vec<Vec<Letter>> {
     if n <= 1 {
@@ -71,10 +59,6 @@ pub fn columns(n: usize, ls: &[Letter]) -> Vec<Vec<Letter>> {
     out
 }
 
-/// Mean index of coincidence across the columns a period would create.
-///
-/// At the true period every column is a monoalphabetic substitution of the plaintext and the mean rises towards the language's own value; at a wrong period the columns stay mixed and it sits near `1/26`.
-/// This sees any periodic cipher at all, not only the ones built from shifts.
 #[must_use]
 pub fn ic_by_period(ls: &[Letter], n: usize) -> f64 {
     let cols = columns(n, ls);
@@ -90,7 +74,6 @@ pub fn ic_by_period(ls: &[Letter], n: usize) -> f64 {
     }
 }
 
-/// Mean and standard deviation of a sample.
 #[must_use]
 pub fn moments(xs: &[f64]) -> (f64, f64) {
     if xs.is_empty() {
@@ -126,8 +109,6 @@ mod tests {
 
     #[test]
     fn two_letters_are_enough_to_have_an_index() {
-        // The boundary itself: a pair is the shortest text with a pair in it,
-        // and treating it as too short reports nothing where the answer is one.
         assert_eq!(index_of_coincidence(&to_letters("AA")), 1.0);
         assert_eq!(index_of_coincidence(&to_letters("AB")), 0.0);
     }

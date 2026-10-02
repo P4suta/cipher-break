@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-#
-# What a job VM does on boot: build, run, hand the results back, and delete itself.
-# Run as root by the guest agent; `cloud/run.sh` passes it in as the startup script.
 set -uo pipefail
 
 meta() { curl -sf -H 'Metadata-Flavor: Google' "http://metadata.google.internal/computeMetadata/v1/$1"; }
@@ -25,7 +22,6 @@ finish() {
   exit 0
 }
 
-# The log goes up once a minute, so a run can be watched from the Mac while it is going.
 ( while sleep 60; do gcloud storage cp --quiet "$log" "$out/log.txt" 2>/dev/null; done ) &
 
 echo "=== $run_id on $(meta instance/machine-type | sed 's|.*/||') in $zone, $(nproc) threads"
@@ -33,8 +29,6 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -q && apt-get install -yq build-essential pkg-config curl || finish "apt failed"
 
 if [ "$kind" = gpu ]; then
-  # The full driver rather than the compute-only one: wgpu reaches the device through Vulkan, which the compute-only packages leave out.
-  # Headers first, so that a driver with no prebuilt module for this kernel is built by DKMS instead of silently missing.
   apt-get install -yq ubuntu-drivers-common libvulkan1 vulkan-tools "linux-headers-$(uname -r)" || finish "apt failed"
   ubuntu-drivers list
   ubuntu-drivers install || finish "driver install failed"

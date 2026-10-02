@@ -1,14 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Delastelle's bifid cipher, which takes letters apart before it moves them.
-//!
-//! Each letter becomes a pair of coordinates in a five-by-five square, the coordinates are read off in a different order, and only then are they put back together into letters.
-//! A ciphertext letter therefore carries half of one plaintext letter and half of another, which is why every single-letter statistic goes flat and why nothing that counts letters reaches it.
-
 use crate::alphabet::Letter;
 use crate::square::{Square, at, positions};
 
-/// Encipher with a square and a period.
 #[must_use]
 pub fn encipher(period: usize, sq: &Square, pt: &[Letter]) -> Vec<Letter> {
     if period == 0 {
@@ -29,7 +23,6 @@ pub fn encipher(period: usize, sq: &Square, pt: &[Letter]) -> Vec<Letter> {
     out
 }
 
-/// Decipher into an existing buffer.
 pub fn decipher_into(period: usize, sq: &Square, ct: &[Letter], out: &mut [Letter]) {
     if period == 0 {
         out.copy_from_slice(ct);
@@ -54,7 +47,6 @@ pub fn decipher_into(period: usize, sq: &Square, ct: &[Letter], out: &mut [Lette
     debug_assert_eq!(written, ct.len());
 }
 
-/// Decipher with a square and a period.
 #[must_use]
 pub fn decipher(period: usize, sq: &Square, ct: &[Letter]) -> Vec<Letter> {
     let mut out = vec![0u8; ct.len()];
@@ -102,7 +94,6 @@ mod tests {
 
     #[test]
     fn a_period_of_one_is_a_substitution() {
-        // With one letter per block the coordinates never interleave, so the cipher degenerates and the letter counts survive.
         use crate::stats::index_of_coincidence;
         let sq = omitting(8);
         let msg: Vec<u8> = to_letters(PLAIN).into_iter().filter(|&l| l != 8).collect();

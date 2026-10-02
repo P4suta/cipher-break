@@ -1,56 +1,34 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! What kind of thing is this, before any attempt to read it.
-//!
-//! Every attack assumes something: a period, a family, a language.
-//! Before assuming any of them it is worth asking the question with no assumptions in it — does this text differ from letters drawn at random?
-//! — and then the question that pins down half the catalogue: could it be a text in some language with its letters merely renamed or rearranged?
-//!
-//! The second question is the valuable one.
-//! A substitution and a transposition both hand the plaintext's letter counts through untouched, so they hand the index of coincidence through untouched too.
-//! A ciphertext flatter than any real language did not come from either, nor from any stack of the two, and that is most of classical cryptography ruled out by one number.
-
 use crate::alphabet::{ALPHABET, Letter, letter_char};
 use crate::polyglot::Polyglot;
 use crate::rng::Rng;
 use crate::stats::{index_of_coincidence, moments};
 use std::collections::HashMap;
 
-/// The vowels, as letters.
 const VOWELS: [Letter; 5] = [0, 4, 8, 14, 20];
 
-/// The three rows of a QWERTY keyboard.
 const QWERTY: [&str; 3] = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
 
-/// Which end of a null distribution counts as surprising.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tail {
-    /// A high value is the surprising one.
     Upper,
-    /// A low value is the surprising one.
     Lower,
 }
 
-/// What a statistic measures, as a function of a text.
 pub type Measure = Box<dyn Fn(&[Letter]) -> f64 + Sync + Send>;
 
-/// A number computed from a text, with the name to report it under.
 pub struct Statistic {
-    /// How it is named in reports.
     pub name: &'static str,
-    /// Which tail is surprising.
     pub tail: Tail,
-    /// What it measures.
     pub of: Measure,
 }
 
-/// Adjacent equal letters.
 #[must_use]
 pub fn doubles(ls: &[Letter]) -> f64 {
     ls.windows(2).filter(|w| w[0] == w[1]).count() as f64
 }
 
-/// Occurrences of an n-gram beyond its first, summed over all n-grams.
 #[must_use]
 pub fn repetition(n: usize, ls: &[Letter]) -> f64 {
     if ls.len() < n {
@@ -63,7 +41,6 @@ pub fn repetition(n: usize, ls: &[Letter]) -> f64 {
     (ls.len() - n + 1 - seen.len()) as f64
 }
 
-/// Index of coincidence over non-overlapping pairs, where a cipher that enciphers two letters at a time leaves its fingerprint.
 #[must_use]
 pub fn digraph_ic(ls: &[Letter]) -> f64 {
     let pairs: Vec<(Letter, Letter)> = ls
@@ -82,7 +59,6 @@ pub fn digraph_ic(ls: &[Letter]) -> f64 {
     seen.values().map(|&c| c * c.saturating_sub(1)).sum::<u64>() as f64 / (n * (n - 1)) as f64
 }
 
-/// How many of the 26 letters appear at all.
 #[must_use]
 pub fn coverage(ls: &[Letter]) -> f64 {
     let mut seen = [false; ALPHABET];
@@ -92,18 +68,11 @@ pub fn coverage(ls: &[Letter]) -> f64 {
     seen.iter().filter(|&&b| b).count() as f64
 }
 
-/// How many of the letters are vowels.
-///
-/// Worth a line of its own because a person inventing a random-looking string avoids vowels without meaning to: letters that would make the result read like a word get passed over.
-/// A cipher has no such preference.
 #[must_use]
 pub fn vowels(ls: &[Letter]) -> f64 {
     ls.iter().filter(|l| VOWELS.contains(l)).count() as f64
 }
 
-/// Adjacent letters that neighbour each other on a QWERTY keyboard.
-///
-/// The other half of the same suspicion: a mashed keyboard leaves its own geometry behind, and this is what that looks like when counted.
 #[must_use]
 pub fn qwerty_neighbours(ls: &[Letter]) -> f64 {
     let place = |l: Letter| -> Option<(i32, i32)> {
@@ -121,10 +90,6 @@ pub fn qwerty_neighbours(ls: &[Letter]) -> f64 {
         .count() as f64
 }
 
-/// The longest stretch of one repeated letter.
-///
-/// The Haskell reference has carried this since the first day and the Rust implementation did not, which a test written against the reference is what found.
-/// Two implementations are only worth having while they answer alike.
 #[must_use]
 pub fn longest_run(ls: &[Letter]) -> f64 {
     let mut best = 0usize;
@@ -138,7 +103,6 @@ pub fn longest_run(ls: &[Letter]) -> f64 {
     best as f64
 }
 
-/// The battery, in the order a report reads best.
 #[must_use]
 pub fn statistics(bank: Option<&Polyglot>) -> Vec<Statistic> {
     let mut out: Vec<Statistic> = vec![
@@ -209,38 +173,21 @@ pub fn statistics(bank: Option<&Polyglot>) -> Vec<Statistic> {
     out
 }
 
-/// An observed statistic beside the distribution it has to stand out from.
 #[derive(Clone, Debug)]
 pub struct Verdict {
-    /// The statistic's name.
     pub name: &'static str,
-    /// What the text scored.
     pub observed: f64,
-    /// What the comparison population scores on average.
     pub mean: f64,
-    /// The deviation of that population.
     pub sd: f64,
-    /// How far out the observation is, in deviations.
     pub z: f64,
-    /// The share of the population that matched or beat the observation.
     pub p: f64,
-    /// The same share, but counting a null draw whenever *any* statistic in the table reached this far.
-    ///
-    /// A table of a dozen statistics is a dozen chances to be surprised, and one of them landing at a P of 0.02 is what a dozen honest statistics do on noise about a fifth of the time.
-    /// This asks the question the reader actually has — would anything in this table have looked this striking on a text with nothing in it — and it is the number to believe when a single row stands out.
     pub family_p: f64,
 }
 
-/// Compare a whole table of statistics against one population, and charge each of them for the company it keeps.
-///
-/// The per-statistic P answers "would this statistic look this striking by chance".
-/// The family-wise P answers "would *any* of these statistics look this striking by chance", which is the question a reader of a table is really asking, and the only one that does not get easier every time a statistic is added.
-/// Both come from the same null draws, so the correction costs nothing beyond the arithmetic.
 #[must_use]
 pub fn assess_all(sts: &[Statistic], ls: &[Letter], population: &[Vec<Letter>]) -> Vec<Verdict> {
     let mut verdicts: Vec<Verdict> = sts.iter().map(|st| assess(st, ls, population)).collect();
 
-    // How far out the most extreme statistic of the table got, on each draw of the null.
     let extremes: Vec<f64> = population
         .iter()
         .map(|t| {
@@ -273,7 +220,6 @@ pub fn assess_all(sts: &[Statistic], ls: &[Letter], population: &[Vec<Letter>]) 
     verdicts
 }
 
-/// Compare one statistic against a population.
 #[must_use]
 pub fn assess(st: &Statistic, ls: &[Letter], population: &[Vec<Letter>]) -> Verdict {
     let observed = (st.of)(ls);
@@ -293,12 +239,10 @@ pub fn assess(st: &Statistic, ls: &[Letter], population: &[Vec<Letter>]) -> Verd
         sd,
         z: (observed - mean) / sd,
         p: beaten as f64 / values.len().max(1) as f64,
-        // Meaningless until the statistic is judged alongside the rest of its table; `assess_all` fills it in.
         family_p: f64::NAN,
     }
 }
 
-/// A sample of uniform random texts of a given length.
 #[must_use]
 pub fn random_population(len: usize, count: usize, rng: &mut Rng) -> Vec<Vec<Letter>> {
     (0..count)
@@ -306,24 +250,14 @@ pub fn random_population(len: usize, count: usize, rng: &mut Rng) -> Vec<Vec<Let
         .collect()
 }
 
-/// How often consecutive letters fall to opposite hands on a QWERTY keyboard.
-///
-/// The other half of the typist question, and the half that settles it.
-/// Counting neighbouring keys says the letters are near each other, which a cipher can produce by accident; hand alternation says a person was typing, because a person asked for random letters alternates hands far more than chance and a machine has no hands.
-/// It runs the other way too: a text that alternates *less* than chance was not typed, whatever its keys happen to be near.
 #[must_use]
 pub fn hands_alternating(ls: &[Letter]) -> f64 {
     let left = |l: Letter| LEFT_HAND.contains(letter_char(l));
     ls.windows(2).filter(|w| left(w[0]) != left(w[1])).count() as f64
 }
 
-/// The letters a touch typist's fingers rest on.
 const LEFT_HAND: &str = "QWERTASDFGZXCVB";
 
-/// The longest stretch containing no vowel at all.
-///
-/// A count of vowels says how many there are; this says whether they are spread through the message or gathered at one end of it.
-/// The two come apart: a message can hold the ordinary number of vowels and still have half of itself without one, and that is a message that is probably two things rather than one — a preamble and a body, two ciphers, or a key group carried in front of the text it opens.
 #[must_use]
 pub fn longest_vowel_free_run(ls: &[Letter]) -> f64 {
     let mut best = 0usize;
@@ -335,12 +269,6 @@ pub fn longest_vowel_free_run(ls: &[Letter]) -> f64 {
     best as f64
 }
 
-/// Ciphertexts an Enigma would actually produce, for comparing a message against the machine it is supposed to have come out of.
-///
-/// The usual null — letters drawn uniformly — answers "is this random", which is not the question anyone is asking.
-/// The question is whether the message looks like what the assumed cipher emits, and for a rotor machine that is not the same thing: no letter ever enciphers to itself, so the ciphertext is thinned of whatever the plaintext is rich in, and a null of uniform letters would call that thinning an anomaly in every Enigma message ever sent.
-///
-/// Each draw is a fresh machine — rotor order, rings, starting position, and ten plugboard leads — enciphering fresh text sampled from the language model.
 #[must_use]
 pub fn enigma_population(
     len: usize,
@@ -376,10 +304,8 @@ pub fn enigma_population(
         .collect()
 }
 
-/// How many plugboard leads a wartime naval Enigma carried.
 const PLUGBOARD_LEADS: usize = 10;
 
-/// Evenly spaced, non-overlapping windows of a corpus.
 #[must_use]
 pub fn windows(width: usize, count: usize, corpus: &[Letter]) -> Vec<Vec<Letter>> {
     if width == 0 || count == 0 || corpus.len() < width {
@@ -401,7 +327,6 @@ mod tests {
     fn a_statistic_is_charged_for_the_company_its_table_keeps() {
         let mut rng = Rng::new(31);
         let population = random_population(80, 2000, &mut rng);
-        // A text with nothing whatever in it.
         let ordinary: Vec<Letter> = (0..80).map(|_| rng.below(ALPHABET) as u8).collect();
 
         let table = statistics(None);
@@ -425,7 +350,6 @@ mod tests {
             );
         }
 
-        // The point of the correction: on a text with nothing in it, some row of a dozen will still land at a small P, and the family-wise figure is what refuses to be impressed by it.
         let sharpest = verdicts
             .iter()
             .min_by(|a, b| a.p.total_cmp(&b.p))
@@ -457,8 +381,6 @@ mod tests {
             "four left-hand keys in a row"
         );
 
-        // Neighbouring keys and alternating hands are different questions, which is why both are asked.
-        // QWERTY's rows run left to right, so neighbours are usually the same hand.
         let neighbours = to_letters("QWERTY");
         assert!(
             super::qwerty_neighbours(&neighbours) > alt(&neighbours),
@@ -499,7 +421,6 @@ mod tests {
         use super::{longest_vowel_free_run as run, vowels};
         use crate::alphabet::to_letters;
 
-        // The same number of vowels, spread out or gathered up.
         let spread = to_letters("BAB BAB BAB BAB".replace(' ', "").as_str());
         let heaped = to_letters("AAAA BBBB BBBB BBBB".replace(' ', "").as_str());
         assert_eq!(
@@ -520,8 +441,6 @@ mod tests {
         use crate::alphabet::ALPHABET;
         use crate::polyglot::Polyglot;
 
-        // The property the null exists to capture, and the reason uniform letters are the wrong comparison: a letter never enciphers to itself, so a vowel-rich plaintext yields a vowel-poor ciphertext.
-        // The effect is small — a plaintext vowel only bars its own letter, not every vowel — and getting that wrong once turned a real anomaly into an imagined artefact.
         let bank = Polyglot::from_bundle(include_str!("../data/models.bundle"));
         let Some(german) = bank.model_named("de") else {
             return;
@@ -542,8 +461,6 @@ mod tests {
             machine < uniform,
             "an Enigma null should be thinner in vowels than uniform letters: {machine} vs {uniform}"
         );
-        // And only a little thinner.
-        // A plaintext vowel bars one letter of twenty-five, not five.
         assert!(
             machine > uniform - 0.02,
             "the thinning is small, and a null that overshoots it would excuse a real anomaly: {machine} vs {uniform}"
@@ -590,7 +507,6 @@ mod tests {
 
     #[test]
     fn the_digraph_index_counts_repeated_pairs() {
-        // Three identical pairs: three of them, three ordered matches out of the six ordered draws, so one half.
         assert_eq!(digraph_ic(&to_letters("ABABAB")), 1.0);
         assert_eq!(digraph_ic(&to_letters("ABCDEF")), 0.0);
         assert_eq!(digraph_ic(&to_letters("AB")), 0.0);
@@ -647,10 +563,8 @@ mod tests {
             tail: Tail::Lower,
             of: Box::new(vowels),
         };
-        // A text with no vowels at all is extreme at the low end.
         let none: Vec<Letter> = vec![1; 60];
         assert!(assess(&lower, &none, &population).p < 0.01);
-        // And a text stuffed with them is not, on that tail.
         let all: Vec<Letter> = vec![0; 60];
         assert!(assess(&lower, &all, &population).p > 0.99);
     }

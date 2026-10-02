@@ -1,9 +1,4 @@
-# Cribs for P1030680: the openings real messages had, then a single boat addressed at the start, UUU and its number spelled out as the net spelled numbers.
-# Thetis was the key of the boats training in the Baltic, and U-534 could not read this message, so it was addressed to boats that could.
-# Spellings vary between operators (VIER and VIR, FUENF and FUNF, SIEBEN and SIBEN), so every spelling is tried; only those that close a loop at offset 0 are listed.
 
-# Openings of real messages U-534 received on 30 April and 1 May, each cut to the shortest length that leaves next to nothing standing at offset 0.
-# Those messages were in the Potsdam key, but the net's habits of address were the navy's, not the key's.
 FFFDDDUUUAUSB --at 0 --right-rings
 UUUVIRSIBENNULE --at 0 --right-rings
 HAENGEMICTANG --at 0 --right-rings
@@ -27,7 +22,6 @@ FUNKSPRUCHMITUHRZE --at 0 --right-rings
 FUNFUUUFLOTTXVO --at 0 --right-rings
 XUUUFLOTTXVVVUU --at 0 --right-rings
 
-# Boats the U-534 traffic of 30 April and 1 May addresses by name.
 UUUVIRSIBENNULEINS --at 0 --right-rings
 UUUVIERSIEBENNULZWO --at 0 --right-rings
 UUUVIRSIBENNULZWO --at 0 --right-rings
@@ -40,7 +34,6 @@ UUUDREINULZWOVIER --at 0 --right-rings
 UUUEINSEINSNULDREI --at 0 --right-rings
 UUUEINSNULNULACHT --at 0 --right-rings
 
-# Every other Type XXI and XXIII boat.
 UUUZWOFUENFNULEINS --at 0 --right-rings
 UUUZWOFUNFNULEINS --at 0 --right-rings
 UUUZWOFUENFNULZWO --at 0 --right-rings

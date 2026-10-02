@@ -1,44 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Simulated annealing, for the key spaces too large to enumerate.
-//!
-//! A keyed square has 25 factorial arrangements and can only ever be searched.
-//! That changes what a result means: a search with this much freedom finds something that scores well in any text at all, including text with nothing in it.
-//! Annealing earns its place here only alongside the same run on shuffled text.
-//!
-//! The temperatures have to match the scale of the score rather than look plausible on their own.
-//! One swap in a square moves a bifid plaintext everywhere at once, so the steps in the score are large, and a schedule tuned for small ones never accepts an uphill move and is a greedy climb wearing a disguise.
-//! That mistake cost this tool a working bifid attack until a planted key proved it was not working.
-
 use crate::rng::Rng;
 
-/// Moves a default run proposes.
-///
-/// Measured rather than chosen: a keyed bifid square over three hundred letters is recovered reliably at this many and unreliably at a quarter of it.
 const DEFAULT_STEPS: usize = 40_000;
 
-/// How many times a default run starts over.
 const DEFAULT_RESTARTS: usize = 6;
 
-/// The temperature a default run starts at.
-///
-/// It has to match the scale of the score, not look plausible on its own.
-/// One swap in a square moves a bifid plaintext everywhere at once, so the steps in the score are whole units; a schedule that starts near a hundredth never accepts an uphill move and is a greedy climb wearing a disguise.
 const DEFAULT_HOT: f64 = 4.0;
 
-/// The temperature a default run ends at.
 const DEFAULT_COLD: f64 = 0.05;
 
-/// How long a run is, how often it starts over, and the temperatures it falls between.
 #[derive(Clone, Copy, Debug)]
 pub struct Schedule {
-    /// Moves proposed per run.
     pub steps: usize,
-    /// How many times to start over from a fresh random state.
     pub restarts: usize,
-    /// The temperature a run starts at.
     pub hot: f64,
-    /// The temperature a run ends at.
     pub cold: f64,
 }
 
@@ -54,7 +30,6 @@ impl Default for Schedule {
 }
 
 impl Schedule {
-    /// A schedule scaled by an effort multiplier.
     #[must_use]
     pub fn scaled(self, factor: f64) -> Self {
         Schedule {
@@ -65,9 +40,6 @@ impl Schedule {
     }
 }
 
-/// Climb, accepting a worse state with a probability that falls over time.
-///
-/// Accepting a loss early is the whole point: these landscapes are rugged and a pure climb settles into the first hollow it meets.
 pub fn anneal<S, F, M>(mut state: S, score: F, mut mv: M, plan: Schedule, rng: &mut Rng) -> (S, f64)
 where
     S: Clone,
@@ -131,13 +103,12 @@ mod tests {
         assert!((best - 0.0).abs() < 1e-9, "best was {best}");
     }
 
-    /// A landscape with a trap: one peak beside the start and a taller one across a valley.
     fn trapped() -> (impl Fn(&i32) -> f64, impl FnMut(&mut i32, &mut Rng)) {
         let score = |x: &i32| match x {
             0 => 0.0,
-            1 => 5.0,   // the near peak
-            2 => -10.0, // the valley
-            3 => 9.0,   // the far peak
+            1 => 5.0,
+            2 => -10.0,
+            3 => 9.0,
             _ => -50.0,
         };
         let mv = |x: &mut i32, rng: &mut Rng| {
@@ -148,7 +119,6 @@ mod tests {
 
     #[test]
     fn a_cold_schedule_never_leaves_the_first_peak() {
-        // With no temperature there is no way across the valley, which is the whole reason a schedule starts hot.
         let (score, mv) = trapped();
         let plan = Schedule {
             steps: 500,
@@ -175,8 +145,6 @@ mod tests {
 
     #[test]
     fn the_best_seen_is_returned_even_when_the_walk_wanders_off() {
-        // The state at the end is not the answer; the best state ever visited is.
-        // A run that ends in the valley must still report the peak.
         let (score, mv) = trapped();
         let plan = Schedule {
             steps: 3000,

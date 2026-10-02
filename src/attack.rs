@@ -1,13 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The attacks, and the catalogue of them.
-//!
-//! An [`Attack`] is a named key space plus a way of searching it.
-//! That is the only abstraction the tool needs: adding a cipher means adding one of these and nothing else, and every piece of machinery around it — the nulls, the ranking, the report — works on the new one the day it arrives.
-//!
-//! Each attack declares its [`Coverage`], which is what separates "no key works" from "no key I tried works".
-//! Both are useful answers and they are not the same answer, so the report never conflates them.
-
 use crate::alphabet::{ALPHABET, Letter, from_letters};
 use crate::anneal::{Schedule, anneal};
 use crate::bombe::{Menu, Positions, Scratch, Stop, scan_all_with, scan_with};
@@ -24,39 +16,18 @@ use crate::square::{self, Square};
 use crate::stats::index_of_coincidence;
 use rayon::prelude::*;
 
-/// What an attack needs from outside itself.
 pub struct Context<'a> {
-    /// The judge that decides whether a candidate is a language.
     pub judge: &'a Polyglot,
-    /// What random letters score, length by length.
     pub scale: &'a Scale,
-    /// How much effort an annealing attack may spend.
     pub plan: Schedule,
-    /// The seed every random choice descends from.
     pub seed: u64,
-    /// How many candidates to return.
     pub keep: usize,
-    /// Where an attack says what it is doing, for when it does it wrongly.
     pub trace: &'a crate::trace::Trace,
-    /// What random letters score under [`Context::focus`], length by length.
     pub focus_scale: Option<&'a Scale>,
-    /// A higher-order model of the one language a message is known to be in.
-    ///
-    /// The tool refuses to guess a language, but sometimes provenance settles it, and then a sharper judge is available.
-    /// A plugboard is grown one lead at a time and each lead is accepted on a small improvement in score; a trigram model is not fine-grained enough to tell a real lead from a flattering one, and will invent leads that corrupt an otherwise exact decipherment.
-    /// A quadgram model of the right language will not.
     pub focus: Option<&'a crate::ngram::Model>,
 }
 
 impl Context<'_> {
-    /// Score a candidate plaintext, in deviations above random letters of the same length.
-    ///
-    /// Every attack scores through here, so no attack has to know that a short candidate and a long one are not comparable on the raw number.
-    /// When the caller has said what language a message is in, that is the
-    /// judge. Ranking a German plaintext by the best of twenty-six languages
-    /// lets a text that is not German at all win for fitting something else,
-    /// and on a short message it does: a true Enigma decipherment came fourth
-    /// behind three that fitted nothing in particular rather well.
     #[inline]
     #[must_use]
     pub fn score(&self, plain: &[Letter]) -> f64 {
@@ -66,9 +37,6 @@ impl Context<'_> {
         }
     }
 
-    /// Score with the sharpest judge available, for choosing between candidates that are already close to each other.
-    ///
-    /// Only ever used to compare texts of the same length, so the raw number is enough and no standardising is needed.
     #[inline]
     #[must_use]
     pub fn refine(&self, plain: &[Letter]) -> f64 {
@@ -79,19 +47,14 @@ impl Context<'_> {
     }
 }
 
-/// How thoroughly an attack covers its key space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Coverage {
-    /// Every key was tried; a negative result is final for this cipher.
     Exhaustive(u64),
-    /// The space was searched, not enumerated; a negative result is weaker.
     Searched(u64),
-    /// The cipher cannot have produced this ciphertext, for a structural reason that needs no key at all.
     Impossible(&'static str),
 }
 
 impl Coverage {
-    /// How many keys the attack will look at.
     #[must_use]
     pub fn keys(self) -> u64 {
         match self {
@@ -101,36 +64,22 @@ impl Coverage {
     }
 }
 
-/// One reading of the ciphertext.
 #[derive(Clone, Debug)]
 pub struct Candidate {
-    /// How well the plaintext fits the best language on hand.
     pub score: f64,
-    /// The key, rendered for a human.
     pub key: String,
-    /// The plaintext it produced.
     pub plain: Vec<Letter>,
 }
 
-/// A named key space and a way of searching it.
 pub trait Attack: Sync + Send {
-    /// How the attack is named in reports and on the command line.
     fn name(&self) -> String;
 
-    /// The family it belongs to, for grouping.
     fn family(&self) -> &'static str;
 
-    /// How much of the space this ciphertext will see.
     fn coverage(&self, ct: &[Letter]) -> Coverage;
 
-    /// The best candidates the attack finds.
     fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate>;
 
-    /// A null the attack measured on itself, if it is in a position to.
-    ///
-    /// The default is `None`, and a caller that gets it must buy a null the expensive way, by running the whole attack again on shuffled ciphertext as many times as the margin needs.
-    /// An attack that already sifts a great many candidates knows better than any shuffle what its own noise looks like: it has just measured it.
-    /// The contract is that the returned scores are draws of the same statistic as the reported best — the largest of an equal-sized sample — because a null made of individual candidates against a best that is the largest of millions would call anything a reading.
     fn own_null(&self) -> Option<Vec<f64>> {
         None
     }
@@ -196,10 +145,6 @@ mod coverage_tests {
     }
 }
 
-/// A bounded collection of the highest scores seen, by key index.
-///
-/// Sweeps run to tens of millions of keys, so nothing may be kept per key.
-/// Scores and indices are kept while the search runs and the winning keys are rebuilt at the end, which costs one extra decipherment each and no memory at all.
 #[derive(Clone, Debug)]
 struct TopScores {
     keep: usize,
@@ -238,7 +183,6 @@ impl TopScores {
     }
 }
 
-/// Run a scoring function over an index range in parallel, keeping the best.
 fn sweep_indices<F>(total: u64, keep: usize, width: usize, score: F) -> Vec<(f64, u64)>
 where
     F: Fn(u64, &mut [Letter]) -> f64 + Sync,
@@ -246,9 +190,6 @@ where
     sweep_indices_with(total, keep, || vec![0u8; width], |i, buf| score(i, buf))
 }
 
-/// The same, with a scratch state each thread builds once and keeps.
-///
-/// An Enigma sweep needs a machine as well as a buffer, and building one per key costs more than running it does.
 fn sweep_indices_with<S, M, F>(total: u64, keep: usize, make: M, score: F) -> Vec<(f64, u64)>
 where
     S: Send,
@@ -270,64 +211,32 @@ where
         .finish()
 }
 
-/// How much a plugboard lead has to improve the score before it is believed.
-///
-/// Zero is the obvious choice and the wrong one.
-/// A lead that is not there will often improve a score by a hair — enough to be accepted, and enough to corrupt an otherwise exact decipherment.
-/// Demanding a real improvement costs nothing when the lead is real.
 pub const LEAD_MARGIN: f64 = 0.02;
 
-/// How many distinct leads a plugboard could take: every unordered pair of letters.
 pub const PLUGBOARD_PAIRS: usize = ALPHABET * (ALPHABET - 1) / 2;
 
-/// How many of the device's climbed boards the sharper model looks at again.
-///
-/// Long enough to hold a true setting that the trigram model left at twenty-two thousandth, which is where it leaves one on a message of seventy letters with every ring swept.
 pub const RERANK_DEPTH: usize = 60_000;
 
-/// How many invertible two-by-two matrices there are over the alphabet.
-///
-/// Stated rather than counted so that [`Attack::coverage`] costs nothing;
-/// a test builds the list and checks the number.
 pub const HILL_KEYS: u64 = 157_248;
 
-/// The widths a columnar transposition is exhausted at.
-///
-/// Every column order is tried, so the work is the factorial of the width; at nine this passes a third of a million keys for one width alone.
 pub const COLUMNAR_WIDTHS: std::ops::RangeInclusive<usize> = 2..=8;
 
-/// The strides a null cipher is looked for at.
 pub const SELECTION_STRIDES: std::ops::RangeInclusive<usize> = 2..=12;
 
-/// The periods an unkeyed bifid square is tried at.
 pub const BIFID_PERIODS: std::ops::RangeInclusive<usize> = 1..=24;
 
-/// The periods a keyed bifid square is searched at.
-///
-/// Below three the cipher barely fractionates; above sixteen a block is longer than most of the messages this tool is handed.
 pub const KEYED_BIFID_PERIODS: std::ops::RangeInclusive<usize> = 3..=16;
 
-/// How far the hill-climbing attack on a repeating key reaches.
 pub const CLIMB_MAX_PERIOD: usize = 16;
 
-/// How many random starting keys each hill climb gets.
 pub const CLIMB_RESTARTS: usize = 12;
 
-/// How many rotor settings a processor-side Enigma attack keeps.
 pub const CPU_ENIGMA_SHORTLIST: usize = 400;
 
-/// How many plugboard leads an Enigma attack looks for.
-///
-/// Ten is what the Kriegsmarine used.
 pub const ENIGMA_LEADS: usize = 10;
 
-/// The longest key a stack-allocated sweep buffer holds.
-///
-/// Sweeps run to tens of millions of keys and a heap allocation per key is the difference between using the machine and waiting for it.
-/// Every exhaustive attack here spells its key into a fixed array instead.
 pub const MAX_KEY: usize = 16;
 
-/// Spell an index as a key of the given length over the alphabet.
 #[inline]
 fn spell_key(mut index: u64, length: usize, out: &mut [Letter; MAX_KEY]) {
     for slot in out[..length].iter_mut().rev() {
@@ -336,7 +245,6 @@ fn spell_key(mut index: u64, length: usize, out: &mut [Letter; MAX_KEY]) {
     }
 }
 
-/// Spell an index as a list of digits in an arbitrary base.
 #[inline]
 fn spell_digits(mut index: u64, length: usize, base: u64, out: &mut [usize; MAX_KEY]) {
     for slot in out[..length].iter_mut().rev() {
@@ -345,13 +253,7 @@ fn spell_digits(mut index: u64, length: usize, base: u64, out: &mut [usize; MAX_
     }
 }
 
-// --------------------------------------------------------------------------
-// The Vigenere family, exhausted
-// --------------------------------------------------------------------------
-
-/// Every key of a fixed length, under all three members of the family.
 pub struct PeriodicSweep {
-    /// The key length to exhaust.
     pub period: usize,
 }
 
@@ -398,11 +300,8 @@ impl Attack for PeriodicSweep {
     }
 }
 
-/// Coordinate ascent on the key, for periods too long to exhaust.
 pub struct PeriodicClimb {
-    /// The longest period to try.
     pub max_period: usize,
-    /// How many random starting keys each period gets.
     pub restarts: usize,
 }
 
@@ -478,13 +377,7 @@ impl Attack for PeriodicClimb {
     }
 }
 
-// --------------------------------------------------------------------------
-// Porta
-// --------------------------------------------------------------------------
-
-/// Every Porta key of a fixed period.
 pub struct PortaSweep {
-    /// The period to exhaust.
     pub period: usize,
 }
 
@@ -527,13 +420,7 @@ impl Attack for PortaSweep {
     }
 }
 
-// --------------------------------------------------------------------------
-// Autokey
-// --------------------------------------------------------------------------
-
-/// Every autokey primer of a fixed length, under both primings and all three families.
 pub struct AutokeySweep {
-    /// The primer length to exhaust.
     pub length: usize,
 }
 
@@ -587,11 +474,6 @@ impl Attack for AutokeySweep {
     }
 }
 
-// --------------------------------------------------------------------------
-// Hill
-// --------------------------------------------------------------------------
-
-/// Every invertible two-by-two Hill key.
 pub struct HillSweep;
 
 impl Attack for HillSweep {
@@ -627,11 +509,6 @@ impl Attack for HillSweep {
     }
 }
 
-// --------------------------------------------------------------------------
-// Monoalphabetic
-// --------------------------------------------------------------------------
-
-/// Every affine key, plus the shifts and Atbash inside them.
 pub struct AffineSweep;
 
 impl Attack for AffineSweep {
@@ -665,7 +542,6 @@ impl Attack for AffineSweep {
     }
 }
 
-/// The general substitution cipher, searched by annealing.
 pub struct SubstitutionAnneal;
 
 impl Attack for SubstitutionAnneal {
@@ -709,13 +585,7 @@ impl Attack for SubstitutionAnneal {
     }
 }
 
-// --------------------------------------------------------------------------
-// Transposition
-// --------------------------------------------------------------------------
-
-/// Every column order for a fixed grid width.
 pub struct ColumnarSweep {
-    /// The grid width to exhaust.
     pub width: usize,
 }
 
@@ -756,7 +626,6 @@ impl Attack for ColumnarSweep {
     }
 }
 
-/// Every rail fence height that could apply.
 pub struct RailFenceSweep;
 
 impl Attack for RailFenceSweep {
@@ -790,10 +659,6 @@ impl Attack for RailFenceSweep {
     }
 }
 
-/// Reading only every nth letter, which is what a null cipher hides behind.
-///
-/// This is the one attack here that does not decipher anything.
-/// It is included because the statistics that rule out transposition and substitution say nothing about it: a message hidden as every fourth letter of random padding leaves a ciphertext that is random, because most of it is.
 pub struct SelectionSweep;
 
 impl Attack for SelectionSweep {
@@ -837,11 +702,6 @@ impl Attack for SelectionSweep {
     }
 }
 
-// --------------------------------------------------------------------------
-// Keyed squares
-// --------------------------------------------------------------------------
-
-/// Bifid with the unkeyed square, over every period and every letter the ciphertext leaves room to omit.
 pub struct BifidPlain;
 
 impl Attack for BifidPlain {
@@ -883,9 +743,7 @@ impl Attack for BifidPlain {
     }
 }
 
-/// Bifid with a keyed square, searched by annealing.
 pub struct BifidAnneal {
-    /// The period to search at.
     pub period: usize,
 }
 
@@ -952,7 +810,6 @@ impl Attack for BifidAnneal {
     }
 }
 
-/// Playfair with a keyed square, searched by annealing.
 pub struct PlayfairAnneal;
 
 impl Attack for PlayfairAnneal {
@@ -1023,7 +880,6 @@ impl Attack for PlayfairAnneal {
     }
 }
 
-/// Four-square with two keyed squares, searched by annealing.
 pub struct FourSquareAnneal;
 
 impl Attack for FourSquareAnneal {
@@ -1099,16 +955,9 @@ impl Attack for FourSquareAnneal {
     }
 }
 
-/// The same exhaustive periodic sweep, run on a device.
-///
-/// The device chooses by the raw fit while the processor chooses by the fit standardised for length.
-/// Within one sweep every candidate is the same length, and standardising is an increasing function of the raw score at a fixed length, so the two orderings are the same one — which is why the winning keys can come back from the device and be scored again here,
-/// without the two backends ever needing to agree on a number.
 #[cfg(feature = "gpu")]
 pub struct GpuPeriodicSweep {
-    /// The key length to exhaust.
     pub period: usize,
-    /// The device to run on.
     pub gpu: std::sync::Arc<crate::gpu::Gpu>,
 }
 
@@ -1151,32 +1000,12 @@ impl Attack for GpuPeriodicSweep {
     }
 }
 
-// --------------------------------------------------------------------------
-// Enigma
-// --------------------------------------------------------------------------
-
-/// Enigma, attacked the only way a ciphertext alone allows.
-///
-/// The key has two halves of wildly different size.
-/// The rotor order, the reflector and the three starting positions come to about twelve million combinations; the plugboard comes to a hundred and fifty trillion.
-/// Nothing can enumerate the second, but it barely needs to be: a plugboard swaps ten pairs of letters and leaves the other six alone, so a decipherment with the rotors right and the board wrong still reads as a mangled version of the language underneath — enough for a score to notice.
-///
-/// So the rotors are exhausted, and the board is then grown one lead at a time, each lead chosen as the single swap that most improves the score.
-/// This is Gillogly's attack, and it is known to need a few hundred letters to be reliable.
-/// On a short message it will still return its best answer; what says whether that answer means anything is, as everywhere here, the same search run on shuffled text.
 pub struct EnigmaAttack {
-    /// How many of the eight historical rotors to draw from.
     pub rotors_available: usize,
-    /// How many rotor settings survive into the plugboard search.
     pub shortlist: usize,
-    /// How many leads to try to find.
     pub leads: usize,
 }
 
-/// Grow a plugboard one lead at a time, keeping each lead that helps.
-///
-/// The plugboard is far too large to enumerate and barely needs to be.
-/// A decipherment with the rotors right and the board empty still reads as a mangled version of the language underneath, so each lead can be found by asking which single swap most improves the score — and the leads that are really there improve it, one after another, until none is left.
 #[must_use]
 pub fn climb_plugboard(
     settings: Settings,
@@ -1218,8 +1047,6 @@ pub fn climb_plugboard(
         }
     }
 
-    // Growing a board one lead at a time can commit early to a lead that only looked good before the others were there.
-    // Each lead is now pulled out in turn and the best replacement for it sought, which costs another few hundred runs and routinely recovers a lead the greedy pass missed.
     loop {
         let mut improved = None;
         for (x, y) in board.pairs() {
@@ -1254,13 +1081,6 @@ pub fn climb_plugboard(
     (board, ctx.score(&best_plain), best_plain)
 }
 
-/// Search the ring settings, holding the wiring path the rotors already found.
-///
-/// A rotor sweep runs with the rings at zero, which is not a restriction on the wiring — moving a ring and its rotor together leaves the path through the machine exactly as it was — but it is a restriction on the notches.
-/// A notch fires at an indicator letter, so where the ring sits decides *when* the rotor to its left moves, and on a short message that is two or three moments in seventy letters.
-///
-/// So this varies the rings and compensates the positions, which changes only the notch timing and leaves everything the sweep established alone.
-/// The leftmost ring is not searched: there is no rotor to its left for its notch to turn, so it is redundant with the position the sweep already has.
 fn refine_rings(
     settings: Settings,
     reflector: [u8; ALPHABET],
@@ -1269,8 +1089,6 @@ fn refine_rings(
     board: Plugboard,
 ) -> (Settings, f64) {
     let side = ALPHABET as u8;
-    // Hold the wiring exactly where the sweep put it.
-    // Moving a ring and its indicator together is the one change that leaves the path through the machine alone and alters only when the notches fire.
     let held = [
         settings.positions[0].against(settings.rings[0]),
         settings.positions[1].against(settings.rings[1]),
@@ -1304,11 +1122,6 @@ fn refine_rings(
     best
 }
 
-/// Everything after the rotor sweep: the board, the rings, then the board again.
-///
-/// The three steps are not independent and the order matters.
-/// A board cannot be found until the rotors are right, the rings cannot be judged until the board is roughly right, and the board can be improved once the rings are.
-/// Two passes over the board with the rings between them is where that settles.
 fn finish_enigma(
     settings: Settings,
     reflector: [u8; ALPHABET],
@@ -1316,29 +1129,17 @@ fn finish_enigma(
     ct: &[Letter],
     ctx: &Context,
 ) -> (Settings, Plugboard, f64, Vec<Letter>) {
-    // The first climb only has to get close enough for the rings to be worth judging, so it is held to the margin that stops a broad search inventing leads.
-    // The last one is the opposite case: the rotors and rings are settled, the text is nearly right, and a lead that helps at all is a lead that is there.
-    // Holding it to the same margin is what left a real plugboard lead behind on a short message.
     let (board, _, _) = climb_plugboard(settings, reflector, leads, LEAD_MARGIN, ct, ctx);
     let (tuned, _) = refine_rings(settings, reflector, ct, ctx, board);
     let (board, score, plain) = climb_plugboard(tuned, reflector, leads, 0.0, ct, ctx);
     (tuned, board, score, plain)
 }
 
-/// What a plugboard lead costs when candidates are ranked against each other.
-///
-/// Ten leads chosen from 325 possibilities will fit any rotor setting tolerably, so the best climbed score belongs to whichever setting was given the most room.
-/// That is the same overfitting the nulls catch elsewhere in this tool, arriving one stage earlier and needing the same answer: charge for the freedom.
-/// A lead costs log(325) nats, spread over the grams the score is a mean of, which is the standard price for a parameter.
-///
-/// The price is paid only when ordering candidates inside an attack.
-/// The score an attack reports is left alone, because the null it is reported against was produced by a search with exactly the same freedom and has already paid.
 #[must_use]
 pub fn penalised(score: f64, leads: usize, grams: usize) -> f64 {
     score - (PLUGBOARD_PAIRS as f64).ln() / grams.max(1) as f64 * leads as f64
 }
 
-/// Rotor settings written out for a trace, best first.
 #[cfg(feature = "gpu")]
 fn describe_hits<'a, I>(
     orders: &[[usize; 3]],
@@ -1361,10 +1162,6 @@ where
     .join(" | ")
 }
 
-/// Order candidates with their plugboards' freedom charged for, and keep the best.
-///
-/// The score each candidate reports is untouched; only the order is decided this way.
-/// The reported score is what a null will be compared against, and that null was produced by a search with the same freedom.
 fn rank_enigma(mut found: Vec<(Candidate, usize)>, grams: usize, keep: usize) -> Vec<Candidate> {
     found.sort_unstable_by(|a, b| {
         penalised(b.0.score, b.1, grams).total_cmp(&penalised(a.0.score, a.1, grams))
@@ -1376,8 +1173,6 @@ fn rank_enigma(mut found: Vec<(Candidate, usize)>, grams: usize, keep: usize) ->
         .collect()
 }
 
-/// How the leads a climb found are written out.
-/// The plugboard leads, written out as the report shows them.
 #[must_use]
 pub fn describe_leads(board: &Plugboard) -> String {
     let leads: Vec<String> = board
@@ -1409,7 +1204,6 @@ impl Attack for EnigmaAttack {
 
     fn coverage(&self, _ct: &[Letter]) -> Coverage {
         let orders = enigma::rotor_orders(self.rotors_available).len() as u64;
-        // Exhaustive in the rotors, searched in the plugboard, so the honest label is the weaker of the two.
         Coverage::Searched(orders * 2 * (ALPHABET as u64).pow(3))
     }
 
@@ -1418,7 +1212,6 @@ impl Attack for EnigmaAttack {
         let positions = (ALPHABET as u64).pow(3);
         let total = orders.len() as u64 * 2 * positions;
 
-        // The rotors, exhausted with no plugboard and the rings at zero.
         let decode = |index: u64| {
             let order = orders[(index / (2 * positions)) as usize];
             let reflector = ((index / positions) % 2) as usize;
@@ -1451,7 +1244,6 @@ impl Attack for EnigmaAttack {
             },
         );
 
-        // The plugboard, grown on the settings that survived.
         let grams = ct.len().saturating_sub(2).max(1);
         let scored: Vec<(Candidate, usize)> = found
             .par_iter()
@@ -1481,20 +1273,9 @@ impl Attack for EnigmaAttack {
     }
 }
 
-/// The Naval four-rotor Enigma, as the U-boats carried it.
-///
-/// The fourth rotor never turns.
-/// That is the whole of what makes this machine reachable: a rotor that never turns, together with the thin reflector behind it, is one fixed permutation for the length of a message, and still an involution.
-/// So an M4 is an M3 with one of `2 × 26 × 2` reflectors, and the rotor half of its key is 336 orders times 104 reflectors times 17,576 starting positions — six hundred million, which is a sweep rather than a dream.
-///
-/// The plugboard is then grown one lead at a time, as in the three-rotor attack.
-/// Where the provenance of a message fixes its language, the rotor sweep is steered by that one model: a Kriegsmarine signal is in German, and searching six hundred million settings under eighteen languages when seventeen of them are known to be wrong is eighteen times the work for a worse answer.
 pub struct EnigmaNaval {
-    /// How many rotor settings survive into the plugboard search.
     pub shortlist: usize,
-    /// How many leads to try to find.
     pub leads: usize,
-    /// The language the rotor sweep is steered by, when one is known.
     pub focus: Option<String>,
 }
 
@@ -1593,40 +1374,18 @@ impl Attack for EnigmaNaval {
     }
 }
 
-/// The naval rotor sweep, run on a device.
-///
-/// Only the rotor half moves to the GPU.
-/// The plugboard is grown afterwards on the processor, on a few hundred settings rather than six hundred million, and it is not where the time goes.
 #[cfg(feature = "gpu")]
 pub struct GpuEnigmaNaval {
-    /// How many rotor settings survive into the plugboard search.
     pub shortlist: usize,
-    /// How many leads to try to find.
     pub leads: usize,
-    /// The language the rotor sweep is steered by.
     pub focus: String,
-    /// How many right-rotor ring settings the sweep tries.
     pub rings: usize,
-    /// How many middle-rotor ring settings to sweep.
-    ///
-    /// The middle ring decides where the middle rotor steps, and in seventy letters it steps two or three times.
-    /// Holding it at A leaves twenty-six times the key space unswept, and a planted message with it anywhere else is not recovered at all.
     pub middles: usize,
-    /// How many of the device's boards are finished here.
     pub finish: usize,
-    /// The device to run on.
     pub gpu: std::sync::Arc<crate::gpu::Gpu>,
 }
 
 #[cfg(feature = "gpu")]
-/// Look again, with the sharper model, at the boards the device grew.
-///
-/// The trigram model steers the sweep because it is what a device can carry, and it gets a true setting from three hundred thousandth to twenty-two thousandth once a board is grown on it.
-/// That is still far past any finish anyone would pay for.
-/// The quadgram model, shown the same climbed boards, puts the same setting at nine hundred and eighty-fifth: the text is nearly right by then, and telling nearly-right from wrong is what the longer gram is for.
-///
-/// Measured on a planted sixty-nine letter naval message with every ring swept.
-/// Without this stage nothing is recovered at any finish depth; with it the plaintext comes first.
 fn rerank_on(
     ctx: &Context,
     ct: &[Letter],
@@ -1686,15 +1445,6 @@ impl Attack for GpuEnigmaNaval {
     }
 
     fn best(&self, ct: &[Letter], ctx: &Context) -> Vec<Candidate> {
-        // Steer by the sharpest model of the language available.
-        // Sixteen billion settings is enough that the best of the wrong ones beats the right one under a trigram model; a quadgram model of the same language separates them again.
-        // This is the same lesson the nulls teach everywhere else in the tool, arriving from the other side:
-        // the more you search, the better your judge has to be.
-        // Steered by the trigram model, not the quadgram one.
-        // German quadgrams fill only an eighth of their table even after four million letters, so most of what a seventy-letter candidate lands on is the floor, and a judge that answers "unseen" to most of its questions is a blunt judge.
-        // Measured on a planted key, the trigram model puts the true setting 146th of six hundred million and the quadgram model 1380th.
-        // The quadgram model earns its place later,
-        // where the text is already nearly right and the question is whether one more plugboard lead helps.
         let Some(model) = ctx.judge.model_named(&self.focus) else {
             return Vec::new();
         };
@@ -1713,15 +1463,9 @@ impl Attack for GpuEnigmaNaval {
         };
         let found = self.gpu.sweep_enigma(&job);
 
-        // Grow a board for every one of them, on the device.
-        // A short message rarely puts the true setting first under an empty board, so the shortlist is long and this is what makes a long one affordable.
         let boards = self
             .gpu
             .climb_plugboards(&job, &found, self.leads, LEAD_MARGIN as f32);
-        // Rank with the plugboard's freedom charged for.
-        // Ten leads chosen from 325 possibilities will fit any setting tolerably, so the best climbed score belongs to whichever setting was given the most room —
-        // which is the same overfitting the nulls catch everywhere else in this tool, arriving one stage earlier.
-        // Each lead costs log(325) nats, spread over the grams the score is a mean of, which is the standard price for a parameter and is what puts the true setting back in front of the settings that merely had room.
         let grams = (ct.len() + 1).saturating_sub(model.order()).max(1);
         let lead_cost = (PLUGBOARD_PAIRS as f64).ln() / grams as f64;
         ctx.trace.note("naval/sweep", || {
@@ -1754,7 +1498,6 @@ impl Attack for GpuEnigmaNaval {
         });
         ranked.truncate(self.finish.max(1));
 
-        // Finish the survivors here: the rings, then the board once more.
         let out: Vec<(Candidate, usize)> = ranked
             .par_iter()
             .map(|&(_, i)| {
@@ -1797,65 +1540,22 @@ impl Attack for GpuEnigmaNaval {
     }
 }
 
-/// Enigma attacked through a crib, with a bombe rather than a judge.
-///
-/// Every other Enigma attack here needs the decipherment to look like a language, and with a full plugboard on a short message it never does: the board sends twenty of twenty-six letters somewhere else, and what comes out is not German in any form a model recognises.
-///
-/// A bombe does not look at the decipherment.
-/// It asks whether any plugboard at all could turn this ciphertext into the crib under this rotor setting, and answers by contradiction — which is exact, and which does not weaken as the board grows.
-/// That is the only tool that reaches a message like this, and it is the one the war used.
-///
-/// It needs a crib that is actually there, and a crib whose letters repeat enough to close loops.
-/// A menu with no closures forces nothing twice, so nothing can ever disagree, and the attack accepts every setting it is shown; [`crate::bombe::Menu::closures`] is what says whether a crib is worth running.
 pub struct BombeAttack {
-    /// A device to run the sweep on, when there is one.
-    ///
-    /// The same sweep either way — a cross-check plants a message and demands the two agree to the setting, not to a count — but about three times faster, which is the difference between an afternoon and an evening.
     #[cfg(feature = "gpu")]
     pub gpu: Option<std::sync::Arc<crate::gpu::Gpu>>,
-    /// How many settings the last sweep left standing.
-    ///
-    /// Kept because it is the difference between "nothing survived" and "thousands survived and none of them read", which a list of the best five candidates cannot tell apart, and which the report was previously reading as the same thing.
     pub stops: std::sync::atomic::AtomicU64,
-    /// How many of those stops were finished and read.
-    ///
-    /// All of them for a strong crib; the best [`BOMBE_FINISH`] by their forced leads alone for a weak one, which the report has to say, because a stop that was never finished was never read.
     pub finished: std::sync::atomic::AtomicU64,
-    /// Boards the crib forced at the stops that were finished, a sample of them.
-    ///
-    /// What [`finished_noise`] builds its random settings on, so that the noise under a stop had exactly the stop's freedom.
     pub shapes: std::sync::Mutex<Vec<(Plugboard, u32)>>,
-    /// The guessed plaintext.
     pub crib: Vec<Letter>,
-    /// What to call it in the report.
     pub label: String,
-    /// How many of the eight rotors to draw from.
     pub rotors_available: usize,
-    /// Whether to fold in the Greek rotor and thin reflectors.
     pub naval: bool,
-    /// Whether to sweep the right ring setting, or hold it at A.
-    ///
-    /// The right ring decides when the middle rotor steps, and in seventy letters it steps two or three times; a crib laid across a step taken at the wrong moment is refuted however right everything else is.
-    /// Held at A, a refutation says only that the crib is not there with the rings at A.
     pub rings: bool,
-    /// Whether to sweep the middle ring as well.
-    ///
-    /// The middle ring matters over a crib only when the middle rotor reaches its own notch inside it, which on a short crib is a setting in six or seven.
-    /// Holding it at A costs those and saves most of the work on a long crib or a crib with many placements; the finish still chooses the middle ring for everything the crib did not decide, so a middle ring that only matters after the crib is found either way.
     pub middles: bool,
-    /// Where the crib must sit, when the guess is about a particular place rather than anywhere.
-    ///
-    /// A message opens with its address far more often than it says anything else, and a guess about the opening is one placement where a guess about anywhere is thirty-six: the difference between an afternoon and a quarter of an hour once the rings are swept.
     pub at: Option<usize>,
-    /// How many stops to finish at most; [`BOMBE_FINISH`] unless asked.
-    ///
-    /// A weak crib leaves millions standing, and the ones left unfinished were never read: raising this is what makes a weak crib's negative mean something.
     pub finish: usize,
 }
 
-/// Every reflector a sweep must try, named as the report will name it.
-///
-/// A naval M4 folds its Greek rotor and thin reflector into a hundred and four composite reflectors, which is what lets one sweep cover a four-rotor machine with three-rotor machinery.
 fn reflectors_for(naval: bool) -> Vec<(String, [u8; ALPHABET])> {
     if naval {
         enigma::naval_reflectors()
@@ -1869,24 +1569,13 @@ fn reflectors_for(naval: bool) -> Vec<(String, [u8; ALPHABET])> {
     }
 }
 
-/// How many candidates a sweep lets pile up before it throws the worse ones away.
-///
-/// A sweep of a weak menu can stop tens of millions of times, which is a pile no machine should be asked to hold; sorting after every stop would cost more than the sweep, so the pile is allowed to grow to this multiple of what the report keeps and is then cut back.
 const STOPS_BEFORE_SIFTING: usize = 64;
 
-/// Keep only the best `keep` of a pile of stops.
 fn sift(stops: &mut Vec<Pending>, keep: usize) {
     stops.sort_unstable_by(|a, b| b.partial.total_cmp(&a.partial));
     stops.truncate(keep);
 }
 
-/// Score a decipherment on the part of it the bombe did not plant.
-///
-/// A bombe's candidate always contains its crib, because placing the crib is what the bombe did; those letters are perfect language in every candidate it returns, right or wrong, and counting them is counting the question as part of the answer.
-/// On a seventy-two letter message an eight-letter crib is an eighth of the text scoring as fluent German, which is enough to push a decipherment of noise past the bar for calling something a reading — and did.
-///
-/// So the crib's letters are cut out and what is left is scored.
-/// The join makes one gram that belongs to neither side, which costs every candidate the same and decides nothing.
 #[must_use]
 pub fn score_outside_the_crib(plain: &[Letter], ctx: &Context, offset: usize, len: usize) -> f64 {
     let end = (offset + len).min(plain.len());
@@ -1902,29 +1591,18 @@ pub fn score_outside_the_crib(plain: &[Letter], ctx: &Context, offset: usize, le
     ctx.score(&rest)
 }
 
-/// How many of a bombe's stops are finished and read, at most.
-///
-/// Finishing a stop is a plugboard climb over the letters its crib never reached, a few thousand decipherments; two hundred thousand of them is a minute on eight cores.
-/// A crib that leaves more standing than this is a weak crib, and its stops are finished best first by what the forced board alone makes of them.
 pub const BOMBE_FINISH: usize = 200_000;
 
-/// How many of the forced boards a sweep keeps for its noise to be built from.
 const SHAPES_KEPT: usize = 1_024;
 
-/// A setting a bombe could not refute, before its board is finished.
 #[derive(Clone, Copy, Debug)]
 struct Pending {
-    /// What the decipherment scores with only the forced leads in, which is all a sweep has time to ask.
     partial: f64,
     settings: Settings,
     reflector: usize,
     menu: usize,
 }
 
-/// Add leads among the letters a crib left free, never touching the ones it decided.
-///
-/// The same climb as [`climb_plugboard`] — grow a lead at a time, then pull each grown lead out and look for a better one — held off every letter in `known`.
-/// A letter the crib proved unplugged is decided just as much as one it proved plugged, which is why the mask and not the board says what is free.
 fn climb_free(
     settings: Settings,
     reflector: [u8; ALPHABET],
@@ -2002,12 +1680,6 @@ fn climb_free(
     board
 }
 
-/// The middle and right rings that read best among those the crib cannot tell apart.
-///
-/// A bombe with the rings swept still cannot see a ring that only matters after its crib ends: the sweep keeps one of the settings that agree over the crib and drops the rest as copies.
-/// They are copies only as far as the crib reaches, so the rest of the message is asked here.
-/// Only those copies, though — the pairs of rings that put every rotor at exactly the same place at every letter the crib covers.
-/// Letting every ring compete gave a wrong stop 676 chances to read a little better, lifted the noise under a planted message by four points, and turned a clear break into a doubtful one.
 fn best_rings(
     settings: Settings,
     reflector: [u8; ALPHABET],
@@ -2053,13 +1725,6 @@ fn best_rings(
     best.0
 }
 
-/// Finish a board a crib forced only part of, and read the message with it.
-///
-/// A stop's board holds the leads its crib reached and nothing more.
-/// On a crib of a dozen letters that can be half of a ten-lead board, and a decipherment with half its leads missing does not read as anything: judged as it stood, the right setting under the right crib would have been reported as not language.
-/// So the free letters get a climb of their own, the rings the crib could not see are chosen, and the free letters are climbed once more with them.
-///
-/// `reach` is how far the crib ran, which is how far the rings are already settled.
 #[must_use]
 pub fn complete_board(
     settings: Settings,
@@ -2085,7 +1750,6 @@ pub fn complete_board(
     (settings, board, plain)
 }
 
-/// What a stop's decipherment scores with only its forced leads in.
 fn partial_score(
     ct: &[Letter],
     ctx: &Context,
@@ -2099,7 +1763,6 @@ fn partial_score(
     score_outside_the_crib(&plain, ctx, offset, crib)
 }
 
-/// Every surviving hypothesis at a stop, finished, and the best of them as a candidate, with the board its crib forced.
 fn finish_stop(
     ct: &[Letter],
     ctx: &Context,
@@ -2148,12 +1811,6 @@ fn finish_stop(
         .max_by(|a, b| a.0.0.score.total_cmp(&b.0.0.score))
 }
 
-/// What finishing makes of random settings, given boards forced as a real crib forces them.
-///
-/// A finished stop has had its free letters climbed, and a climb makes anything read better, so it can only be judged against noise that was climbed the same way.
-/// The same way means over the same letters: a random setting climbed from an empty board has all ten leads to spend where a stop has the few its crib left, and a bar set by that reached +15.4 where the stops under it reached +8.8 — high enough to hide a planted message read back perfectly.
-/// So each random setting here is given the forced board of a real stop, which is as good as random against a setting it was not forced by, and only that stop's free letters are climbed.
-/// The crib's letters are cut out of the score exactly as they are for a stop.
 #[must_use]
 pub fn finished_noise(
     ct: &[Letter],
@@ -2194,17 +1851,14 @@ pub fn finished_noise(
 }
 
 impl BombeAttack {
-    /// How many right-ring settings a sweep tries.
     fn ring_count(&self) -> usize {
         if self.rings { ALPHABET } else { 1 }
     }
 
-    /// How many middle-ring settings a sweep tries.
     fn middle_count(&self) -> usize {
         if self.middles { ALPHABET } else { 1 }
     }
 
-    /// Finish the best of a pile of stops and rank what they read as.
     fn finish_all(
         &self,
         ct: &[Letter],
@@ -2239,7 +1893,6 @@ impl BombeAttack {
         rank_enigma(found, ct.len().saturating_sub(2).max(1), ctx.keep)
     }
 
-    /// Every stop one rotor order and reflector leave standing, on the processor.
     fn sweep_on_processor(
         &self,
         ct: &[Letter],
@@ -2270,7 +1923,6 @@ impl BombeAttack {
                 continue;
             }
             let settings = Settings::at(rotors, 0, [0, middle, ring], start);
-            // `restart` moves only the indicators; a new pair of rings needs the machine re-aimed.
             if aimed != (middle, ring) {
                 positions.aim(settings, wiring, reach);
                 aimed = (middle, ring);
@@ -2306,7 +1958,6 @@ impl BombeAttack {
         stops
     }
 
-    /// Every offset the crib could sit at, or only the one it was placed at.
     fn placements(&self, ct: &[Letter]) -> Vec<usize> {
         let mut all = crate::crib::placements(ct, &self.crib);
         if let Some(at) = self.at {
@@ -2315,9 +1966,6 @@ impl BombeAttack {
         all
     }
 
-    /// The same sweep on the device, when there is a device and one language to steer by.
-    ///
-    /// Returns `None` when anything is missing, so the processor's sweep is always the one that decides what a bombe means and the device only ever makes it faster.
     #[cfg(feature = "gpu")]
     fn on_device(&self, ct: &[Letter], ctx: &Context) -> Option<Vec<Candidate>> {
         let gpu = self.gpu.as_ref()?;
@@ -2364,7 +2012,6 @@ impl BombeAttack {
             format!("{} stops over {} menus", found.stops, menus.len())
         });
 
-        // The device found the settings; the boards are finished here, so that a candidate from a device sweep and one from a processor sweep are the same object.
         let reach = menus
             .iter()
             .map(|m| m.offset + self.crib.len())
@@ -2414,16 +2061,6 @@ impl Attack for BombeAttack {
     }
 
     fn own_null(&self) -> Option<Vec<f64>> {
-        // No null, and deliberately so.
-        //
-        // A sweep's survivors are settings that a menu could not refute, and surviving a menu says nothing whatever about how the decipherment scores; they are random settings, and the best of several million of them is the best of several million random settings.
-        // Every null that can be built from them is therefore built from the same numbers as the thing it is meant to judge.
-        //
-        // Cutting the sweep into slices and taking each slice's best was tried here.
-        // It is worse than useless: the score being judged is the largest of those slice maxima by construction, so the comparison is the largest of nine numbers against the other eight — positive every time — and maxima of half a million draws bunch so tightly that the deviation comes out enormous.
-        // It reported a margin of 13.5 on a crib whose best decipherment was QZZENANDFUNBATVGOBGZOIEX.
-        //
-        // What can judge a bombe's candidate is what it is worth against real language of that length, which the report already knows and does not need a sweep to tell it.
         Some(Vec::new())
     }
 
@@ -2441,9 +2078,6 @@ impl Attack for BombeAttack {
         let reflectors = reflectors_for(self.naval);
         let reflector_count = reflectors.len();
         let order_count = orders.len();
-        // One job per rotor order and reflector, with every placement of the crib tested inside it.
-        // The placements used to be the outer loop,
-        // which recomputed the machine's trajectory for each of them — the same trajectory, twenty-two times over, for every one of six hundred million settings.
 
         let span = (ALPHABET as u64).pow(3);
         let settings = span
@@ -2452,10 +2086,6 @@ impl Attack for BombeAttack {
             * orders.len() as u64
             * reflectors.len() as u64;
 
-        // Every placement whose menu closes at least one loop, which is where the cliff actually is.
-        // Measured rather than reasoned: a menu with one closure refuted every one of the seventeen thousand settings it was shown, and a menu with none let 99.7% of them through.
-        // Dropping the second kind is not a saving but a necessity — six hundred million survivors to decipher and score is twenty minutes per menu to learn nothing.
-        // A placement not swept is a placement the crib might have been sitting at, so nothing else is left out.
         let menus: Vec<Menu> = placements
             .iter()
             .filter_map(|&offset| Menu::place(ct, &self.crib, offset))
@@ -2498,9 +2128,6 @@ impl Attack for BombeAttack {
     }
 }
 
-/// The catalogue, in the order a report reads best.
-///
-/// `depth` decides how far the exhaustive sweeps run: the cost of the periodic and autokey sweeps is 26 to the power of the key length, so each step up is 26 times the work, and where to stop is the one thing worth choosing.
 #[must_use]
 pub fn registry(depth: usize) -> Vec<Box<dyn Attack>> {
     let mut out: Vec<Box<dyn Attack>> = vec![
@@ -2516,8 +2143,6 @@ pub fn registry(depth: usize) -> Vec<Box<dyn Attack>> {
     for width in COLUMNAR_WIDTHS {
         out.push(Box::new(ColumnarSweep { width }));
     }
-    // Each step up multiplies the work by the alphabet, so the caps are set by how far each cipher's space grows: Porta counts in thirteens rather than twenty-sixes and reaches two digits further for the same cost,
-    // while autokey carries six variants and reaches one less.
     for period in 1..=depth.min(MAX_KEY) {
         out.push(Box::new(PeriodicSweep { period }));
     }
@@ -2554,7 +2179,6 @@ pub fn registry(depth: usize) -> Vec<Box<dyn Attack>> {
     out
 }
 
-/// The index of coincidence of a candidate, used as a cheap cross-check in reports.
 #[must_use]
 pub fn candidate_ic(c: &Candidate) -> f64 {
     index_of_coincidence(&c.plain)

@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Hill's cipher on pairs of letters.
-//!
-//! Enciphering two letters at a time flattens the single-letter statistics every classical attack relies on, so no amount of frequency work touches it.
-//! It is also small: a two-by-two key over 26 letters has 157,248 invertible forms, and a machine can try all of them.
-//! Searching the deciphering matrices directly avoids inverting anything, since every invertible matrix is the inverse of exactly one other.
-
 use crate::alphabet::{ALPHABET, Letter};
 
-/// A two-by-two matrix over the integers modulo 26.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Matrix(pub u8, pub u8, pub u8, pub u8);
 
@@ -19,20 +12,17 @@ impl std::fmt::Display for Matrix {
 }
 
 impl Matrix {
-    /// The determinant, modulo 26.
     #[must_use]
     pub fn determinant(self) -> u8 {
         let a = i32::from(self.0) * i32::from(self.3) - i32::from(self.1) * i32::from(self.2);
         a.rem_euclid(ALPHABET as i32) as u8
     }
 
-    /// A matrix is usable exactly when its determinant has an inverse modulo 26.
     #[must_use]
     pub fn invertible(self) -> bool {
         gcd(u32::from(self.determinant()), ALPHABET as u32) == 1
     }
 
-    /// Transform a text two letters at a time into an existing buffer; a trailing odd letter is left as it is.
     pub fn apply_into(self, ls: &[Letter], out: &mut [Letter]) {
         let a = ALPHABET as u16;
         let mut i = 0;
@@ -47,7 +37,6 @@ impl Matrix {
         }
     }
 
-    /// Transform a text two letters at a time.
     #[must_use]
     pub fn apply(self, ls: &[Letter]) -> Vec<Letter> {
         let mut out = vec![0u8; ls.len()];
@@ -60,7 +49,6 @@ fn gcd(a: u32, b: u32) -> u32 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
 
-/// Every invertible two-by-two matrix.
 #[must_use]
 pub fn matrices() -> Vec<Matrix> {
     let n = ALPHABET as u8;
@@ -87,7 +75,6 @@ mod tests {
 
     #[test]
     fn the_count_is_the_known_one() {
-        // The number the registry states without counting, counted.
         assert_eq!(matrices().len() as u64, crate::attack::HILL_KEYS);
     }
 

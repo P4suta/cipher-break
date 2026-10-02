@@ -1,7 +1,4 @@
-# Cribs for P1030680, the second pass.
-# Every one swept with the right ring, the middle held at A and chosen again at the finish; judged by the naval model.
 
-# Openings, strong: each leaves next to nothing standing at offset 0.
 FXDXUUUAUSBXANALLE --at 0 --right-rings
 FFFDDDUUUAUSBILDUNGANALLE --at 0 --right-rings
 VVVFXDXUUUAUSBX --at 0 --right-rings
@@ -13,7 +10,6 @@ VONVONFUNFXUUUFLOTTX --at 0 --right-rings
 VONVONFUENFXUUUFLOTTX --at 0 --right-rings
 FUNKSPRUCHNICHTZULOESEN --at 0 --right-rings
 
-# Openings carried over from the first pass, which swept both rings and was cut short for this one.
 ZWOFUNFXUUUFLOTTX --at 0 --right-rings
 ANANZWOSECHSUUUFLOTTX --at 0 --right-rings
 FUENFXUUUFLOTTX --at 0 --right-rings
@@ -26,18 +22,15 @@ DIEFUNKSPRUECHEMITUHRZEIT --at 0 --right-rings
 NICHTZULOESEN --at 0 --right-rings
 NEUHERGEBEN --at 0 --right-rings
 
-# Openings, weak: millions standing, so ten times as many finished.
 FXDXUUUAUSBX --at 0 --right-rings --finish 2000000
 LEITUNGVONVON --at 0 --right-rings --finish 2000000
 ANANUUUBOOTE --at 0 --right-rings --finish 2000000
 ALLEUUUBOOTE --at 0 --right-rings --finish 2000000
 VONVONLEITUNG --at 0 --right-rings --finish 2000000
 
-# The fortress alarm for Kiel, broadcast to all U-boats on 1 May 1945 at 04:15 and lifted at 11:41, anywhere in the message.
 FESTUNGSALARMFUERKIEL --right-rings
 FESTUNGSALARMFUERKIELBEENDET --right-rings
 
-# Signatures before one to three letters of padding.
 VVVFUNKLEITUNG --at 58 --right-rings
 VVVFUNKLEITUNG --at 55 --right-rings
 VONVONFUNKLEITUNG --at 55 --right-rings

@@ -1,28 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Ciphers whose key is the message itself after a short primer.
-//!
-//! An autokey never repeats, so it has no period for superposition to find and no column for a frequency count to flatten.
-//! What it does have is a primer short enough to exhaust: get it right and the whole message unrolls, get it wrong and every letter after the primer is wrong too.
-//! That all-or-nothing behaviour is what lets a cheap judge decide.
-
 use crate::alphabet::Letter;
 use crate::ciphers::periodic::Family;
 
-/// What the key stream continues with once the primer runs out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Priming {
-    /// The plaintext, as Vigenere originally proposed.
     Plaintext,
-    /// The ciphertext, which needs no lookahead to decipher.
     Ciphertext,
 }
 
-/// Both, for attacks that sweep them.
 pub const PRIMINGS: [Priming; 2] = [Priming::Plaintext, Priming::Ciphertext];
 
 impl Priming {
-    /// The short name used in reports and keys.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
@@ -32,7 +21,6 @@ impl Priming {
     }
 }
 
-/// Encipher under an autokey.
 #[must_use]
 pub fn encipher(mode: Priming, fam: Family, primer: &[Letter], pt: &[Letter]) -> Vec<Letter> {
     if primer.is_empty() {
@@ -54,10 +42,6 @@ pub fn encipher(mode: Priming, fam: Family, primer: &[Letter], pt: &[Letter]) ->
     ct
 }
 
-/// Decipher an autokey into an existing buffer.
-///
-/// The key stream is defined in terms of the plaintext it is being used to produce.
-/// That is not circular: position `i` only ever consults position `i - primer.len()`, so one forward pass unrolls it.
 pub fn decipher_into(
     mode: Priming,
     fam: Family,
@@ -83,7 +67,6 @@ pub fn decipher_into(
     }
 }
 
-/// Decipher an autokey.
 #[must_use]
 pub fn decipher(mode: Priming, fam: Family, primer: &[Letter], ct: &[Letter]) -> Vec<Letter> {
     let mut out = vec![0u8; ct.len()];

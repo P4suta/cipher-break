@@ -1,16 +1,5 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-#
-# Run one job on a throwaway Spot VM and leave nothing running afterwards.
-#
-#   cloud/run.sh <cpu|gpu> [--hours N] [--machine TYPE] [--standard] -- <command run in the repository on the VM>
-#
-# Spot by default.
-# `--standard` pays the full price for a machine that is not taken back halfway: an L4 Spot VM was preempted seventeen minutes into a sweep.
-#
-# The working tree goes up as it is, uncommitted changes included, because the thing worth running is usually the thing not yet committed.
-# The VM builds, runs the command, writes everything to the bucket, and deletes itself.
-# If anything goes wrong on the way, `--max-run-duration` deletes it anyway: no failure leaves a machine billing.
 set -euo pipefail
 
 kind=${1:?cpu or gpu}
@@ -52,7 +41,6 @@ esac
 
 staging=$(mktemp -d)
 trap 'rm -rf "$staging"' EXIT
-# Tracked and untracked-but-not-ignored files, as they are on disk now.
 (cd "$here" && COPYFILE_DISABLE=1 git ls-files -co --exclude-standard -z | tar czf "$staging/tree.tgz" --null -T -)
 {
   echo "run      $run_id"
@@ -87,7 +75,6 @@ for zone in "${zones[@]}"; do
     echo "watch: gcloud storage cat $bucket/runs/$run_id/out/log.txt"
     exit 0
   fi
-  # Out of stock or out of quota in this zone: say which, and try the next.
   grep -E 'ERROR|message' "$staging/err" | head -2 >&2
 done
 echo "no zone would take $machine" >&2

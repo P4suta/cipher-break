@@ -19,11 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
       - name: Scan history for secrets
         run: mise x gitleaks@8.30.1 -- gitleaks git --redact=100 --no-banner --log-opts=--all .
       - name: Install pinned Rust toolchain

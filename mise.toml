@@ -68,3 +68,16 @@ for p in 4 5 6; do
   /usr/bin/time -p ./target/release/cb try "vigenere period $p" data/ciphertext.txt --nulls 0 --depth 7 --plain --gpu >/dev/null 2>/tmp/cb-gpu; grep real /tmp/cb-gpu
 done
 """
+
+[tasks."cloud:run"]
+description = "Run a command on a throwaway GCP Spot VM: mise run cloud:run gpu -- <command>"
+# The VM deletes itself when the command ends, and `--max-run-duration` deletes it if it never does.
+run = "cloud/run.sh"
+
+[tasks."cloud:fetch"]
+description = "Bring a cloud run's results into reports/cloud/, or list runs"
+run = "cloud/fetch.sh"
+
+[tasks."cloud:ls"]
+description = "Every VM still alive in the project, which should be none"
+run = "gcloud compute instances list"

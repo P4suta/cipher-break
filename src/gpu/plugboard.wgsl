@@ -90,7 +90,7 @@ fn through_backward(rotor: u32, c: u32, pos: u32) -> u32 {
 /// Run the machine over the ciphertext and score what comes out.
 fn score(
     board: ptr<function, array<u32, 5>>,
-    r0: u32, r1: u32, r2: u32, refl: u32, ring: u32,
+    r0: u32, r1: u32, r2: u32, refl: u32, middle: u32, ring: u32,
     q0: u32, q1: u32, q2: u32,
 ) -> f32 {
     var p0 = q0;
@@ -111,13 +111,14 @@ fn score(
         p2 = (p2 + 1u) % 26u;
 
         let s2 = (p2 + 26u - ring) % 26u;
+        let s1 = (p1 + 26u - middle) % 26u;
         var c = plug(board, ct[i]);
         c = through_forward(r2, c, s2);
-        c = through_forward(r1, c, p1);
+        c = through_forward(r1, c, s1);
         c = through_forward(r0, c, p0);
         c = w_reflector[refl + c];
         c = through_backward(r0, c, p0);
-        c = through_backward(r1, c, p1);
+        c = through_backward(r1, c, s1);
         c = through_backward(r2, c, s2);
         c = plug(board, c);
 
@@ -143,19 +144,22 @@ fn climb(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
     let tid = gid.x;
     if (tid >= params.candidates) { return; }
 
-    let base = tid * 8u;
+    // The middle ring travels with the setting.
+    // Without it every candidate the sweep found with the middle ring away from A was climbed on the wrong wiring, and a planted message with its middle ring at F never came back.
+    let base = tid * 9u;
     let r0 = settings[base];
     let r1 = settings[base + 1u];
     let r2 = settings[base + 2u];
     let refl = settings[base + 3u] * 26u;
-    let ring = settings[base + 4u];
-    let q0 = settings[base + 5u];
-    let q1 = settings[base + 6u];
-    let q2 = settings[base + 7u];
+    let middle = settings[base + 4u];
+    let ring = settings[base + 5u];
+    let q0 = settings[base + 6u];
+    let q1 = settings[base + 7u];
+    let q2 = settings[base + 8u];
 
     var board: array<u32, 5>;
     identity_board(&board);
-    var best = score(&board, r0, r1, r2, refl, ring, q0, q1, q2);
+    var best = score(&board, r0, r1, r2, refl, middle, ring, q0, q1, q2);
     let margin = bitcast<f32>(params.margin_bits);
 
     for (var round = 0u; round < params.leads; round = round + 1u) {
@@ -167,7 +171,7 @@ fn climb(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
                 var trial = board;
                 connect(&trial, a, b);
                 if (leads_used(&trial) > params.leads) { continue; }
-                let s = score(&trial, r0, r1, r2, refl, ring, q0, q1, q2);
+                let s = score(&trial, r0, r1, r2, refl, middle, ring, q0, q1, q2);
                 if (s > best + margin) {
                     best = s;
                     best_a = a;

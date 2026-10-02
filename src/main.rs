@@ -5,7 +5,6 @@
 //! The command with no subcommand is the one to reach for: hand it a ciphertext and it runs the whole catalogue, calibrates itself, and says either what the message is or exactly what it ruled out on the way to not knowing.
 
 use cipher_break::alphabet::{ALPHABET, Letter, from_letters, to_letters};
-use rayon::prelude::*;
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Context, registry};
 use cipher_break::crib::{Crib, KRIEGSMARINE, KRIEGSMARINE_LONG};
@@ -16,6 +15,7 @@ use cipher_break::rng::Rng;
 use cipher_break::stats::{ic_by_period, index_of_coincidence};
 use cipher_break::sweep;
 use cipher_break::triage;
+use rayon::prelude::*;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -48,21 +48,26 @@ const PERIOD_COLUMN_MINIMUM: usize = 4;
 /// How many rotor settings each device-side Enigma sweep keeps.
 ///
 /// The sweep holding the right ring at A searches six hundred million settings; the one sweeping every ring searches sixteen billion, and needs a deeper shortlist to hold a true setting that a larger field pushed down.
+#[cfg(feature = "gpu")]
 const GPU_ENIGMA_SHORTLIST_HELD: usize = 20_000;
 
 /// How many the sweep over every ring setting keeps.
+#[cfg(feature = "gpu")]
 const GPU_ENIGMA_SHORTLIST_SWEPT: usize = 1_000_000;
 
 /// How many of the device's boards are finished on the processor.
 ///
 /// Measured rather than chosen: on a planted sixty-nine letter naval message with every ring swept, the sharper model leaves the true setting nine hundred and eighty-fifth, and a finish that stops at sixty-four never sees it.
 /// Two thousand of them cost a second.
+#[cfg(feature = "gpu")]
 const GPU_ENIGMA_FINISH: usize = 2_000;
 
 /// The depth at which the Enigma sweep over every ring setting joins the run.
+#[cfg(feature = "gpu")]
 const RING_SWEEP_DEPTH: usize = 6;
 
 /// The shortest key length a device sweep is worth crossing to the GPU for.
+#[cfg(feature = "gpu")]
 const GPU_PERIOD_FLOOR: usize = 4;
 
 const USAGE: &str = "\
@@ -75,6 +80,9 @@ USAGE
   cb try     <attack> <input>           run one attack by name
   cb crib    <input> [--word W]         where a guessed word could sit, and could not
   cb bombe   <input> [--word W] [--m3]  attack an Enigma message through a crib
+             [--rings] [--at N] [--plan] sweep the middle and right rings; only the crib at offset N; the table alone
+             [--finish N]               how many stops to finish and read (default 200000)
+             [--right-rings]            sweep the right ring only, holding the middle at A
   cb list                               every attack in the catalogue
   cb train   [--order N] [--cutoff N]   learn a model from a corpus on stdin
   cb devices                            what this machine can compute with
@@ -87,6 +95,7 @@ OPTIONS
   --models DIR                     language models to use instead of the built-in
   --seed N                         make a run reproducible           (default 1)
   --language de                    a language you already know, for a sharper judge
+  --focus FILE                     a quadgram model to judge by instead, for German narrower than the bank's
   --gpu                            run the big exhaustive sweeps on the GPU
   --trace                          say what each stage of each attack did
   --plain                          no colour
@@ -244,6 +253,16 @@ fn models(args: &[String]) -> Result<Polyglot, String> {
 /// Nothing loads this unless it is asked for.
 /// The tool's whole posture is that it does not know the language, and `--language` is the caller taking responsibility for saying otherwise.
 fn focus_model(args: &[String]) -> Option<Model> {
+    // A model from a file, when the language the message is in is narrower than any the binary carries: naval signals are German, but German with UUU and FXDX in it.
+    if let Some(path) = option(args, "--focus") {
+        let parsed = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| Model::parse(&text));
+        if parsed.is_none() {
+            eprintln!("cb: could not read a model from {path}; carrying on without one");
+        }
+        return parsed;
+    }
     match option(args, "--language") {
         Some("de") => Model::parse(GERMAN_QUADGRAMS),
         Some(other) => {
@@ -315,14 +334,16 @@ fn with_gpu(
     attacks.retain(|a| {
         !a.name().starts_with("vigenere period ") && !a.name().starts_with("enigma M4 naval")
     });
-    // Two naval sweeps, because the ring setting is not free.
-    // Holding the right ring at A is six hundred million settings and finds a message whose ring is there; sweeping all 26 is sixteen billion, which is more candidates than a seventy-letter message has evidence to choose between.
+    // Two naval sweeps, because the ring settings are not free.
+    // Holding both rings at A is six hundred million settings and finds a message whose rings are there.
+    // Sweeping the right ring and the middle one is four hundred billion, and it has to be both: the middle ring decides where the middle rotor steps, which in seventy letters it does two or three times, and a planted message with it anywhere but A is not recovered at all.
     // Both are run and both are calibrated, and the report says which is which.
     attacks.push(Box::new(cipher_break::attack::GpuEnigmaNaval {
         shortlist: GPU_ENIGMA_SHORTLIST_HELD,
         leads: cipher_break::attack::ENIGMA_LEADS,
         focus: "de".to_string(),
         rings: 1,
+        middles: 1,
         finish: GPU_ENIGMA_FINISH,
         gpu: gpu.clone(),
     }));
@@ -332,6 +353,7 @@ fn with_gpu(
             leads: cipher_break::attack::ENIGMA_LEADS,
             focus: "de".to_string(),
             rings: cipher_break::alphabet::ALPHABET,
+            middles: cipher_break::alphabet::ALPHABET,
             finish: GPU_ENIGMA_FINISH,
             gpu: gpu.clone(),
         }));
@@ -367,10 +389,12 @@ fn cribs(ct: &[Letter], args: &[String]) {
         None => KRIEGSMARINE.iter().map(|w| (*w).to_string()).collect(),
     };
     // One rotor order and one reflector, every position of them, is enough to measure a menu's bite: it is a property of the menu's shape, not of which rotors are in the machine.
-    let rotors = cipher_break::ciphers::enigma::rotor_orders(cipher_break::ciphers::enigma::ROTOR_COUNT)[0];
+    let rotors =
+        cipher_break::ciphers::enigma::rotor_orders(cipher_break::ciphers::enigma::ROTOR_COUNT)[0];
     let reflector = cipher_break::ciphers::enigma::reflector_wiring(0);
     let naval = f64::from((ALPHABET as u32).pow(3))
-        * cipher_break::ciphers::enigma::rotor_orders(cipher_break::ciphers::enigma::ROTOR_COUNT).len() as f64
+        * cipher_break::ciphers::enigma::rotor_orders(cipher_break::ciphers::enigma::ROTOR_COUNT)
+            .len() as f64
         * cipher_break::ciphers::enigma::NAVAL_REFLECTOR_COUNT as f64;
 
     println!(
@@ -396,7 +420,10 @@ fn cribs(ct: &[Letter], args: &[String]) {
             .map(|m| m.survival_rate(rotors, reflector))
             .sum::<f64>()
             / menus.len() as f64;
-        let closures: Vec<usize> = menus.iter().map(cipher_break::bombe::Menu::closures).collect();
+        let closures: Vec<usize> = menus
+            .iter()
+            .map(cipher_break::bombe::Menu::closures)
+            .collect();
         // What the survivors of a full naval sweep would cost to decipher and score, spread over this machine.
         let seconds = survive * naval * menus.len() as f64 * SECONDS_TO_JUDGE_A_STOP
             / num_cpus_or_one() as f64;
@@ -433,6 +460,7 @@ fn bombe_plan(
     ct: &[Letter],
     words: Vec<String>,
     settings: u64,
+    at: Option<usize>,
 ) -> Vec<(String, usize, f64)> {
     let words: Vec<(String, Vec<cipher_break::bombe::Menu>)> = words
         .into_iter()
@@ -441,6 +469,7 @@ fn bombe_plan(
             let menus: Vec<cipher_break::bombe::Menu> = Crib::against(ct, &letters)
                 .offsets
                 .iter()
+                .filter(|&&o| at.is_none_or(|at| o == at))
                 .filter_map(|&o| cipher_break::bombe::Menu::place(ct, &letters, o))
                 // Where the sweep filters, so the table describes the run rather than a run nobody asked for.
                 .filter(|m| m.closures() > 0)
@@ -450,9 +479,8 @@ fn bombe_plan(
         .collect();
     // Strongest crib first within its list, so that if anything is going to be found it is found in the first minutes rather than the last.
     // Sorted on what the menus actually refute, measured; sorting on closures put a menu that refutes everything below one that refutes 99.7% of nothing.
-    let rotors = cipher_break::ciphers::enigma::rotor_orders(
-        cipher_break::ciphers::enigma::ROTOR_COUNT,
-    )[0];
+    let rotors =
+        cipher_break::ciphers::enigma::rotor_orders(cipher_break::ciphers::enigma::ROTOR_COUNT)[0];
     let reflector = cipher_break::ciphers::enigma::reflector_wiring(0);
     let mut rated: Vec<(f64, (String, Vec<cipher_break::bombe::Menu>))> = words
         .into_par_iter()
@@ -473,9 +501,7 @@ fn bombe_plan(
     // Sorting on the rate alone would put every long guess first again, because they refute everything — which is only worth having if the guess is there at all.
     rated.sort_by(|a, b| {
         let group = |w: &str| usize::from(!KRIEGSMARINE.contains(&w));
-        group(&a.1.0)
-            .cmp(&group(&b.1.0))
-            .then(a.0.total_cmp(&b.0))
+        group(&a.1.0).cmp(&group(&b.1.0)).then(a.0.total_cmp(&b.0))
     });
     let words = rated;
 
@@ -489,7 +515,10 @@ fn bombe_plan(
             println!("  {word:<28} {:>10}  {:>8}", 0, "-");
             continue;
         }
-        let closures: Vec<usize> = menus.iter().map(cipher_break::bombe::Menu::closures).collect();
+        let closures: Vec<usize> = menus
+            .iter()
+            .map(cipher_break::bombe::Menu::closures)
+            .collect();
         // The weakest menu sets the bound, because it is the one whose survivors the score would have to sort.
         // A bound and not a forecast: it counts loops and leaves out the diagonal board, and it overshoots what the sweep actually leaves standing by orders of magnitude.
         let loosest = menus
@@ -516,40 +545,15 @@ fn bombe_plan(
     worth_sweeping
 }
 
+/// How rarely chance must reach a bombe's best before it is called a find.
+///
+/// One in a thousand, because a crib is a guess and a campaign makes dozens of them: at one in twenty, a campaign of fifty cribs would expect two finds from nothing.
+const FIND_CHANCE: f64 = 1e-3;
 
-/// Score a few tens of thousands of settings the machine could have been on, to see what a search of this kind turns up when there is nothing in it.
-fn random_decipherments(ct: &[Letter], ctx: &Context) -> Vec<f64> {
-    use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings, rotor_orders};
-
-    let orders = rotor_orders(cipher_break::ciphers::enigma::ROTOR_COUNT);
-    let mut rng = Rng::new(ctx.seed ^ 0xB0_1BE);
-    (0..NOISE_DECIPHERMENTS)
-        .map(|_| {
-            let rotors = orders[rng.below(orders.len())];
-            let mut pick = |r: &mut Rng| {
-                [
-                    r.below(ALPHABET) as u8,
-                    r.below(ALPHABET) as u8,
-                    r.below(ALPHABET) as u8,
-                ]
-            };
-            let rings = pick(&mut rng);
-            let starts = pick(&mut rng);
-            let mut board = Plugboard::empty();
-            let mut free: Vec<u8> = (0..ALPHABET as u8).collect();
-            for _ in 0..WARTIME_LEADS {
-                let a = free.swap_remove(rng.below(free.len()));
-                let b = free.swap_remove(rng.below(free.len()));
-                board.connect(a, b);
-            }
-            ctx.score(&Enigma::new(Settings::at(rotors, 0, rings, starts), board).run(ct))
-        })
-        .collect()
-}
-
-/// How many of them.
-/// Enough that the largest block the growth is measured over has several to take a median of.
-const NOISE_DECIPHERMENTS: usize = 40_000;
+/// How many finished random settings the noise under a bombe's stops is measured from.
+///
+/// As many as the growth of the best is measured over, which is the least that lets a line be drawn through it.
+const FINISHED_NOISE: usize = 25_600;
 
 /// Sweep one crib and report what stood up to it.
 fn bombe_one(
@@ -567,12 +571,24 @@ fn bombe_one(
     print!("{}", paint(args, &report::outcome_row(&outcome)));
     // The number the verdict cannot show and the one the whole run turns on.
     // A margin above a null says how a candidate scored; this says whether there was anything to score, and against a menu that should have left nothing standing it is the finding itself.
-    println!("  {standing} settings survived, against {by_chance:.0} the menus let through by chance");
+    println!(
+        "  {standing} settings survived, against {by_chance:.0} the menus let through by chance"
+    );
     if standing == 0 {
-        println!(
-            "  every setting refuted: this crib is nowhere in this message under any {} setting",
-            if naval { "naval M4" } else { "M3" }
-        );
+        // Said as widely as the sweep went and no wider.
+        // A sweep with the rings held at A refutes nothing about any other ring, and one holding only the middle ring says nothing about a middle rotor that reaches its notch inside the crib.
+        let machine = if naval { "naval M4" } else { "M3" };
+        let within = match (attack.rings, attack.middles) {
+            (true, true) => format!("under any {machine} setting"),
+            (true, false) => format!(
+                "under any {machine} setting whose middle rotor does not reach its notch inside the crib"
+            ),
+            _ => format!("under any {machine} setting with its rings at A"),
+        };
+        let placed = attack
+            .at
+            .map_or_else(String::new, |at| format!(" at offset {at}"));
+        println!("  every setting refuted: this crib is not{placed} in this message {within}");
     } else if by_chance < 1.0 {
         println!(
             "  THE MENUS SHOULD HAVE LEFT NOTHING STANDING. Read the candidates below whatever the verdict says of their scores."
@@ -584,22 +600,46 @@ fn bombe_one(
     //
     // What can judge it is real language of this length, and what the best of this many tries reaches when there is nothing to find.
     // The second matters because the best of a large search is high whatever the search was for: without it, a fixed threshold called a decipherment of noise a reading, twice.
+    //
+    // Every stop is finished before it is judged — its free letters climbed, its middle ring chosen — and a climb makes anything read better.
+    // So the noise it is judged against is finished the same way and over the same letters: random settings given the boards real stops were forced to, with only those stops' free letters climbed.
+    // Measured against unfinished noise, every finished stop would have looked like a find; measured against noise climbed from an empty board, a planted message read back perfectly did not.
+    let finished = attack.finished.load(std::sync::atomic::Ordering::Relaxed);
+    if standing > 0 {
+        println!("  {finished} of them finished and read");
+    }
     let mut calibrator = report::Calibrator::new(ctx.judge, ctx.scale, ctx.seed);
     let language = calibrator.at(ct.len()).language_mean;
-    let noise = report::best_of_n(&random_decipherments(ct, ctx), standing);
     if let Some(top) = outcome.best.first() {
+        let shapes = attack.shapes.lock().map(|s| s.clone()).unwrap_or_default();
+        let noise = report::best_of_n_fit(
+            &cipher_break::attack::finished_noise(
+                ct,
+                ctx,
+                naval,
+                attack.at.unwrap_or(0),
+                attack.crib.len(),
+                &shapes,
+                FINISHED_NOISE,
+            ),
+            standing,
+        );
+        let (median, chance) = noise.map_or((f64::INFINITY, 1.0), |fit| {
+            (fit.median, fit.chance_of_reaching(top.score))
+        });
         println!(
-            "  best decipherment {:+.1}s; the best of {standing} tries reaches {noise:+.1}s on nothing, and real text of this length {language:+.1}s",
+            "  best decipherment {:+.1}s; the best of {standing} finished tries on nothing reaches {median:+.1}s, and gets this far {chance:.2e} of the time; fluent text of this length reads {language:+.1}s",
             top.score
         );
         println!(
             "  {}",
-            if top.score > noise && top.score > language {
+            if chance < FIND_CHANCE && top.score > language {
                 "READS AS LANGUAGE"
-            } else if top.score > noise {
-                "above what this many tries reach by chance, but short of language"
+            } else if chance < FIND_CHANCE {
+                // A planted seventy-two letter U-534 signal, read back perfectly with all ten of its leads, scores four points below fluent German: naval shorthand does.
+                "FURTHER THAN CHANCE GOES. Read it: a short signal in naval shorthand reads below fluent German even when it is right"
             } else {
-                "not language, and not even past what this many tries reach by chance"
+                "not further than chance goes"
             }
         );
     }
@@ -639,6 +679,19 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
     };
     let naval = !flag(args, "--m3");
     let rotors = number(args, "--rotors", cipher_break::ciphers::enigma::ROTOR_COUNT);
+    let at = option(args, "--at")
+        .map(str::parse::<usize>)
+        .transpose()
+        .map_err(|e| format!("--at: {e}"))?;
+    // Held at A unless asked: the rings multiply the sweep by up to 676.
+    // `--right-rings` sweeps only the ring that decides when the middle rotor steps, at a twenty-sixth of the cost of both.
+    let (right_rings, middle_rings) = if flag(args, "--rings") {
+        (true, true)
+    } else {
+        (flag(args, "--right-rings"), false)
+    };
+    let rings = if right_rings { ALPHABET as u64 } else { 1 }
+        * if middle_rings { ALPHABET as u64 } else { 1 };
     // A device if there is one.
     // The sweep is the same either way — a cross-check plants a message and demands the two agree to the setting — and about three times faster.
     #[cfg(feature = "gpu")]
@@ -651,9 +704,14 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
             cipher_break::ciphers::enigma::NAVAL_REFLECTOR_COUNT as u64
         } else {
             cipher_break::ciphers::enigma::REFLECTOR_COUNT as u64
-        };
+        }
+        * rings;
 
-    let worth_sweeping = bombe_plan(ct, words, settings);
+    let worth_sweeping = bombe_plan(ct, words, settings, at);
+    // The table is the cheap half and often the only half wanted: which guesses could refute anything at all, before an hour is spent on any of them.
+    if flag(args, "--plan") {
+        return Ok(());
+    }
     if worth_sweeping.is_empty() {
         println!(
             "  no menu here removes a single setting; a sweep would hand back the search space and call it a result"
@@ -711,15 +769,20 @@ fn bombe(ct: &[Letter], args: &[String]) -> Result<(), String> {
             #[cfg(feature = "gpu")]
             gpu: device.clone(),
             stops: std::sync::atomic::AtomicU64::new(0),
+            finished: std::sync::atomic::AtomicU64::new(0),
+            shapes: std::sync::Mutex::new(Vec::new()),
             crib: to_letters(&word),
             label: word.clone(),
             rotors_available: rotors,
             naval,
+            rings: right_rings,
+            middles: middle_rings,
+            at,
+            finish: number(args, "--finish", cipher_break::attack::BOMBE_FINISH),
         };
         bombe_one(ct, &ctx, args, &attack, effort.nulls, by_chance);
     }
     Ok(())
-
 }
 
 fn list() {
@@ -779,8 +842,8 @@ fn unicity_section(ct: &[Letter], bank: &Polyglot, args: &[String], rng: &mut Rn
     );
     let _ = writeln!(
         out,
-        "  {:<36} {:>10} {:>10}  {}",
-        "cipher", "key bits", "needs", "at this length"
+        "  {:<36} {:>10} {:>10}  at this length",
+        "cipher", "key bits", "needs"
     );
     let verdict = |needs: f64| {
         if ct.len() as f64 >= needs {
@@ -796,7 +859,11 @@ fn unicity_section(ct: &[Letter], bank: &Polyglot, args: &[String], rng: &mut Rn
     ] {
         let bits = cipher_break::ciphers::enigma::key_bits(naval, WARTIME_LEADS);
         let needs = bits / redundancy;
-        let _ = writeln!(out, "  {name:<36} {bits:>10.1} {needs:>10.1}  {}", verdict(needs));
+        let _ = writeln!(
+            out,
+            "  {name:<36} {bits:>10.1} {needs:>10.1}  {}",
+            verdict(needs)
+        );
     }
     let mut seen: Vec<(String, u64)> = registry(effort_from(args).depth)
         .iter()
@@ -840,7 +907,9 @@ fn diagnostics(ct: &[Letter], bank: &Polyglot, args: &[String]) -> String {
         );
         let against = triage::assess_all(&triage::statistics(Some(bank)), ct, &machines);
         out.push_str(&report::heading("AGAINST ENIGMA OUTPUT"));
-        out.push_str("  a naval machine, fresh rotors and ten leads each draw, enciphering German\n");
+        out.push_str(
+            "  a naval machine, fresh rotors and ten leads each draw, enciphering German\n",
+        );
         out.push_str(&report::statistics_table(&against, "enigma"));
     }
 

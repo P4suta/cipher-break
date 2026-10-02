@@ -10,12 +10,14 @@
 
 use crate::alphabet::{ALPHABET, Letter, from_letters};
 use crate::anneal::{Schedule, anneal};
-use crate::bombe::{Menu, Positions, Scratch, Stop, scan_with};
+use crate::bombe::{Menu, Positions, Scratch, Stop, scan_all_with, scan_with};
 use crate::ciphers::enigma::{self, Enigma, Plugboard, Settings};
 use crate::ciphers::{
     autokey, bifid, hill, periodic, playfair, porta, substitution, transposition,
 };
-use crate::enigma_types::{Indicator, Ring};
+#[cfg(feature = "gpu")]
+use crate::enigma_types::Indicator;
+use crate::enigma_types::Ring;
 use crate::polyglot::{Polyglot, Scale};
 use crate::rng::Rng;
 use crate::square::{self, Square};
@@ -1605,6 +1607,11 @@ pub struct GpuEnigmaNaval {
     pub focus: String,
     /// How many right-rotor ring settings the sweep tries.
     pub rings: usize,
+    /// How many middle-rotor ring settings to sweep.
+    ///
+    /// The middle ring decides where the middle rotor steps, and in seventy letters it steps two or three times.
+    /// Holding it at A leaves twenty-six times the key space unswept, and a planted message with it anywhere else is not recovered at all.
+    pub middles: usize,
     /// How many of the device's boards are finished here.
     pub finish: usize,
     /// The device to run on.
@@ -1642,21 +1649,19 @@ fn rerank_on(
             let settings = Settings {
                 rotors: orders[hit.order],
                 reflector: 0,
-                rings: [Ring::new(0), Ring::new(0), hit.ring],
+                rings: [Ring::new(0), hit.middle, hit.ring],
                 positions: hit.positions,
             };
             let board = Plugboard::from_mapping(boards[i].1);
             let plain = Enigma::with_reflector(settings, wirings[hit.reflector], board).run(ct);
-            (
-                sharper.score(&plain) - cost * board.pairs().len() as f64,
-                i,
-            )
+            (sharper.score(&plain) - cost * board.pairs().len() as f64, i)
         })
         .collect();
     out.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
     out
 }
 
+#[cfg(feature = "gpu")]
 impl Attack for GpuEnigmaNaval {
     fn name(&self) -> String {
         let rings = if self.rings <= 1 {
@@ -1703,6 +1708,7 @@ impl Attack for GpuEnigmaNaval {
             orders: &orders,
             reflectors: &wirings,
             rings: self.rings,
+            middles: self.middles,
             keep: self.shortlist,
         };
         let found = self.gpu.sweep_enigma(&job);
@@ -1756,7 +1762,7 @@ impl Attack for GpuEnigmaNaval {
                 let settings = Settings {
                     rotors: orders[hit.order],
                     reflector: 0,
-                    rings: [Ring::new(0), Ring::new(0), hit.ring],
+                    rings: [Ring::new(0), hit.middle, hit.ring],
                     positions: hit.positions,
                 };
                 let (tuned, board, score, plain) =
@@ -1811,6 +1817,14 @@ pub struct BombeAttack {
     ///
     /// Kept because it is the difference between "nothing survived" and "thousands survived and none of them read", which a list of the best five candidates cannot tell apart, and which the report was previously reading as the same thing.
     pub stops: std::sync::atomic::AtomicU64,
+    /// How many of those stops were finished and read.
+    ///
+    /// All of them for a strong crib; the best [`BOMBE_FINISH`] by their forced leads alone for a weak one, which the report has to say, because a stop that was never finished was never read.
+    pub finished: std::sync::atomic::AtomicU64,
+    /// Boards the crib forced at the stops that were finished, a sample of them.
+    ///
+    /// What [`finished_noise`] builds its random settings on, so that the noise under a stop had exactly the stop's freedom.
+    pub shapes: std::sync::Mutex<Vec<(Plugboard, u32)>>,
     /// The guessed plaintext.
     pub crib: Vec<Letter>,
     /// What to call it in the report.
@@ -1819,6 +1833,24 @@ pub struct BombeAttack {
     pub rotors_available: usize,
     /// Whether to fold in the Greek rotor and thin reflectors.
     pub naval: bool,
+    /// Whether to sweep the right ring setting, or hold it at A.
+    ///
+    /// The right ring decides when the middle rotor steps, and in seventy letters it steps two or three times; a crib laid across a step taken at the wrong moment is refuted however right everything else is.
+    /// Held at A, a refutation says only that the crib is not there with the rings at A.
+    pub rings: bool,
+    /// Whether to sweep the middle ring as well.
+    ///
+    /// The middle ring matters over a crib only when the middle rotor reaches its own notch inside it, which on a short crib is a setting in six or seven.
+    /// Holding it at A costs those and saves most of the work on a long crib or a crib with many placements; the finish still chooses the middle ring for everything the crib did not decide, so a middle ring that only matters after the crib is found either way.
+    pub middles: bool,
+    /// Where the crib must sit, when the guess is about a particular place rather than anywhere.
+    ///
+    /// A message opens with its address far more often than it says anything else, and a guess about the opening is one placement where a guess about anywhere is thirty-six: the difference between an afternoon and a quarter of an hour once the rings are swept.
+    pub at: Option<usize>,
+    /// How many stops to finish at most; [`BOMBE_FINISH`] unless asked.
+    ///
+    /// A weak crib leaves millions standing, and the ones left unfinished were never read: raising this is what makes a weak crib's negative mean something.
+    pub finish: usize,
 }
 
 /// Every reflector a sweep must try, named as the report will name it.
@@ -1843,8 +1875,8 @@ fn reflectors_for(naval: bool) -> Vec<(String, [u8; ALPHABET])> {
 const STOPS_BEFORE_SIFTING: usize = 64;
 
 /// Keep only the best `keep` of a pile of stops.
-fn sift(stops: &mut Vec<(Candidate, usize)>, keep: usize) {
-    stops.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
+fn sift(stops: &mut Vec<Pending>, keep: usize) {
+    stops.sort_unstable_by(|a, b| b.partial.total_cmp(&a.partial));
     stops.truncate(keep);
 }
 
@@ -1870,37 +1902,419 @@ pub fn score_outside_the_crib(plain: &[Letter], ctx: &Context, offset: usize, le
     ctx.score(&rest)
 }
 
-/// Turn a setting the bombe could not refute into a candidate the report can rank.
+/// How many of a bombe's stops are finished and read, at most.
 ///
-/// The expensive half of a sweep once the menus are strong: deciphering and scoring costs about four times what refuting a setting does, so a menu that leaves millions standing is paying for its own answer.
-fn judge_stop(
+/// Finishing a stop is a plugboard climb over the letters its crib never reached, a few thousand decipherments; two hundred thousand of them is a minute on eight cores.
+/// A crib that leaves more standing than this is a weak crib, and its stops are finished best first by what the forced board alone makes of them.
+pub const BOMBE_FINISH: usize = 200_000;
+
+/// How many of the forced boards a sweep keeps for its noise to be built from.
+const SHAPES_KEPT: usize = 1_024;
+
+/// A setting a bombe could not refute, before its board is finished.
+#[derive(Clone, Copy, Debug)]
+struct Pending {
+    /// What the decipherment scores with only the forced leads in, which is all a sweep has time to ask.
+    partial: f64,
+    settings: Settings,
+    reflector: usize,
+    menu: usize,
+}
+
+/// Add leads among the letters a crib left free, never touching the ones it decided.
+///
+/// The same climb as [`climb_plugboard`] — grow a lead at a time, then pull each grown lead out and look for a better one — held off every letter in `known`.
+/// A letter the crib proved unplugged is decided just as much as one it proved plugged, which is why the mask and not the board says what is free.
+fn climb_free(
+    settings: Settings,
+    reflector: [u8; ALPHABET],
+    (forced, known): (Plugboard, u32),
+    leads: usize,
+    margin: f64,
+    ct: &[Letter],
+    ctx: &Context,
+) -> Plugboard {
+    let open = |board: &Plugboard, l: u8| (known >> l) & 1 == 0 && board.map(l) == l;
+    let mut board = forced;
+    let mut machine = Enigma::with_reflector(settings, reflector, board);
+    let mut buf = vec![0u8; ct.len()];
+    machine.run_into(ct, &mut buf);
+    let mut best = ctx.refine(&buf);
+    let mut grown: Vec<(Letter, Letter)> = Vec::new();
+    while board.pairs().len() < leads {
+        let mut improved = None;
+        for a in 0..ALPHABET as u8 {
+            if !open(&board, a) {
+                continue;
+            }
+            for b in (a + 1)..ALPHABET as u8 {
+                if !open(&board, b) {
+                    continue;
+                }
+                let mut trial = board;
+                trial.connect(a, b);
+                machine.aim(settings, reflector);
+                machine.replug(trial);
+                machine.run_into(ct, &mut buf);
+                let s = ctx.refine(&buf);
+                if s > best + margin {
+                    best = s;
+                    improved = Some((a, b));
+                }
+            }
+        }
+        let Some((a, b)) = improved else { break };
+        board.connect(a, b);
+        grown.push((a, b));
+    }
+    loop {
+        let mut improved: Option<(usize, Plugboard, (Letter, Letter))> = None;
+        for (i, &(x, _)) in grown.iter().enumerate() {
+            let mut without = board;
+            without.disconnect(x);
+            for a in 0..ALPHABET as u8 {
+                if !open(&without, a) {
+                    continue;
+                }
+                for b in (a + 1)..ALPHABET as u8 {
+                    if !open(&without, b) {
+                        continue;
+                    }
+                    let mut trial = without;
+                    trial.connect(a, b);
+                    machine.aim(settings, reflector);
+                    machine.replug(trial);
+                    machine.run_into(ct, &mut buf);
+                    let s = ctx.refine(&buf);
+                    if s > best + margin {
+                        best = s;
+                        improved = Some((i, trial, (a, b)));
+                    }
+                }
+            }
+        }
+        let Some((i, better, lead)) = improved else {
+            break;
+        };
+        board = better;
+        grown[i] = lead;
+    }
+    board
+}
+
+/// The middle and right rings that read best among those the crib cannot tell apart.
+///
+/// A bombe with the rings swept still cannot see a ring that only matters after its crib ends: the sweep keeps one of the settings that agree over the crib and drops the rest as copies.
+/// They are copies only as far as the crib reaches, so the rest of the message is asked here.
+/// Only those copies, though — the pairs of rings that put every rotor at exactly the same place at every letter the crib covers.
+/// Letting every ring compete gave a wrong stop 676 chances to read a little better, lifted the noise under a planted message by four points, and turned a clear break into a doubtful one.
+fn best_rings(
+    settings: Settings,
+    reflector: [u8; ALPHABET],
+    board: Plugboard,
+    reach: usize,
+    ct: &[Letter],
+    ctx: &Context,
+) -> Settings {
+    let traced =
+        |s: Settings| Enigma::with_reflector(s, reflector, Plugboard::empty()).offset_trace(reach);
+    let over_the_crib = traced(settings);
+    let held = [
+        settings.positions[1].against(settings.rings[1]),
+        settings.positions[2].against(settings.rings[2]),
+    ];
+    let mut machine = Enigma::with_reflector(settings, reflector, board);
+    let mut buf = vec![0u8; ct.len()];
+    let mut best = (settings, f64::NEG_INFINITY);
+    for m in 0..ALPHABET as u8 {
+        for r in 0..ALPHABET as u8 {
+            let (middle, right) = (Ring::new(m), Ring::new(r));
+            let trial = Settings {
+                rings: [settings.rings[0], middle, right],
+                positions: [
+                    settings.positions[0],
+                    held[0].with_ring(middle),
+                    held[1].with_ring(right),
+                ],
+                ..settings
+            };
+            if trial != settings && traced(trial) != over_the_crib {
+                continue;
+            }
+            machine.aim(trial, reflector);
+            machine.replug(board);
+            machine.run_into(ct, &mut buf);
+            let s = ctx.refine(&buf);
+            if s > best.1 {
+                best = (trial, s);
+            }
+        }
+    }
+    best.0
+}
+
+/// Finish a board a crib forced only part of, and read the message with it.
+///
+/// A stop's board holds the leads its crib reached and nothing more.
+/// On a crib of a dozen letters that can be half of a ten-lead board, and a decipherment with half its leads missing does not read as anything: judged as it stood, the right setting under the right crib would have been reported as not language.
+/// So the free letters get a climb of their own, the rings the crib could not see are chosen, and the free letters are climbed once more with them.
+///
+/// `reach` is how far the crib ran, which is how far the rings are already settled.
+#[must_use]
+pub fn complete_board(
+    settings: Settings,
+    reflector: [u8; ALPHABET],
+    (forced, known): (Plugboard, u32),
+    leads: usize,
+    reach: usize,
+    ct: &[Letter],
+    ctx: &Context,
+) -> (Settings, Plugboard, Vec<Letter>) {
+    let board = climb_free(
+        settings,
+        reflector,
+        (forced, known),
+        leads,
+        LEAD_MARGIN,
+        ct,
+        ctx,
+    );
+    let settings = best_rings(settings, reflector, board, reach, ct, ctx);
+    let board = climb_free(settings, reflector, (forced, known), leads, 0.0, ct, ctx);
+    let plain = Enigma::with_reflector(settings, reflector, board).run(ct);
+    (settings, board, plain)
+}
+
+/// What a stop's decipherment scores with only its forced leads in.
+fn partial_score(
     ct: &[Letter],
     ctx: &Context,
     settings: Settings,
-    reflector: &(String, [u8; ALPHABET]),
+    reflector: [u8; ALPHABET],
     board: Plugboard,
     offset: usize,
     crib: usize,
-) -> (Candidate, usize) {
-    let plain = Enigma::with_reflector(settings, reflector.1, board).run(ct);
-    (
-        Candidate {
-            score: score_outside_the_crib(&plain, ctx, offset, crib),
-            key: format!(
-                "rotors {:?} {} start {} crib at {} plugs {}",
-                settings.rotors.map(|r| r + 1),
-                reflector.0,
-                from_letters(&settings.position_letters()),
-                offset,
-                describe_leads(&board)
-            ),
-            plain,
-        },
-        board.pairs().len(),
-    )
+) -> f64 {
+    let plain = Enigma::with_reflector(settings, reflector, board).run(ct);
+    score_outside_the_crib(&plain, ctx, offset, crib)
+}
+
+/// Every surviving hypothesis at a stop, finished, and the best of them as a candidate, with the board its crib forced.
+fn finish_stop(
+    ct: &[Letter],
+    ctx: &Context,
+    stop: &Pending,
+    menu: &Menu,
+    reflector: &(String, [u8; ALPHABET]),
+    reach: usize,
+    crib: usize,
+) -> Option<((Candidate, usize), (Plugboard, u32))> {
+    let positions = Positions::of(stop.settings, reflector.1, reach);
+    let mut scratch = Scratch::new();
+    scan_all_with(menu, &positions, &mut scratch)
+        .into_iter()
+        .filter_map(|found| match found {
+            Stop::Survived { board, known, .. } => Some((board, known)),
+            Stop::Refuted => None,
+        })
+        .map(|(forced, known)| {
+            let (settings, board, plain) = complete_board(
+                stop.settings,
+                reflector.1,
+                (forced, known),
+                ENIGMA_LEADS,
+                menu.offset + crib,
+                ct,
+                ctx,
+            );
+            let found = (
+                Candidate {
+                    score: score_outside_the_crib(&plain, ctx, menu.offset, crib),
+                    key: format!(
+                        "rotors {:?} {} rings {} start {} crib at {} plugs {}",
+                        settings.rotors.map(|r| r + 1),
+                        reflector.0,
+                        from_letters(&settings.ring_letters()),
+                        from_letters(&settings.position_letters()),
+                        menu.offset,
+                        describe_leads(&board)
+                    ),
+                    plain,
+                },
+                board.pairs().len(),
+            );
+            (found, (forced, known))
+        })
+        .max_by(|a, b| a.0.0.score.total_cmp(&b.0.0.score))
+}
+
+/// What finishing makes of random settings, given boards forced as a real crib forces them.
+///
+/// A finished stop has had its free letters climbed, and a climb makes anything read better, so it can only be judged against noise that was climbed the same way.
+/// The same way means over the same letters: a random setting climbed from an empty board has all ten leads to spend where a stop has the few its crib left, and a bar set by that reached +15.4 where the stops under it reached +8.8 — high enough to hide a planted message read back perfectly.
+/// So each random setting here is given the forced board of a real stop, which is as good as random against a setting it was not forced by, and only that stop's free letters are climbed.
+/// The crib's letters are cut out of the score exactly as they are for a stop.
+#[must_use]
+pub fn finished_noise(
+    ct: &[Letter],
+    ctx: &Context,
+    naval: bool,
+    offset: usize,
+    crib: usize,
+    shapes: &[(Plugboard, u32)],
+    samples: usize,
+) -> Vec<f64> {
+    if shapes.is_empty() {
+        return Vec::new();
+    }
+    let orders = enigma::rotor_orders(enigma::ROTOR_COUNT);
+    let reflectors = reflectors_for(naval);
+    (0..samples as u64)
+        .into_par_iter()
+        .map(|i| {
+            let mut rng = Rng::new(ctx.seed ^ 0xF1_415E ^ i.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+            let rotors = orders[rng.below(orders.len())];
+            let reflector = reflectors[rng.below(reflectors.len())].1;
+            let letter = |r: &mut Rng| r.below(ALPHABET) as u8;
+            let rings = [0, letter(&mut rng), letter(&mut rng)];
+            let starts = [letter(&mut rng), letter(&mut rng), letter(&mut rng)];
+            let (forced, known) = shapes[i as usize % shapes.len()];
+            let (_, _, plain) = complete_board(
+                Settings::at(rotors, 0, rings, starts),
+                reflector,
+                (forced, known),
+                ENIGMA_LEADS,
+                offset + crib,
+                ct,
+                ctx,
+            );
+            score_outside_the_crib(&plain, ctx, offset, crib)
+        })
+        .collect()
 }
 
 impl BombeAttack {
+    /// How many right-ring settings a sweep tries.
+    fn ring_count(&self) -> usize {
+        if self.rings { ALPHABET } else { 1 }
+    }
+
+    /// How many middle-ring settings a sweep tries.
+    fn middle_count(&self) -> usize {
+        if self.middles { ALPHABET } else { 1 }
+    }
+
+    /// Finish the best of a pile of stops and rank what they read as.
+    fn finish_all(
+        &self,
+        ct: &[Letter],
+        ctx: &Context,
+        mut pending: Vec<Pending>,
+        menus: &[Menu],
+        named: &[(String, [u8; ALPHABET])],
+        reach: usize,
+    ) -> Vec<Candidate> {
+        pending.sort_unstable_by(|a, b| b.partial.total_cmp(&a.partial));
+        pending.truncate(self.finish.max(1));
+        self.finished
+            .store(pending.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        let finished: Vec<((Candidate, usize), (Plugboard, u32))> = pending
+            .par_iter()
+            .filter_map(|stop| {
+                finish_stop(
+                    ct,
+                    ctx,
+                    stop,
+                    &menus[stop.menu],
+                    &named[stop.reflector],
+                    reach,
+                    self.crib.len(),
+                )
+            })
+            .collect();
+        if let Ok(mut shapes) = self.shapes.lock() {
+            *shapes = finished.iter().take(SHAPES_KEPT).map(|f| f.1).collect();
+        }
+        let found = finished.into_iter().map(|f| f.0).collect();
+        rank_enigma(found, ct.len().saturating_sub(2).max(1), ctx.keep)
+    }
+
+    /// Every stop one rotor order and reflector leave standing, on the processor.
+    fn sweep_on_processor(
+        &self,
+        ct: &[Letter],
+        ctx: &Context,
+        (rotors, reflector, wiring): ([usize; 3], usize, [u8; ALPHABET]),
+        menus: &[Menu],
+        reach: usize,
+    ) -> Vec<Pending> {
+        let span = (ALPHABET as u64).pow(3);
+        let ring_count = self.ring_count() as u64;
+        let middle_count = self.middle_count() as u64;
+        let keep = self.finish.max(ctx.keep);
+        let mut stops: Vec<Pending> = Vec::new();
+        let mut positions = Positions::of(Settings::at(rotors, 0, [0; 3], [0; 3]), wiring, reach);
+        let mut scratch = Scratch::new();
+        let mut survived = 0u64;
+        let mut aimed = (0u8, 0u8);
+        for index in 0..span * ring_count * middle_count {
+            let p = index % span;
+            let middle = (index / span / ring_count) as u8;
+            let ring = ((index / span) % ring_count) as u8;
+            let start = [
+                (p / (ALPHABET as u64 * ALPHABET as u64)) as u8,
+                ((p / ALPHABET as u64) % ALPHABET as u64) as u8,
+                (p % ALPHABET as u64) as u8,
+            ];
+            if enigma::rings_repeat(rotors, start[1], start[2], (middle, ring), reach) {
+                continue;
+            }
+            let settings = Settings::at(rotors, 0, [0, middle, ring], start);
+            // `restart` moves only the indicators; a new pair of rings needs the machine re-aimed.
+            if aimed != (middle, ring) {
+                positions.aim(settings, wiring, reach);
+                aimed = (middle, ring);
+            }
+            positions.restart(settings, reach);
+            for (m, menu) in menus.iter().enumerate() {
+                let Stop::Survived { board, .. } = scan_with(menu, &positions, &mut scratch) else {
+                    continue;
+                };
+                survived += 1;
+                stops.push(Pending {
+                    partial: partial_score(
+                        ct,
+                        ctx,
+                        settings,
+                        wiring,
+                        board,
+                        menu.offset,
+                        self.crib.len(),
+                    ),
+                    settings,
+                    reflector,
+                    menu: m,
+                });
+            }
+            if stops.len() > keep * STOPS_BEFORE_SIFTING {
+                sift(&mut stops, keep);
+            }
+        }
+        sift(&mut stops, keep);
+        self.stops
+            .fetch_add(survived, std::sync::atomic::Ordering::Relaxed);
+        stops
+    }
+
+    /// Every offset the crib could sit at, or only the one it was placed at.
+    fn placements(&self, ct: &[Letter]) -> Vec<usize> {
+        let mut all = crate::crib::placements(ct, &self.crib);
+        if let Some(at) = self.at {
+            all.retain(|&o| o == at);
+        }
+        all
+    }
+
     /// The same sweep on the device, when there is a device and one language to steer by.
     ///
     /// Returns `None` when anything is missing, so the processor's sweep is always the one that decides what a bombe means and the device only ever makes it faster.
@@ -1911,7 +2325,7 @@ impl BombeAttack {
         if self.crib.len() > crate::gpu::BOMBE_MAX_CRIB {
             return None;
         }
-        let placements = crate::crib::placements(ct, &self.crib);
+        let placements = self.placements(ct);
         let menus: Vec<Menu> = placements
             .iter()
             .filter_map(|&offset| Menu::place(ct, &self.crib, offset))
@@ -1920,7 +2334,7 @@ impl BombeAttack {
         if menus.is_empty() {
             return Some(Vec::new());
         }
-        let packed: Vec<(usize, Vec<(Letter, Letter)>, Letter)> = menus
+        let packed: Vec<crate::gpu::PlacedMenu> = menus
             .iter()
             .map(|m| {
                 let pairs = (0..self.crib.len())
@@ -1940,7 +2354,9 @@ impl BombeAttack {
             orders: &orders,
             reflectors: &wirings,
             menus: &packed,
-            keep: ctx.keep.max(1),
+            rings: self.ring_count(),
+            middles: self.middle_count(),
+            keep: self.finish.max(ctx.keep),
         });
         self.stops
             .store(found.stops, std::sync::atomic::Ordering::Relaxed);
@@ -1948,42 +2364,28 @@ impl BombeAttack {
             format!("{} stops over {} menus", found.stops, menus.len())
         });
 
-        // The device found the settings; the plugboard and the score are worked out here, for the handful that are going to be reported, so that a candidate from a device sweep and one from a processor sweep are the same object.
+        // The device found the settings; the boards are finished here, so that a candidate from a device sweep and one from a processor sweep are the same object.
         let reach = menus
             .iter()
             .map(|m| m.offset + self.crib.len())
             .max()
             .unwrap_or(ct.len());
-        let mut scratch = Scratch::new();
-        let mut best: Vec<(Candidate, usize)> = Vec::new();
-        for hit in &found.best {
-            let settings = Settings::at(
-                orders[hit.order],
-                0,
-                [0; 3],
-                hit.positions.map(Indicator::value),
-            );
-            let positions = Positions::of(settings, wirings[hit.reflector], reach);
-            let menu = &menus[hit.menu];
-            let Stop::Survived { board, .. } = scan_with(menu, &positions, &mut scratch) else {
-                continue;
-            };
-            best.push(judge_stop(
-                ct,
-                ctx,
-                settings,
-                &named[hit.reflector],
-                board,
-                menu.offset,
-                self.crib.len(),
-            ));
-        }
-        best.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
-        Some(rank_enigma(
-            best,
-            ct.len().saturating_sub(2).max(1),
-            ctx.keep,
-        ))
+        let pending: Vec<Pending> = found
+            .best
+            .iter()
+            .map(|hit| Pending {
+                partial: hit.score,
+                settings: Settings::at(
+                    orders[hit.order],
+                    0,
+                    [0, hit.middle.value(), hit.ring.value()],
+                    hit.positions.map(Indicator::value),
+                ),
+                reflector: hit.reflector,
+                menu: hit.menu,
+            })
+            .collect();
+        Some(self.finish_all(ct, ctx, pending, &menus, &named, reach))
     }
 }
 
@@ -1997,7 +2399,7 @@ impl Attack for BombeAttack {
     }
 
     fn coverage(&self, ct: &[Letter]) -> Coverage {
-        let placements = crate::crib::placements(ct, &self.crib).len() as u64;
+        let placements = self.placements(ct).len() as u64;
         if placements == 0 {
             return Coverage::Impossible("the crib meets its own image at every offset");
         }
@@ -2007,7 +2409,8 @@ impl Attack for BombeAttack {
         } else {
             enigma::REFLECTOR_COUNT as u64
         };
-        Coverage::Exhaustive(placements * orders * reflectors * (ALPHABET as u64).pow(3))
+        let rings = self.ring_count() as u64 * self.middle_count() as u64;
+        Coverage::Exhaustive(placements * orders * reflectors * rings * (ALPHABET as u64).pow(3))
     }
 
     fn own_null(&self) -> Option<Vec<f64>> {
@@ -2030,7 +2433,7 @@ impl Attack for BombeAttack {
         if let Some(found) = self.on_device(ct, ctx) {
             return found;
         }
-        let placements = crate::crib::placements(ct, &self.crib);
+        let placements = self.placements(ct);
         if placements.is_empty() {
             return Vec::new();
         }
@@ -2043,7 +2446,11 @@ impl Attack for BombeAttack {
         // which recomputed the machine's trajectory for each of them — the same trajectory, twenty-two times over, for every one of six hundred million settings.
 
         let span = (ALPHABET as u64).pow(3);
-        let settings = span * orders.len() as u64 * reflectors.len() as u64;
+        let settings = span
+            * self.ring_count() as u64
+            * self.middle_count() as u64
+            * orders.len() as u64
+            * reflectors.len() as u64;
 
         // Every placement whose menu closes at least one loop, which is where the cliff actually is.
         // Measured rather than reasoned: a menu with one closure refuted every one of the seventeen thousand settings it was shown, and a menu with none let 99.7% of them through.
@@ -2075,56 +2482,19 @@ impl Attack for BombeAttack {
             .flat_map(|o| (0..reflector_count).map(move |r| (o, r)))
             .collect();
 
-        let mut found: Vec<(Candidate, usize)> = jobs
+        let found: Vec<Pending> = jobs
             .par_iter()
             .flat_map(|&(order, reflector)| {
-                let mut stops: Vec<(Candidate, usize)> = Vec::new();
-                let base = Settings::at(orders[order], 0, [0; 3], [0; 3]);
-                let keep = ctx.keep.max(1);
-                let mut positions = Positions::of(base, reflectors[reflector].1, reach);
-                let mut scratch = Scratch::new();
-                let mut survived = 0u64;
-                for index in 0..span {
-                    let settings = Settings::at(
-                        orders[order],
-                        0,
-                        [0; 3],
-                        [
-                            (index / (ALPHABET as u64 * ALPHABET as u64)) as u8,
-                            ((index / ALPHABET as u64) % ALPHABET as u64) as u8,
-                            (index % ALPHABET as u64) as u8,
-                        ],
-                    );
-                    positions.restart(settings, reach);
-                    for menu in &menus {
-                        let Stop::Survived { board, .. } =
-                            scan_with(menu, &positions, &mut scratch)
-                        else {
-                            continue;
-                        };
-                        survived += 1;
-                        stops.push(judge_stop(
-                            ct,
-                            ctx,
-                            settings,
-                            &reflectors[reflector],
-                            board,
-                            menu.offset,
-                            self.crib.len(),
-                        ));
-                    }
-                    if stops.len() > keep * STOPS_BEFORE_SIFTING {
-                        sift(&mut stops, keep);
-                    }
-                }
-                sift(&mut stops, keep);
-                self.stops
-                    .fetch_add(survived, std::sync::atomic::Ordering::Relaxed);
-                stops
+                self.sweep_on_processor(
+                    ct,
+                    ctx,
+                    (orders[order], reflector, reflectors[reflector].1),
+                    &menus,
+                    reach,
+                )
             })
             .collect();
-        found.sort_unstable_by(|a, b| b.0.score.total_cmp(&a.0.score));
-        rank_enigma(found, ct.len().saturating_sub(2).max(1), ctx.keep)
+        self.finish_all(ct, ctx, found, &menus, &reflectors, reach)
     }
 }
 

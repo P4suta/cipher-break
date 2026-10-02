@@ -129,9 +129,7 @@ static REFLECTED: std::sync::LazyLock<[[u8; ALPHABET]; REFLECTOR_COUNT]> =
 #[must_use]
 pub fn key_bits(naval: bool, leads: usize) -> f64 {
     let slots = if naval { SLOTS + 1 } else { SLOTS };
-    let orders: f64 = (0..SLOTS)
-        .map(|i| (ROTOR_COUNT - i) as f64)
-        .product();
+    let orders: f64 = (0..SLOTS).map(|i| (ROTOR_COUNT - i) as f64).product();
     let reflectors = if naval {
         NAVAL_REFLECTOR_COUNT as f64 / ALPHABET as f64
     } else {
@@ -141,6 +139,95 @@ pub fn key_bits(naval: bool, leads: usize) -> f64 {
     // Rings on the two rotors that can never step past their own notch are the only ones that change anything.
     let rings = (ALPHABET as f64).powi(SLOTS as i32 - 1);
     (orders * reflectors * wheels * rings).log2() + plugboard_bits(leads)
+}
+
+/// Whether a rotor's notches come round every half turn, as the naval rotors' two do.
+///
+/// VI, VII and VIII turn their neighbour at M and at Z, thirteen letters apart.
+/// Moving such a rotor's ring and its indicator on by thirteen together leaves its wiring where it was and its notches where they were, so the machine is the same machine from the first letter to the last, and half of that rotor's ring settings are the other half again.
+#[must_use]
+pub fn notches_repeat_by_half_turn(rotor: usize) -> bool {
+    let notched = |at: u8| ROTORS[rotor].1.bytes().any(|c| c - b'A' == at);
+    (0..ALPHABET as u8).all(|at| notched(at) == notched((at + 13) % ALPHABET as u8))
+}
+
+/// Whether a pair of ring settings only repeats a pair a sweep already covers.
+///
+/// Four ways, each exact over the `length` letters it is asked about:
+/// a naval rotor's ring past the half turn, on the right or in the middle, repeats the ring thirteen before it;
+/// a middle ring whose notch those letters never reach repeats the middle ring at A (see [`middle_ring_repeats`]);
+/// and a right ring whose rotor turns nothing within them repeats every other such ring on the same wiring (see [`right_ring_repeats`]).
+/// The last two are copies only over those letters, so a sweep that skips them has to try them again where it reads the whole message.
+/// The device kernels apply the same rules, and a sweep on either side has to skip exactly the same settings for their counts to agree.
+#[must_use]
+pub fn rings_repeat(
+    rotors: [usize; 3],
+    middle: u8,
+    right: u8,
+    (middle_ring, right_ring): (u8, u8),
+    length: usize,
+) -> bool {
+    (right_ring >= 13 && notches_repeat_by_half_turn(rotors[2]))
+        || (middle_ring >= 13 && notches_repeat_by_half_turn(rotors[1]))
+        || right_ring_repeats(rotors[2], right, right_ring, length)
+        || middle_ring_repeats(rotors, middle, right, middle_ring, length)
+}
+
+/// Whether the right rotor, starting at `indicator`, turns the middle one within `length` letters.
+#[must_use]
+pub fn right_turns_within(rotor: usize, indicator: u8, length: usize) -> bool {
+    let notched = |at: u8| ROTORS[rotor].1.bytes().any(|c| c - b'A' == at);
+    (0..length.min(ALPHABET)).any(|i| notched((indicator as usize + i) as u8 % ALPHABET as u8))
+}
+
+/// Whether a right ring only repeats another one over the first `length` letters.
+///
+/// The right ring decides one thing, when the middle rotor steps, and a right rotor that reaches no notch within the letters asked about steps nothing there.
+/// Every ring that leaves it so, on the same wiring, is the same machine over those letters; the smallest of them stands for the rest.
+#[must_use]
+pub fn right_ring_repeats(rotor: usize, indicator: u8, ring: u8, length: usize) -> bool {
+    if right_turns_within(rotor, indicator, length) {
+        return false;
+    }
+    let side = ALPHABET as u8;
+    let wiring = (indicator + side - ring % side) % side;
+    let first = (0..side)
+        .find(|&r| !right_turns_within(rotor, (wiring + r) % side, length))
+        .unwrap_or(ring);
+    ring != first
+}
+
+/// Whether a middle-ring setting only repeats a setting with that ring at A.
+///
+/// The middle rotor's wiring is entered at its indicator less its ring, and its notch fires at the indicator whatever the ring.
+/// So moving the ring and the indicator together leaves the wiring where it was and moves only the notch, which changes nothing unless the middle rotor reaches that notch — in this setting or in the copy with the ring at A — within `length` letters.
+/// When neither does, the two decipher identically, and a sweep that covers the copy need not try this one.
+/// The device kernels apply the same rule, and a sweep on either side has to skip exactly the same settings for their counts to agree.
+#[must_use]
+pub fn middle_ring_repeats(
+    rotors: [usize; 3],
+    middle: u8,
+    right: u8,
+    ring: u8,
+    length: usize,
+) -> bool {
+    if ring == 0 {
+        return false;
+    }
+    let notched = |rotor: usize, at: u8| ROTORS[rotor].1.bytes().any(|c| c - b'A' == at);
+    let mut q1 = middle;
+    let mut q2 = right;
+    for _ in 0..length {
+        let copy = (q1 + ALPHABET as u8 - ring) % ALPHABET as u8;
+        if notched(rotors[1], q1) || notched(rotors[1], copy) {
+            return false;
+        }
+        if notched(rotors[2], q2) {
+            q1 = (q1 + 1) % ALPHABET as u8;
+        }
+        q2 = (q2 + 1) % ALPHABET as u8;
+    }
+    true
 }
 
 /// How many ways `leads` cables can be laid across the board, in bits.
@@ -534,7 +621,10 @@ mod tests {
         let peak = (1..=13)
             .max_by(|&a, &b| super::plugboard_bits(a).total_cmp(&super::plugboard_bits(b)))
             .expect("a peak");
-        assert_eq!(peak, 11, "the board is most uncertain at eleven leads, not thirteen");
+        assert_eq!(
+            peak, 11,
+            "the board is most uncertain at eleven leads, not thirteen"
+        );
     }
 
     #[test]

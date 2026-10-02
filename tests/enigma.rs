@@ -12,12 +12,13 @@
 //! sixteen billion with the ring — so the heavy tests are `#[ignore]` and run
 //! on purpose with `cargo test -- --ignored`.
 
-
 use cipher_break::alphabet::{Letter, from_letters, to_letters};
 use cipher_break::anneal::Schedule;
 use cipher_break::attack::{Attack, Context};
+#[cfg(feature = "gpu")]
+use cipher_break::ciphers::enigma::rotor_orders;
 use cipher_break::ciphers::enigma::{
-    Enigma, Plugboard, Settings, compatible, composite_reflector, naval_reflectors, rotor_orders,
+    Enigma, Plugboard, Settings, compatible, composite_reflector, naval_reflectors,
 };
 use cipher_break::enigma_types::{Indicator, Ring};
 use cipher_break::ngram::Model;
@@ -34,24 +35,32 @@ const LONG_SIGNAL: &str = "VONVONJAWEGENDERSITUATIONXXMELDEICHXXFEINDKONVOIINSIC
                            GREIFEBEIMORGENGRAUENANXXERBITTEUNTERSTUETZUNGDURCHZWEIBOOTEXXENDE";
 
 /// The right ring setting one planted case uses, as a letter index.
+const MIDDLE_RING_F: u8 = 5;
+
 const RIGHT_RING_T: u8 = 19;
 
 /// A sweep that holds the right ring at A.
+#[cfg(feature = "gpu")]
 const RINGS_HELD: usize = 1;
 
 /// A sweep that tries every right-ring setting.
+#[cfg(feature = "gpu")]
 const RINGS_SWEPT: usize = cipher_break::alphabet::ALPHABET;
 
 /// How deep the rank diagnostic looks before reporting "not found".
+#[cfg(feature = "gpu")]
 const RANK_DEPTH: usize = 200_000;
 
 /// How many settings a cross-check between the two backends needs.
+#[cfg(feature = "gpu")]
 const CROSS_CHECK_KEEP: usize = 4;
 
 /// How long a shortlist the planted-case attacks are given.
+#[cfg(feature = "gpu")]
 const PLANTED_SHORTLIST: usize = 60_000;
 
 /// How many of the device's boards each planted case finishes here.
+#[cfg(feature = "gpu")]
 const PLANTED_FINISH: usize = 64;
 
 /// How many candidates a planted case is allowed to return.
@@ -112,6 +121,18 @@ pub const CASES: &[Planted] = &[
         text: SIGNAL,
         rotors: [3, 1, 6],
         rings: [0, 0, RIGHT_RING_T],
+        positions: [11, 4, 22],
+        greek: (0, 9, 0),
+        plugs: &[(1, 20), (8, 15), (17, 2)],
+        sweep_rings: 26,
+    },
+    // The middle ring decides where the middle rotor steps, and in seventy letters it steps two or three times.
+    // The sweep holds it at A; nothing here ever asked whether that mattered.
+    Planted {
+        label: "naval, short, middle ring F",
+        text: SIGNAL,
+        rotors: [3, 1, 6],
+        rings: [0, MIDDLE_RING_F, RIGHT_RING_T],
         positions: [11, 4, 22],
         greek: (0, 9, 0),
         plugs: &[(1, 20), (8, 15), (17, 2)],
@@ -255,10 +276,12 @@ mod device {
             .filter_map(|o| Menu::place(&ct, &crib, o))
             .filter(|m| m.closures() > 0)
             .collect();
-        let packed: Vec<(usize, Vec<(u8, u8)>, u8)> = menus
+        let packed: Vec<cipher_break::gpu::PlacedMenu> = menus
             .iter()
             .map(|m| {
-                let pairs = (0..crib.len()).map(|i| (crib[i], ct[m.offset + i])).collect();
+                let pairs = (0..crib.len())
+                    .map(|i| (crib[i], ct[m.offset + i]))
+                    .collect();
                 (m.offset, pairs, m.hub())
             })
             .collect();
@@ -275,16 +298,28 @@ mod device {
             orders: &orders[..1],
             reflectors: &reflectors,
             menus: &packed,
+            rings: 1,
+            middles: 1,
             keep: 5,
         });
         let one = start.elapsed().as_secs_f64();
 
         println!("  crib {} letters, {} placements", crib.len(), menus.len());
-        println!("  one rotor order          {one:>8.2} s   {} stops", found.stops);
-        println!("  all {} orders         {:>8.1} min", orders.len(), one * orders.len() as f64 / 60.0);
+        println!(
+            "  one rotor order          {one:>8.2} s   {} stops",
+            found.stops
+        );
+        println!(
+            "  all {} orders         {:>8.1} min",
+            orders.len(),
+            one * orders.len() as f64 / 60.0
+        );
         println!("  the processor took about 22 min for a crib of this size");
         if let Some(top) = found.best.first() {
-            println!("  best {:+.3} at menu {} guess {}", top.score, top.menu, top.guess);
+            println!(
+                "  best {:+.3} at menu {} guess {}",
+                top.score, top.menu, top.guess
+            );
         }
     }
 
@@ -319,7 +354,7 @@ mod device {
         let bank = bank();
         let german = german().expect("the German model");
 
-        let packed: Vec<(usize, Vec<(u8, u8)>, u8)> = menus
+        let packed: Vec<cipher_break::gpu::PlacedMenu> = menus
             .iter()
             .map(|m| {
                 let pairs: Vec<(u8, u8)> = (0..crib.len())
@@ -336,17 +371,20 @@ mod device {
             orders: &orders,
             reflectors: &[reflector],
             menus: &packed,
+            rings: 1,
+            middles: 1,
             keep: 8,
         });
 
         // The same sweep, on the processor.
         let mut expected: u64 = 0;
-        let reach = menus.iter().map(|m| m.offset + crib.len()).max().expect("a menu");
-        let mut positions = Positions::of(
-            Settings::at(orders[0], 0, [0; 3], [0; 3]),
-            reflector,
-            reach,
-        );
+        let reach = menus
+            .iter()
+            .map(|m| m.offset + crib.len())
+            .max()
+            .expect("a menu");
+        let mut positions =
+            Positions::of(Settings::at(orders[0], 0, [0; 3], [0; 3]), reflector, reach);
         let mut scratch = Scratch::new();
         for index in 0..26u32 * 26 * 26 {
             let settings = Settings::at(
@@ -361,7 +399,10 @@ mod device {
             );
             positions.restart(settings, reach);
             for menu in &menus {
-                if matches!(scan_with(menu, &positions, &mut scratch), Stop::Survived { .. }) {
+                if matches!(
+                    scan_with(menu, &positions, &mut scratch),
+                    Stop::Survived { .. }
+                ) {
                     expected += 1;
                 }
             }
@@ -378,16 +419,261 @@ mod device {
         let truth = [7u8, 19, 3];
         let mut kept = false;
         for menu in &menus {
-            positions.restart(
-                Settings::at(orders[0], 0, [0; 3], truth),
-                reach,
-            );
-            if matches!(scan_with(menu, &positions, &mut scratch), Stop::Survived { .. }) {
+            positions.restart(Settings::at(orders[0], 0, [0; 3], truth), reach);
+            if matches!(
+                scan_with(menu, &positions, &mut scratch),
+                Stop::Survived { .. }
+            ) {
                 kept = true;
             }
         }
         assert!(kept, "a bombe that refutes the true setting is broken");
         let _ = (&plain, &bank);
+    }
+
+    /// A bombe with the rings swept has to keep a setting whose right ring is not A, and refute exactly what the processor refutes.
+    ///
+    /// The right ring decides when the middle rotor steps.
+    /// Held at A, a bombe steps it at the wrong letter, and a crib laid across that step is refuted at the very setting that enciphered it: the first half of this test shows that happening, the second that sweeping the rings stops it.
+    #[test]
+    #[ignore = "a rotor sweep with the rings in it, and it needs a device"]
+    fn a_bombe_with_the_rings_swept_keeps_a_ring_away_from_a() {
+        use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_with};
+        use cipher_break::ciphers::enigma::{Settings, reflector_wiring};
+
+        let Ok(gpu) = Gpu::open() else {
+            return;
+        };
+        // Once with rotors whose rings all count, once with naval rotors in the middle and on the right, whose rings past the half turn the sweep skips as copies.
+        for (rotors, ring) in [([2usize, 0, 4], 13u8), ([2, 6, 5], 10)] {
+            // The wiring of the planted bombe message, with the right ring at N: the indicator moves with the ring so the wiring is entered where it was, and the middle rotor now steps at the tenth letter instead of the twenty-third, inside the crib.
+            let truth = Settings::at(rotors, 0, [0, 0, ring], [7, 19, 3 + ring]);
+            let mut board = Plugboard::empty();
+            for (a, b) in [(0u8, 20u8), (4, 12), (8, 15), (17, 2), (24, 9)] {
+                board.connect(a, b);
+            }
+            let plain = to_letters(SIGNAL);
+            let ct = Enigma::new(truth, board).run(&plain);
+            let crib = to_letters("VONVONJAWEGENDERSITUATION");
+            let menus: Vec<Menu> = (0..=ct.len() - crib.len())
+                .filter_map(|o| Menu::place(&ct, &crib, o))
+                .filter(|m| m.closures() > 0)
+                .collect();
+            let at_start = menus
+                .iter()
+                .position(|m| m.offset == 0)
+                .expect("the crib sits at the start and closes a loop there");
+            let reach = menus
+                .iter()
+                .map(|m| m.offset + crib.len())
+                .max()
+                .expect("a menu");
+            let reflector = reflector_wiring(0);
+            let mut scratch = Scratch::new();
+            let survives = |settings: Settings, scratch: &mut Scratch| {
+                let positions = Positions::of(settings, reflector, reach);
+                matches!(
+                    scan_with(&menus[at_start], &positions, scratch),
+                    Stop::Survived { .. }
+                )
+            };
+
+            // Held at A, the best it can do is the same wiring with the step in the wrong place.
+            let held = Settings::at(rotors, 0, [0; 3], [7, 19, 3]);
+            assert!(
+                !survives(held, &mut scratch),
+                "the rings-at-A copy of the truth should be refuted, or this test is not testing the rings"
+            );
+            assert!(
+                survives(truth, &mut scratch),
+                "the true setting has to survive its own crib"
+            );
+
+            let packed: Vec<cipher_break::gpu::PlacedMenu> = menus
+                .iter()
+                .map(|m| {
+                    let pairs: Vec<(u8, u8)> = (0..crib.len())
+                        .map(|i| (crib[i], ct[m.offset + i]))
+                        .collect();
+                    (m.offset, pairs, m.hub())
+                })
+                .collect();
+            let german = german().expect("the German model");
+            let found = gpu.sweep_bombe(&BombeJob {
+                ct: &ct,
+                logp: german.log_table(),
+                order: german.order(),
+                orders: &[rotors],
+                reflectors: &[reflector],
+                menus: &packed,
+                rings: 26,
+                middles: 26,
+                keep: 64,
+            });
+
+            // The same sweep on the processor, skipping exactly the middle rings the device skips.
+            let expected = processor_stops_with_rings(rotors, reflector, &menus, reach);
+            println!("  processor {expected} stops, device {} stops", found.stops);
+            assert_eq!(
+                found.stops, expected,
+                "the two bombes disagree about which settings survive"
+            );
+            let read = found.best.iter().any(|h| {
+                let settings = Settings::at(
+                    rotors,
+                    0,
+                    [0, h.middle.value(), h.ring.value()],
+                    h.positions.map(Indicator::value),
+                );
+                Enigma::new(settings, Plugboard::empty()).run(&ct)
+                    == Enigma::new(truth, Plugboard::empty()).run(&ct)
+            });
+            assert!(
+                read,
+                "the device's best stops do not include the setting the message was enciphered on"
+            );
+        }
+    }
+
+    /// Where the true setting stands after each stage of the naval pipeline, on its own rotor order.
+    ///
+    /// One order of the three hundred and thirty-six, so a question about which stage loses a planted message takes seconds rather than a quarter of an hour on a rented device.
+    /// A setting counts as the truth when its decipherment with an empty board is the true setting's, which is what makes a ring moved with its indicator the same answer.
+    #[test]
+    #[ignore = "a diagnostic, not a check"]
+    fn where_each_stage_leaves_the_truth_on_one_order() {
+        let bank = bank();
+        let model = bank.model_named("de").expect("german");
+        let quad = german().expect("the German quadgram model");
+        let named = naval_reflectors();
+        let wirings: Vec<[u8; cipher_break::alphabet::ALPHABET]> =
+            named.iter().map(|(_, r)| *r).collect();
+        let gpu = Gpu::open().expect("a device");
+        for case in CASES
+            .iter()
+            .filter(|c| c.sweep_rings == 26 && c.text == SIGNAL)
+        {
+            let ct = case.ciphertext();
+            let orders = vec![case.rotors];
+            let truth =
+                Enigma::with_reflector(case.settings(), case.reflector(), Plugboard::empty())
+                    .run(&ct);
+            let settings_of = |h: &EnigmaHit| Settings {
+                rotors: orders[h.order],
+                reflector: 0,
+                rings: [Ring::new(0), h.middle, h.ring],
+                positions: h.positions,
+            };
+            let is_truth = |h: &EnigmaHit| {
+                Enigma::with_reflector(settings_of(h), wirings[h.reflector], Plugboard::empty())
+                    .run(&ct)
+                    == truth
+            };
+            let job = EnigmaJob {
+                ct: &ct,
+                logp: model.log_table(),
+                order: model.order(),
+                orders: &orders,
+                reflectors: &wirings,
+                rings: 26,
+                middles: 26,
+                keep: 1_000_000,
+            };
+            let found = gpu.sweep_enigma(&job);
+            println!(
+                "  {:<28} truth scores {:.4} with no board; kept run {:.4} down to {:.4}",
+                case.label,
+                model.score(&truth),
+                found[0].score,
+                found[found.len() - 1].score
+            );
+            let swept = found.iter().position(is_truth);
+            let copies = found.iter().filter(|h| is_truth(h)).count();
+            let boards = gpu.climb_plugboards(&job, &found, case.plugs.len(), LEAD_MARGIN as f32);
+            let grams = ct.len() + 1 - model.order();
+            let cost = (cipher_break::attack::PLUGBOARD_PAIRS as f64).ln() / grams as f64;
+            let mut ranked: Vec<(f64, usize)> = boards
+                .iter()
+                .enumerate()
+                .map(|(i, &(score, mapping))| {
+                    (
+                        score - cost * Plugboard::from_mapping(mapping).pairs().len() as f64,
+                        i,
+                    )
+                })
+                .collect();
+            ranked.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+            let climbed = ranked.iter().position(|&(_, i)| is_truth(&found[i]));
+            let qgrams = ct.len() + 1 - quad.order();
+            let qcost = (cipher_break::attack::PLUGBOARD_PAIRS as f64).ln() / qgrams as f64;
+            let mut requad: Vec<(f64, usize)> = ranked
+                .iter()
+                .take(60_000)
+                .map(|&(_, i)| {
+                    let board = Plugboard::from_mapping(boards[i].1);
+                    let plain = Enigma::with_reflector(
+                        settings_of(&found[i]),
+                        wirings[found[i].reflector],
+                        board,
+                    )
+                    .run(&ct);
+                    (quad.score(&plain) - qcost * board.pairs().len() as f64, i)
+                })
+                .collect();
+            requad.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+            let reranked = requad.iter().position(|&(_, i)| is_truth(&found[i]));
+            println!(
+                "  {:<28} kept {}, truth swept {swept:?} ({copies} copies), climbed {climbed:?}, reranked {reranked:?}",
+                case.label,
+                found.len()
+            );
+        }
+    }
+
+    /// How many settings a bombe on the processor leaves standing on one rotor order, every ring swept.
+    fn processor_stops_with_rings(
+        rotors: [usize; 3],
+        reflector: [u8; cipher_break::alphabet::ALPHABET],
+        menus: &[cipher_break::bombe::Menu],
+        reach: usize,
+    ) -> u64 {
+        use cipher_break::bombe::{Positions, Scratch, Stop, scan_with};
+
+        let mut scratch = Scratch::new();
+        let mut expected: u64 = 0;
+        let mut positions =
+            Positions::of(Settings::at(rotors, 0, [0; 3], [0; 3]), reflector, reach);
+        for middle in 0..26u8 {
+            for ring in 0..26u8 {
+                positions.aim(
+                    Settings::at(rotors, 0, [0, middle, ring], [0; 3]),
+                    reflector,
+                    reach,
+                );
+                for p in 0..26u32 * 26 * 26 {
+                    let start = [(p / 676) as u8, ((p / 26) % 26) as u8, (p % 26) as u8];
+                    if cipher_break::ciphers::enigma::rings_repeat(
+                        rotors,
+                        start[1],
+                        start[2],
+                        (middle, ring),
+                        reach,
+                    ) {
+                        continue;
+                    }
+                    positions.restart(Settings::at(rotors, 0, [0, middle, ring], start), reach);
+                    for menu in menus {
+                        if matches!(
+                            scan_with(menu, &positions, &mut scratch),
+                            Stop::Survived { .. }
+                        ) {
+                            expected += 1;
+                        }
+                    }
+                }
+            }
+        }
+        expected
     }
 
     fn context<'a>(
@@ -446,6 +732,7 @@ mod device {
                 orders: &orders,
                 reflectors: &wirings,
                 rings: case.sweep_rings,
+                middles: case.sweep_rings,
                 keep: RANK_DEPTH,
             });
             let rank = hits.iter().position(|h| {
@@ -492,13 +779,14 @@ mod device {
                 orders: &orders,
                 reflectors: &wirings,
                 rings,
+                middles: rings,
                 keep: CROSS_CHECK_KEEP,
             });
             let hit = hits[0];
             let rebuilt = Settings {
                 rotors: orders[hit.order],
                 reflector: 0,
-                rings: [Ring::new(0), Ring::new(0), hit.ring],
+                rings: [Ring::new(0), hit.middle, hit.ring],
                 positions: hit.positions,
             };
             let here = model.score(
@@ -513,62 +801,82 @@ mod device {
         }
     }
 
-    /// The device's plugboard climb has to reach what the processor's reaches.
+    /// The device's plugboard climb has to score its boards on the machine it was given.
+    ///
+    /// Every planted case, rings and all.
+    /// Checking only the case with every ring at A let a climb that ignored the middle ring pass here while it lost every setting that needed one.
     #[test]
     #[ignore = "needs a GPU; run with --ignored"]
     fn climbs_a_plugboard_exactly_as_the_processor_does() {
-        let case = &CASES[0];
-        let ct = case.ciphertext();
         let bank = bank();
         let model = bank.model_named("de").expect("german");
         let orders = rotor_orders(8);
         let wirings: Vec<[u8; cipher_break::alphabet::ALPHABET]> =
             naval_reflectors().iter().map(|(_, r)| *r).collect();
-        let order = orders
-            .iter()
-            .position(|&o| o == case.rotors)
-            .expect("order");
         let gpu = Gpu::open().expect("a device");
 
-        let hit = EnigmaHit {
-            score: 0.0,
-            order,
-            reflector: case.reflector_index(),
-            ring: Ring::new(0),
-            positions: case.positions.map(Indicator::new),
-        };
-        let device = gpu.climb_plugboards(
-            &EnigmaJob {
-                ct: &ct,
-                logp: model.log_table(),
-                order: model.order(),
-                orders: &orders,
-                reflectors: &wirings,
-                rings: 1,
-                keep: CROSS_CHECK_KEEP,
-            },
-            &[hit],
-            case.plugs.len(),
-            LEAD_MARGIN as f32,
-        );
+        for case in CASES {
+            let ct = case.ciphertext();
+            let order = orders
+                .iter()
+                .position(|&o| o == case.rotors)
+                .expect("order");
+            assert_eq!(case.rings[0], 0, "the sweep holds the left ring at A");
+            let hit = EnigmaHit {
+                score: 0.0,
+                order,
+                reflector: case.reflector_index(),
+                middle: Ring::new(case.rings[1]),
+                ring: Ring::new(case.rings[2]),
+                positions: case.positions.map(Indicator::new),
+            };
+            let device = gpu.climb_plugboards(
+                &EnigmaJob {
+                    ct: &ct,
+                    logp: model.log_table(),
+                    order: model.order(),
+                    orders: &orders,
+                    reflectors: &wirings,
+                    rings: 1,
+                    middles: 1,
+                    keep: CROSS_CHECK_KEEP,
+                },
+                &[hit],
+                case.plugs.len(),
+                LEAD_MARGIN as f32,
+            );
 
-        let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
-        let trace = Trace::new(false);
-        let ctx = context(&bank, &scale, None, None, &trace, 1);
-        let (_, _, cpu_plain) = climb_plugboard(
-            case.settings(),
-            wirings[case.reflector_index()],
-            case.plugs.len(),
-            LEAD_MARGIN,
-            &ct,
-            &ctx,
-        );
-        let here = model.score(&cpu_plain);
-        assert!(
-            (device[0].0 - here).abs() < 0.05,
-            "device reached {:.4}, processor {here:.4}",
-            device[0].0
-        );
+            let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+            let trace = Trace::new(false);
+            let ctx = context(&bank, &scale, None, None, &trace, 1);
+            let (_, _, cpu_plain) = climb_plugboard(
+                case.settings(),
+                wirings[case.reflector_index()],
+                case.plugs.len(),
+                LEAD_MARGIN,
+                &ct,
+                &ctx,
+            );
+            let here = model.score(&cpu_plain);
+            let board = Plugboard::from_mapping(device[0].1);
+            let device_board_here = model
+                .score(&Enigma::with_reflector(case.settings(), case.reflector(), board).run(&ct));
+            println!(
+                "  {:<28} device {:.4} ({device_board_here:.4} here, {} leads), processor {here:.4}",
+                case.label,
+                device[0].0,
+                board.pairs().len()
+            );
+            // What the device says its board scores has to be what that board scores.
+            // Reaching the processor's board is not required: the processor also swaps each lead out for a better one after the greedy pass, and the device does not, so with a ring away from A the device can stop on a poorer board.
+            // What it must never do is score a board on a machine other than the one it was given.
+            assert!(
+                (device[0].0 - device_board_here).abs() < 1e-4,
+                "{}: device scored its board {:.4}, the processor scores that board {device_board_here:.4}",
+                case.label,
+                device[0].0
+            );
+        }
     }
 
     /// Break every planted case, each swept to the depth it needs.
@@ -600,6 +908,7 @@ mod device {
                 leads: case.plugs.len(),
                 focus: "de".to_string(),
                 rings: case.sweep_rings,
+                middles: case.sweep_rings,
                 finish: PLANTED_FINISH,
                 gpu: gpu.clone(),
             };
@@ -618,6 +927,191 @@ mod device {
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
+}
+
+/// A seventy-two letter signal enciphered as the message this tool faces was: a naval machine, ten leads, the middle ring at F and the right at T.
+#[cfg(feature = "gpu")]
+fn short_signal_with_ten_leads(plain: &[Letter], starts: [u8; 3]) -> Vec<Letter> {
+    let settings = Settings::at([2, 0, 1], 0, [0, MIDDLE_RING_F, RIGHT_RING_T], starts);
+    let mut board = Plugboard::empty();
+    for (a, b) in [
+        (1u8, 20u8),
+        (8, 15),
+        (17, 2),
+        (0, 12),
+        (3, 24),
+        (5, 19),
+        (6, 14),
+        (7, 22),
+        (9, 16),
+        (10, 25),
+    ] {
+        board.connect(a, b);
+    }
+    Enigma::with_reflector(settings, composite_reflector(0, 9, 0), board).run(plain)
+}
+
+/// The bombe on the message this tool faces: seventy-two letters, ten leads, rings away from A, and a crib of the kind a real message opens with.
+///
+/// The plaintext is P1030698, a seventy-two letter signal U-534 received on the same day as the message it could not read, in the same net's style: the abbreviations and spelled-out numbers that make a short signal read badly as German.
+/// The crib is its first sixteen letters.
+/// Three things have to hold for a bombe to break a message like this, and each was once missing: the rings have to be swept, or the middle rotor steps at the wrong letter and the true setting is refuted; the board the crib leaves unfinished has to be finished, or the true setting reads as noise; and what it reads as has to be judged against noise finished the same way.
+#[cfg(feature = "gpu")]
+#[test]
+#[ignore = "a bombe with the rings swept over six rotor orders; needs a device"]
+fn a_ring_swept_bombe_reads_a_short_signal_with_ten_leads() {
+    use cipher_break::attack::BombeAttack;
+    use cipher_break::gpu::Gpu;
+
+    let Ok(gpu) = Gpu::open() else {
+        return;
+    };
+    let gpu = std::sync::Arc::new(gpu);
+    let mut failures = Vec::new();
+    let text = "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX";
+    let plain = to_letters(text);
+    // Twice: once with the right rotor turning the middle one inside the crib, once only after it, where every right ring agrees with the crib and only the rest of the message can say which is right.
+    for starts in [[11u8, 4, 22], [11, 4, 10]] {
+        let ct = short_signal_with_ten_leads(&plain, starts);
+        let bank = bank();
+        let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+        // The judge can be swapped for a model from a file, to measure what a narrower one buys.
+        let quad = std::env::var("CB_FOCUS")
+            .ok()
+            .and_then(|path| Model::parse(&std::fs::read_to_string(path).ok()?))
+            .or_else(german)
+            .expect("a quadgram model");
+        let quad_scale = Scale::for_model(&quad, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2));
+        let trace = Trace::new(false);
+        let ctx = Context {
+            judge: &bank,
+            scale: &scale,
+            plan: Schedule::default(),
+            seed: 1,
+            keep: 5,
+            focus: Some(&quad),
+            focus_scale: Some(&quad_scale),
+            trace: &trace,
+        };
+        let right = |c: &cipher_break::attack::Candidate| {
+            c.plain.iter().zip(&plain).filter(|(a, b)| a == b).count() * 10 >= plain.len() * 9
+        };
+        // Sixteen letters, then fourteen: a shorter crib leaves more standing, and the bar the true reading has to clear rises with the count.
+        for length in [16usize, 14] {
+            let crib = to_letters(&text[..length]);
+            // A crib that closes no loop at its place refutes nothing, and there is no bombe to run.
+            if cipher_break::bombe::Menu::place(&ct, &crib, 0).is_none_or(|m| m.closures() == 0) {
+                println!("  crib of {length}: no loop at the start, nothing to sweep");
+                continue;
+            }
+            let attack = BombeAttack {
+                gpu: Some(gpu.clone()),
+                stops: std::sync::atomic::AtomicU64::new(0),
+                finished: std::sync::atomic::AtomicU64::new(0),
+                shapes: std::sync::Mutex::new(Vec::new()),
+                crib: crib.clone(),
+                label: "a short signal".to_string(),
+                rotors_available: 3,
+                naval: true,
+                rings: true,
+
+                middles: true,
+                at: Some(0),
+                finish: cipher_break::attack::BOMBE_FINISH,
+            };
+            let start = std::time::Instant::now();
+            let found = attack.best(&ct, &ctx);
+            let standing = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
+            let shapes = attack.shapes.lock().map(|s| s.clone()).unwrap_or_default();
+            let noise = cipher_break::report::best_of_n_fit(
+                &cipher_break::attack::finished_noise(&ct, &ctx, true, 0, length, &shapes, 25_600),
+                standing,
+            )
+            .expect("enough noise to fit");
+            let top = found.first().expect("the true setting is never refuted");
+            let chance = noise.chance_of_reaching(top.score);
+            println!(
+                "  crib of {length}: {standing} stops, {} finished, {:.0}s; best {:+.2}s, chance reaches {:+.2}s and gets that far {chance:.1e} of the time",
+                attack.finished.load(std::sync::atomic::Ordering::Relaxed),
+                start.elapsed().as_secs_f64(),
+                top.score,
+                noise.median
+            );
+            println!(
+                "         {}\n         {}",
+                top.key,
+                from_letters(&top.plain)
+            );
+            if !right(top) || chance >= 1e-3 {
+                failures.push((starts, length));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "the planted message has to come first and further than chance goes; these starts and crib lengths did not: {failures:?}"
+    );
+}
+
+/// The same signal, with only the right ring swept.
+///
+/// The middle rotor never reaches its notch inside this crib, so the middle ring is invisible to it: a sweep holding the middle ring at A stops on the right setting's copy, and the finish has to find the middle ring at F from the rest of the message.
+#[cfg(feature = "gpu")]
+#[test]
+#[ignore = "a bombe with the right ring swept over six rotor orders; needs a device"]
+fn a_right_ring_sweep_reads_the_short_signal_too() {
+    use cipher_break::attack::BombeAttack;
+    use cipher_break::gpu::Gpu;
+
+    let Ok(gpu) = Gpu::open() else {
+        return;
+    };
+    let text = "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX";
+    let plain = to_letters(text);
+    let ct = short_signal_with_ten_leads(&plain, [11, 4, 22]);
+    let bank = bank();
+    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+    let quad = german().expect("the German quadgram model");
+    let quad_scale = Scale::for_model(&quad, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2));
+    let trace = Trace::new(false);
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: Schedule::default(),
+        seed: 1,
+        keep: 5,
+        focus: Some(&quad),
+        focus_scale: Some(&quad_scale),
+        trace: &trace,
+    };
+    let attack = BombeAttack {
+        gpu: Some(std::sync::Arc::new(gpu)),
+        stops: std::sync::atomic::AtomicU64::new(0),
+        finished: std::sync::atomic::AtomicU64::new(0),
+        shapes: std::sync::Mutex::new(Vec::new()),
+        crib: to_letters(&text[..16]),
+        label: "a short signal".to_string(),
+        rotors_available: 3,
+        naval: true,
+        rings: true,
+        middles: false,
+        at: Some(0),
+        finish: cipher_break::attack::BOMBE_FINISH,
+    };
+    let found = attack.best(&ct, &ctx);
+    let top = found
+        .first()
+        .expect("the true setting's copy is never refuted");
+    println!(
+        "  {:+.2}s {}\n         {}",
+        top.score,
+        top.key,
+        from_letters(&top.plain)
+    );
+    assert_eq!(
+        top.plain, plain,
+        "the finish has to find the middle ring the sweep held at A"
+    );
 }
 
 /// The bombe, shown breaking a message it was given the words to.
@@ -662,10 +1156,17 @@ fn the_bombe_breaks_a_message_it_has_a_crib_for() {
         #[cfg(feature = "gpu")]
         gpu: None,
         stops: std::sync::atomic::AtomicU64::new(0),
+        finished: std::sync::atomic::AtomicU64::new(0),
+        shapes: std::sync::Mutex::new(Vec::new()),
         crib,
         label: "VONVONJAWEGENDERSITUATIONXXMELDEICHXX".to_string(),
         rotors_available: 5,
         naval: false,
+        rings: false,
+
+        middles: false,
+        at: None,
+        finish: cipher_break::attack::BOMBE_FINISH,
     };
     let found = attack.best(&ct, &ctx);
     assert!(
@@ -804,10 +1305,17 @@ fn a_bombe_offers_no_null_of_its_own() {
         #[cfg(feature = "gpu")]
         gpu: None,
         stops: std::sync::atomic::AtomicU64::new(0),
+        finished: std::sync::atomic::AtomicU64::new(0),
+        shapes: std::sync::Mutex::new(Vec::new()),
         crib: to_letters("VONVONJAWEGENDERSITUATIONXXMELDEICHXX"),
         label: "no self-calibration".to_string(),
         rotors_available: 5,
         naval: false,
+        rings: false,
+
+        middles: false,
+        at: None,
+        finish: cipher_break::attack::BOMBE_FINISH,
     };
     assert_eq!(
         attack.own_null(),
@@ -846,51 +1354,50 @@ fn a_weak_menu_still_refutes_most_of_what_it_is_shown() {
     assert!(!weak.is_empty(), "no weak menu to measure");
 
     for menu in &weak {
+        // One rotor order and one reflector: enough settings that a rate is a rate.
+        let crib_len = menu.edges.len();
+        let orders = rotor_orders(5);
+        let reflector = cipher_break::ciphers::enigma::reflector_wiring(0);
+        let reach = menu.offset + crib_len;
+        let mut positions =
+            Positions::of(Settings::at(orders[0], 0, [0; 3], [0; 3]), reflector, reach);
+        let mut scratch = Scratch::new();
 
-    // One rotor order and one reflector: enough settings that a rate is a rate.
-    let crib_len = menu.edges.len();
-    let orders = rotor_orders(5);
-    let reflector = cipher_break::ciphers::enigma::reflector_wiring(0);
-    let reach = menu.offset + crib_len;
-    let mut positions = Positions::of(
-        Settings::at(orders[0], 0, [0; 3], [0; 3]),
-        reflector,
-        reach,
-    );
-    let mut scratch = Scratch::new();
-
-    let mut shown = 0u32;
-    let mut survived = 0u32;
-    for index in 0..26u32 * 26 * 26 {
-        let settings = Settings::at(
-            orders[0],
-            0,
-            [0; 3],
-            [
-                (index / (26 * 26)) as u8,
-                ((index / 26) % 26) as u8,
-                (index % 26) as u8,
-            ],
-        );
-        positions.restart(settings, reach);
-        shown += 1;
-        if matches!(scan_with(menu, &positions, &mut scratch), Stop::Survived { .. }) {
-            survived += 1;
+        let mut shown = 0u32;
+        let mut survived = 0u32;
+        for index in 0..26u32 * 26 * 26 {
+            let settings = Settings::at(
+                orders[0],
+                0,
+                [0; 3],
+                [
+                    (index / (26 * 26)) as u8,
+                    ((index / 26) % 26) as u8,
+                    (index % 26) as u8,
+                ],
+            );
+            positions.restart(settings, reach);
+            shown += 1;
+            if matches!(
+                scan_with(menu, &positions, &mut scratch),
+                Stop::Survived { .. }
+            ) {
+                survived += 1;
+            }
         }
-    }
 
-    let rate = f64::from(survived) / f64::from(shown);
-    println!(
-        "  {} closures: {survived} of {shown} settings survived ({:.1}%), where counting loops predicts 100%",
-        menu.closures(),
-        100.0 * rate
-    );
-    if menu.closures() >= 1 {
-        assert!(
-            rate < 1.0,
-            "a one-closure menu refuted nothing at all, so dropping it from a sweep would cost nothing"
+        let rate = f64::from(survived) / f64::from(shown);
+        println!(
+            "  {} closures: {survived} of {shown} settings survived ({:.1}%), where counting loops predicts 100%",
+            menu.closures(),
+            100.0 * rate
         );
-    }
+        if menu.closures() >= 1 {
+            assert!(
+                rate < 1.0,
+                "a one-closure menu refuted nothing at all, so dropping it from a sweep would cost nothing"
+            );
+        }
     }
 }
 
@@ -901,9 +1408,9 @@ fn a_weak_menu_still_refutes_most_of_what_it_is_shown() {
 #[test]
 #[ignore = "a measurement, not a check"]
 fn how_much_each_shipped_crib_refutes() {
+    use cipher_break::alphabet::ALPHABET;
     use cipher_break::bombe::{Menu, Positions, Scratch, Stop, scan_with};
     use cipher_break::ciphers::enigma::{Settings, reflector_wiring, rotor_orders};
-    use cipher_break::alphabet::ALPHABET;
     use cipher_break::crib::{KRIEGSMARINE, KRIEGSMARINE_LONG};
 
     let ct = cipher_break::to_letters(
@@ -930,7 +1437,11 @@ fn how_much_each_shipped_crib_refutes() {
             println!("  {word:<18} {:>4} {:>6}", crib.len(), 0);
             continue;
         }
-        let reach = menus.iter().map(|m| m.offset + crib.len()).max().unwrap_or(0);
+        let reach = menus
+            .iter()
+            .map(|m| m.offset + crib.len())
+            .max()
+            .unwrap_or(0);
         let mut positions =
             Positions::of(Settings::at(orders[0], 0, [0; 3], [0; 3]), reflector, reach);
         let mut scratch = Scratch::new();
@@ -949,7 +1460,10 @@ fn how_much_each_shipped_crib_refutes() {
             );
             positions.restart(settings, reach);
             for menu in &menus {
-                if matches!(scan_with(menu, &positions, &mut scratch), Stop::Survived { .. }) {
+                if matches!(
+                    scan_with(menu, &positions, &mut scratch),
+                    Stop::Survived { .. }
+                ) {
                     survived += 1;
                 }
             }
@@ -1039,8 +1553,15 @@ fn what_a_stop_costs_along_the_path_the_sweep_takes() {
     let both = start.elapsed().as_nanos() as f64 / f64::from(rounds);
 
     println!("  decipher and score        {scoring:>8.0} ns");
-    println!("  and build the key too     {both:>8.0} ns   ({:+.0} ns, {:.0}% more)", both - scoring, 100.0 * (both - scoring) / scoring);
-    println!("  a crib stopping 2.7e9 times pays {:.0} s of that key, over 18 threads", 2.7e9 * (both - scoring) / 1e9 / 18.0);
+    println!(
+        "  and build the key too     {both:>8.0} ns   ({:+.0} ns, {:.0}% more)",
+        both - scoring,
+        100.0 * (both - scoring) / scoring
+    );
+    println!(
+        "  a crib stopping 2.7e9 times pays {:.0} s of that key, over 18 threads",
+        2.7e9 * (both - scoring) / 1e9 / 18.0
+    );
     assert!(sink.is_finite() && length > 0);
 }
 
@@ -1086,8 +1607,14 @@ fn a_bombe_is_not_credited_with_the_crib_it_planted() {
     let german = cipher_break::to_letters(
         "KEINEBESONDERENVORKOMMNISSEXXSTANDORTMARQUADRATSIEBENXXWETTERBERICHTXXAB",
     );
-    let both = (ctx.score(&german), score_outside_the_crib(&german, &ctx, 23, 8));
-    println!("  real German {:+.2}s, without eight of its letters {:+.2}s", both.0, both.1);
+    let both = (
+        ctx.score(&german),
+        score_outside_the_crib(&german, &ctx, 23, 8),
+    );
+    println!(
+        "  real German {:+.2}s, without eight of its letters {:+.2}s",
+        both.0, both.1
+    );
     assert!(
         both.1 > whole,
         "real German minus a crib should still beat noise plus a crib: {:+.2} vs {whole:+.2}",
@@ -1182,6 +1709,54 @@ fn what_the_best_of_a_big_search_scores_on_nothing() {
     println!("  and real German of this length reaches +18.0");
 }
 
+/// How much of the middle ring's twenty-six is genuinely new.
+///
+/// The middle rotor's wiring is entered at the indicator minus the ring, and its notch fires at the indicator whatever the ring.
+/// So moving the ring by k and the indicator by k leaves the wiring where it was and moves only the notch — which matters solely if the left rotor steps during the message, and in seventy letters the middle rotor only advances two or three times.
+/// If most settings never cross that notch, most of the twenty-six is a copy of a setting the sweep already covers, and the space to search is far smaller than it looks.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn how_much_of_the_middle_ring_is_new() {
+    use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings, rotor_orders};
+
+    let ct = cipher_break::to_letters(
+        "JCRSAJTGSJEYEXYKKZZSHVUOCTRFRCRPFVYPLKPPLGRHVVBBTBRSXSWXGGTYTVKQNGSCHVGF",
+    );
+    let orders = rotor_orders(8);
+    let mut rng = Rng::new(808);
+    let trials = 20_000;
+    let mut differs = 0u32;
+
+    for _ in 0..trials {
+        let rotors = orders[rng.below(orders.len())];
+        let p0 = rng.below(26) as u8;
+        let p1 = rng.below(26) as u8;
+        let p2 = rng.below(26) as u8;
+        let right = rng.below(26) as u8;
+        let m = rng.below(26) as u8;
+
+        // The setting as the sweep would enumerate it, with the middle ring at m.
+        let with_ring = Settings::at(rotors, 0, [0, m, right], [p0, p1, p2]);
+        // The setting the sweep already covers: ring at A, indicator moved to keep the wiring where it was.
+        let shifted = Settings::at(rotors, 0, [0, 0, right], [p0, (p1 + 26 - m) % 26, p2]);
+
+        let a = Enigma::new(with_ring, Plugboard::empty()).run(&ct);
+        let b = Enigma::new(shifted, Plugboard::empty()).run(&ct);
+        if a != b {
+            differs += 1;
+        }
+    }
+    let share = f64::from(differs) / f64::from(trials);
+    println!(
+        "  {:.1}% of middle-ring settings decipher differently from one the sweep already covers",
+        100.0 * share
+    );
+    println!(
+        "  so the space is about {:.1}x the ring-A sweep, not 26x",
+        1.0 + 25.0 * share
+    );
+}
+
 /// How deep in the pack a true setting sits when the message is short and the rings are swept.
 ///
 /// The rank test says only that it is past two hundred thousand of sixteen billion.
@@ -1212,9 +1787,8 @@ fn how_many_wrong_settings_outscore_a_true_one() {
         let pick = |r: &mut Rng| [r.below(26) as u8, r.below(26) as u8, r.below(26) as u8];
         let rings = [0, 0, rng.below(26) as u8];
         let settings = Settings::at(rotors, 0, rings, pick(&mut rng));
-        let s = german.score(
-            &Enigma::with_reflector(settings, reflector, Plugboard::empty()).run(&ct),
-        );
+        let s =
+            german.score(&Enigma::with_reflector(settings, reflector, Plugboard::empty()).run(&ct));
         if s >= truth {
             above += 1;
         }
@@ -1222,8 +1796,14 @@ fn how_many_wrong_settings_outscore_a_true_one() {
     let share = f64::from(above) / f64::from(trials);
     let space = 336.0 * 104.0 * 26.0 * 26f64.powi(3);
     println!("  the true setting scores {truth:.4}");
-    println!("  {:.2}% of wrong settings score at least that much", 100.0 * share);
-    println!("  over {space:.3e} settings that is {:.3e} of them ahead of the truth", share * space);
+    println!(
+        "  {:.2}% of wrong settings score at least that much",
+        100.0 * share
+    );
+    println!(
+        "  over {space:.3e} settings that is {:.3e} of them ahead of the truth",
+        share * space
+    );
     println!("  a shortlist would have to be that long before the truth was in it");
 }
 
@@ -1232,6 +1812,7 @@ fn how_many_wrong_settings_outscore_a_true_one() {
 /// This is the case the tool actually faces and the one nothing tested.
 /// It failed for two reasons that only showed up together: the shortlist held sixty thousand settings where the true one sat near three hundred thousand, and the trigram model that steers the sweep leaves a true setting twenty-two thousandth even after a board is grown on it — past any finish worth paying for.
 /// The quadgram model, shown the same climbed boards, puts it nine hundred and eighty-fifth, which a finish does reach.
+#[cfg(feature = "gpu")]
 #[test]
 #[ignore = "a sixteen-billion sweep and a million plugboard climbs"]
 fn the_naval_attack_breaks_a_short_message_with_the_rings_swept() {
@@ -1241,52 +1822,62 @@ fn the_naval_attack_breaks_a_short_message_with_the_rings_swept() {
     let Ok(gpu) = Gpu::open() else {
         return;
     };
-    let case = &CASES[2]; // naval, short, right ring T
-    let ct = case.ciphertext();
-    let plain = to_letters(case.text);
-    let bank = bank();
-    let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
-    let quad = german().expect("the German quadgram model");
-    let quad_scale = Scale::for_model(&quad, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2));
-    let trace = Trace::new(false);
-    let ctx = Context {
-        judge: &bank,
-        scale: &scale,
-        plan: Schedule::default(),
-        seed: 1,
-        keep: 10,
-        focus: Some(&quad),
-        focus_scale: Some(&quad_scale),
-        trace: &trace,
-    };
-    let attack = GpuEnigmaNaval {
-        shortlist: 1_000_000,
-        leads: ENIGMA_LEADS,
-        focus: "de".to_string(),
-        rings: 26,
-        finish: 2_000,
-        gpu: std::sync::Arc::new(gpu),
-    };
+    let gpu = std::sync::Arc::new(gpu);
+    let mut failed = Vec::new();
+    for case in CASES
+        .iter()
+        .filter(|c| c.sweep_rings == 26 && c.text == SIGNAL)
+    {
+        let ct = case.ciphertext();
+        let plain = to_letters(case.text);
+        let bank = bank();
+        let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
+        let quad = german().expect("the German quadgram model");
+        let quad_scale = Scale::for_model(&quad, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2));
+        let trace = Trace::new(false);
+        let ctx = Context {
+            judge: &bank,
+            scale: &scale,
+            plan: Schedule::default(),
+            seed: 1,
+            keep: 10,
+            focus: Some(&quad),
+            focus_scale: Some(&quad_scale),
+            trace: &trace,
+        };
+        // The middle ring multiplies the field by about eleven once the duplicates are skipped, and a true setting sinks with it: three hundred thousandth of sixteen billion becomes something near four million.
+        let attack = GpuEnigmaNaval {
+            shortlist: 10_000_000,
+            leads: ENIGMA_LEADS,
+            focus: "de".to_string(),
+            rings: 26,
+            middles: 26,
+            finish: 4_000,
+            gpu: gpu.clone(),
+        };
 
-    let start = std::time::Instant::now();
-    let found = attack.best(&ct, &ctx);
-    let at = found.iter().position(|c| {
-        c.plain.iter().zip(&plain).filter(|(a, b)| a == b).count() * 10 >= plain.len() * 9
-    });
-    println!(
-        "  {} letters, every ring swept, {:.0}s: plaintext at {at:?}",
-        ct.len(),
-        start.elapsed().as_secs_f64()
-    );
-    assert_eq!(
-        at,
-        Some(0),
-        "the attack has to put the message it was given first, not somewhere in the list"
+        let start = std::time::Instant::now();
+        let found = attack.best(&ct, &ctx);
+        let at = found.iter().position(|c| {
+            c.plain.iter().zip(&plain).filter(|(a, b)| a == b).count() * 10 >= plain.len() * 9
+        });
+        println!(
+            "  {:<32} {:>3.0}s: plaintext at {at:?}",
+            case.label,
+            start.elapsed().as_secs_f64()
+        );
+        if at != Some(0) {
+            failed.push(case.label);
+        }
+    }
+    assert!(
+        failed.is_empty(),
+        "the attack has to put the message it was given first: {failed:?}"
     );
 }
 
-
 /// The naval sweep, with the stages that were missing, on the message this repository exists for.
+#[cfg(feature = "gpu")]
 #[test]
 #[ignore = "the real thing"]
 fn the_message() {
@@ -1326,6 +1917,7 @@ fn the_message() {
             leads: ENIGMA_LEADS,
             focus: "de".to_string(),
             rings: 26,
+            middles: 26,
             finish: 2_000,
             gpu: std::sync::Arc::new(Gpu::open().expect("a device")),
         };
@@ -1345,6 +1937,7 @@ fn the_message() {
             leads: ENIGMA_LEADS,
             focus: "de".to_string(),
             rings,
+            middles: rings,
             finish: 2_000,
             gpu: std::sync::Arc::new(Gpu::open().expect("a device")),
         };
@@ -1363,4 +1956,5 @@ fn the_message() {
 }
 
 /// How many shuffles the real message is measured against.
+#[cfg(feature = "gpu")]
 const NULL_SHUFFLES: usize = 4;

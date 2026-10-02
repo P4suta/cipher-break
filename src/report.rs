@@ -292,8 +292,43 @@ pub fn statistics_table(verdicts: &[StatVerdict], population: &str) -> String {
 /// Blocks of increasing size give the median of their bests, a line through those says how the best grows with the logarithm of the count, and that line is extended to the count a sweep actually made.
 #[must_use]
 pub fn best_of_n(samples: &[f64], n: u64) -> f64 {
+    best_of_n_fit(samples, n).map_or(f64::INFINITY, |fit| fit.median)
+}
+
+/// Where the best of `n` tries lands, and how widely.
+#[derive(Clone, Copy, Debug)]
+pub struct BestOfN {
+    /// The median of the best of `n`: half of all searches of that size on nothing reach it.
+    pub median: f64,
+    /// How far the best moves for each factor of e in the count, which is also how widely it scatters.
+    ///
+    /// The best of a block of tries from a tail like this one is spread as a Gumbel variable, whose location grows by exactly its scale for every factor of e in the block; so the slope the growth is measured by is the spread, and does not have to be measured twice.
+    pub spread: f64,
+}
+
+impl BestOfN {
+    /// How often the best of `n` tries on nothing reaches `score`.
+    ///
+    /// A median says where the best of a search usually lands and nothing about how far past it chance will go; a find that clears the median by a point clears it about one search in ten.
+    #[must_use]
+    pub fn chance_of_reaching(&self, score: f64) -> f64 {
+        if self.spread <= 0.0 || !self.spread.is_finite() {
+            return if score > self.median { 0.0 } else { 1.0 };
+        }
+        // Gumbel: the median sits ln(1/ln 2) scales above the location.
+        let location = self.median - self.spread * (1.0 / std::f64::consts::LN_2).ln();
+        let z = (score - location) / self.spread;
+        -(-(-z).exp()).exp_m1()
+    }
+}
+
+/// The best of `n` as a distribution rather than a number.
+///
+/// Blocks of increasing size give the median of their bests, and a line through those against the logarithm of the size gives both where the best of `n` lands and how widely it scatters.
+#[must_use]
+pub fn best_of_n_fit(samples: &[f64], n: u64) -> Option<BestOfN> {
     if samples.len() < BLOCKS_FOR_GROWTH.iter().max().copied().unwrap_or(1) || n == 0 {
-        return f64::INFINITY;
+        return None;
     }
     let mut points: Vec<(f64, f64)> = Vec::new();
     for &size in BLOCKS_FOR_GROWTH {
@@ -309,7 +344,7 @@ pub fn best_of_n(samples: &[f64], n: u64) -> f64 {
         points.push(((size as f64).ln(), tops[tops.len() / 2]));
     }
     if points.len() < 2 {
-        return f64::INFINITY;
+        return None;
     }
     let count = points.len() as f64;
     let sx: f64 = points.iter().map(|p| p.0).sum();
@@ -318,11 +353,14 @@ pub fn best_of_n(samples: &[f64], n: u64) -> f64 {
     let sxx: f64 = points.iter().map(|p| p.0 * p.0).sum();
     let denominator = count * sxx - sx * sx;
     if denominator.abs() < f64::EPSILON {
-        return f64::INFINITY;
+        return None;
     }
     let slope = (count * sxy - sx * sy) / denominator;
     let intercept = (sy - slope * sx) / count;
-    intercept + slope * (n as f64).ln()
+    Some(BestOfN {
+        median: intercept + slope * (n as f64).ln(),
+        spread: slope,
+    })
 }
 
 /// The block sizes the growth is measured over.

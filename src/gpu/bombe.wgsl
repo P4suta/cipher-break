@@ -32,9 +32,9 @@ struct Params {
     r0: u32,             // the rotor order this dispatch covers
     r1: u32,
     r2: u32,
-    pad0: u32,
-    pad1: u32,
-    pad2: u32,
+    rings: u32,          // right-rotor ring settings to try
+    middles: u32,        // middle-rotor ring settings to try
+    reach: u32,          // the furthest letter any menu looks at
 };
 
 // Packed by the host exactly as the rotor sweep packs it: 8*26 forward,
@@ -52,7 +52,9 @@ struct Params {
 // where this costs the two or three that actually meet there.
 @group(0) @binding(3) var<storage, read> menus: array<u32>;
 @group(0) @binding(4) var<storage, read> params: Params;
-// Two words per thread: the best score it saw, and where it saw it.
+// Three words per thread: the best score it saw, the setting it saw it at, and
+// which placement and hypothesis. One word held all three until the rings were
+// swept, which multiplies the settings by 676 and the product past 2^32.
 @group(0) @binding(5) var<storage, read_write> out: array<u32>;
 // One word per thread: how many settings it could not refute.
 @group(0) @binding(6) var<storage, read_write> stops: array<u32>;
@@ -272,6 +274,54 @@ fn follow(lane: u32, base: u32, refl: u32, hub: u32, guess: u32) -> Followed {
     return Followed(b, true);
 }
 
+// Whether a rotor starting at `at` reaches one of its notches within `length` letters.
+fn turns_within(mask: u32, at: u32, length: u32) -> bool {
+    if (length >= 26u) {
+        return mask != 0u;
+    }
+    let turned = ((mask >> at) | (mask << (26u - at))) & 0x3ffffffu;
+    return (turned & ((1u << length) - 1u)) != 0u;
+}
+
+// Rotate a 26-bit letter mask.
+fn rotl26(mask: u32, by: u32) -> u32 {
+    return ((mask << by) | (mask >> (26u - by))) & 0x3ffffffu;
+}
+
+fn rotr26(mask: u32, by: u32) -> u32 {
+    return ((mask >> by) | (mask << (26u - by))) & 0x3ffffffu;
+}
+
+// Whether the middle rotor reaches its notch within `length` letters, in this
+// setting or in the copy with its ring at A.
+//
+// Asked letter by letter, this was a loop as long as the crib run for every
+// setting the sweep skips, and the sweep skips most of them. It needs no loop:
+// until it reaches a notch the middle rotor moves only when the right one turns
+// it, so the positions it passes through are its start and the next few, one
+// for each notch the right rotor reaches before the last letter.
+fn middle_touches(notch1: u32, notch2: u32, q1: u32, q2: u32, ring: u32, length: u32) -> bool {
+    if (length == 0u) {
+        return false;
+    }
+    // Turns the right rotor makes before the last letter is read.
+    let steps = length - 1u;
+    let from_right = rotr26(notch2, q2);
+    let partial = steps % 26u;
+    let turns = (steps / 26u) * countOneBits(notch2)
+        + countOneBits(from_right & ((1u << partial) - 1u));
+    var passed = 0x3ffffffu;
+    if (turns < 25u) {
+        passed = rotl26((1u << (turns + 1u)) - 1u, q1);
+    }
+    return (passed & (notch1 | rotl26(notch1, ring))) != 0u;
+}
+
+// Whether a notch mask comes round every half turn.
+fn half_turn(mask: u32) -> bool {
+    return (((mask << 13u) | (mask >> 13u)) & 0x3ffffffu) == mask;
+}
+
 @compute @workgroup_size(128)
 fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
     for (var i = lid.x; i < 208u; i = i + THREADS_PER_GROUP) {
@@ -289,15 +339,66 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
 
     var best: f32 = -1.0e30;
     var best_index: u32 = 0u;
+    var best_stop: u32 = 0u;
     var found: u32 = 0u;
+    let per_middle = params.rings * params.positions;
+    let per_reflector = params.middles * per_middle;
 
     let start = tid * params.chunk;
     var stop = start + params.chunk;
     if (stop > params.count) { stop = params.count; }
 
+    let half_right = half_turn(w_notch[params.r2]);
+    let half_middle = half_turn(w_notch[params.r1]);
+
     for (var index = start; index < stop; index = index + 1u) {
-        let refl = (index / params.positions) * 26u;
-        let p = index % params.positions;
+        // The rings, which a bombe held at A until it was noticed that the right
+        // one decides when the middle rotor steps. In seventy letters it steps
+        // two or three times, and a crib laid across a step taken at the wrong
+        // moment is refuted however right everything else is.
+        let refl = (index / per_reflector) * 26u;
+        let within = index % per_reflector;
+        let middle = within / per_middle;
+        let inner = within % per_middle;
+        let ring = inner / params.positions;
+        let p = inner % params.positions;
+
+        // A middle ring away from A matters only if the middle rotor reaches its
+        // notch, here or in the copy with the ring at A; otherwise this setting
+        // is that copy, which the sweep covers anyway. The same rule the rotor
+        // sweep uses, but only as far as the menus reach: whether a setting is
+        // refuted is decided there and nowhere else, and a crib at the start of
+        // the message reaches a fifth of it. The stop found on the copy is read
+        // with the copy's middle ring; the processor finishes the rest.
+        // A naval rotor's notches come round every half turn, so moving its ring
+        // and indicator on by thirteen together changes nothing at all, from the
+        // first letter to the last: half of its rings are the other half again.
+        if ((ring >= 13u && half_right) || (middle >= 13u && half_middle)) {
+            continue;
+        }
+
+        // A right rotor that reaches no notch within the menus' reach steps
+        // nothing there, and every ring that leaves it so, on the same wiring,
+        // is the same machine over those letters: the smallest stands for the
+        // rest. The processor tries the others where it reads the whole message.
+        let right_indicator = p % 26u;
+        if (!turns_within(w_notch[params.r2], right_indicator, params.reach)) {
+            let wiring = (right_indicator + 26u - ring) % 26u;
+            var first = 0u;
+            for (var r: u32 = 0u; r < 26u; r = r + 1u) {
+                if (!turns_within(w_notch[params.r2], (wiring + r) % 26u, params.reach)) {
+                    first = r;
+                    break;
+                }
+            }
+            if (ring != first) {
+                continue;
+            }
+        }
+
+        if (middle != 0u && !middle_touches(w_notch[params.r1], w_notch[params.r2], (p / 26u) % 26u, p % 26u, middle, params.reach)) {
+            continue;
+        }
 
         for (var m: u32 = 0u; m < params.menus; m = m + 1u) {
             let base = m * (params.crib * 2u + 29u);
@@ -320,7 +421,9 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
                 }
                 p2 = wrap(p2 + 1u);
                 if (i >= offset) {
-                    trace_put(lane, i - offset, p0, p1, p2);
+                    // The trace holds where each wiring is entered, which is the
+                    // indicator less the ring.
+                    trace_put(lane, i - offset, p0, wrap(p1 + 26u - middle), wrap(p2 + 26u - ring));
                 }
             }
 
@@ -350,15 +453,17 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
                     }
                     q2 = wrap(q2 + 1u);
 
+                    let s1 = wrap(q1 + 26u - middle);
+                    let s2 = wrap(q2 + 26u - ring);
                     var c = ct[i];
                     if (((r.board.known >> c) & 1u) == 1u) { c = board_get(r.board, c); }
-                    c = through_forward(params.r2, c, q2);
-                    c = through_forward(params.r1, c, q1);
+                    c = through_forward(params.r2, c, s2);
+                    c = through_forward(params.r1, c, s1);
                     c = through_forward(params.r0, c, q0);
                     c = tables[REFLECTOR + refl + c];
                     c = through_backward(params.r0, c, q0);
-                    c = through_backward(params.r1, c, q1);
-                    c = through_backward(params.r2, c, q2);
+                    c = through_backward(params.r1, c, s1);
+                    c = through_backward(params.r2, c, s2);
                     if (((r.board.known >> c) & 1u) == 1u) { c = board_get(r.board, c); }
 
                     g = (g % params.modulus) * 26u + c;
@@ -370,15 +475,16 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
                 let s = acc / f32(max(grams, 1u));
                 if (s > best) {
                     best = s;
-                    // The setting, which placement of the crib, and which hypothesis.
-                    best_index = (index * params.menus + m) * 26u + guess;
+                    best_index = index;
+                    best_stop = m * 26u + guess;
                 }
                 break;
             }
         }
     }
 
-    out[tid * 2u] = bitcast<u32>(best);
-    out[tid * 2u + 1u] = best_index;
+    out[tid * 3u] = bitcast<u32>(best);
+    out[tid * 3u + 1u] = best_index;
+    out[tid * 3u + 2u] = best_stop;
     stops[tid] = found;
 }

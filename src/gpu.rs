@@ -78,44 +78,62 @@ pub struct EnigmaJob<'a> {
     pub reflectors: &'a [[u8; ALPHABET]],
     /// How many right-rotor ring settings to sweep.
     pub rings: usize,
+    /// How many middle-rotor ring settings to sweep.
+    ///
+    /// The middle ring decides where the middle rotor steps, and in seventy letters it steps two or three times.
+    /// Holding it at A leaves twenty-six times the key space unswept, and a planted message with it anywhere else is not recovered at all.
+    pub middles: usize,
     /// How many settings to keep.
     pub keep: usize,
 }
 
-/// Lay every placement of a crib out for the device.
-///
-/// One run per menu: where it starts, the hub, where each letter's edges begin, and then those edges laid end to end.
-/// The same shape the processor's bombe uses, because the alternative — walking the whole crib for every deduction — is what held the first device bombe to one and a half times the speed of the machine it was meant to replace.
 /// Turn a dispatch's per-thread bests back into settings.
-fn decode_stops(hits: &[u32], order: usize, menus: u32, positions: u32) -> Vec<BombeHit> {
+fn decode_stops(
+    hits: &[u32],
+    order: usize,
+    rings: u32,
+    middles: u32,
+    positions: u32,
+) -> Vec<BombeHit> {
+    let per_middle = rings * positions;
+    let per_reflector = middles * per_middle;
     let mut out = Vec::new();
-    for pair in hits.chunks_exact(2) {
-        let score = f64::from(f32::from_bits(pair[0]));
+    for triple in hits.as_chunks::<3>().0 {
+        let score = f64::from(f32::from_bits(triple[0]));
         // Threads that refuted everything they were shown report a score no float would reach.
         if !score.is_finite() || score < -1.0e29 {
             continue;
         }
-        let guess = (pair[1] % ALPHABET as u32) as u8;
-        let rest = pair[1] / ALPHABET as u32;
-        let index = rest / menus;
-        let p = index % positions;
+        let index = triple[1];
+        let within = index % per_reflector;
+        let inner = within % per_middle;
+        let p = inner % positions;
         out.push(BombeHit {
             score,
             order,
-            reflector: (index / positions) as usize,
+            reflector: (index / per_reflector) as usize,
+            middle: Ring::new((within / per_middle) as u8),
+            ring: Ring::new((inner / positions) as u8),
             positions: [
                 Indicator::new((p / 676) as u8),
                 Indicator::new(((p / 26) % 26) as u8),
                 Indicator::new((p % 26) as u8),
             ],
-            menu: (rest % menus) as usize,
-            guess,
+            menu: (triple[2] / ALPHABET as u32) as usize,
+            guess: (triple[2] % ALPHABET as u32) as u8,
         });
     }
     out
 }
 
-fn pack_menus(menus: &[(usize, Vec<(Letter, Letter)>, Letter)], crib: usize) -> Vec<u32> {
+/// One placement of a crib, as the device bombe takes it: where it starts, its letters against the ciphertext's, and the letter to start each hypothesis from.
+pub type PlacedMenu = (usize, Vec<(Letter, Letter)>, Letter);
+
+/// Lay every placement of a crib out for the device.
+///
+/// One run per menu: where it starts, the hub, where each letter's edges begin, and then those edges laid end to end.
+/// The same shape the processor's bombe uses, because the alternative — walking the whole crib for every deduction — is what held the first device bombe to one and a half times the speed of the machine it was meant to replace.
+fn pack_menus(menus: &[PlacedMenu], crib: usize) -> Vec<u32> {
     let mut packed: Vec<u32> = Vec::with_capacity(menus.len() * (crib * 2 + 29));
     for (offset, pairs, hub) in menus {
         let mut degree = [0u32; ALPHABET];
@@ -156,7 +174,11 @@ pub struct BombeJob<'a> {
     /// The reflectors to try.
     pub reflectors: &'a [[u8; ALPHABET]],
     /// Every placement of the crib: where it starts, its letters against the ciphertext's, and the letter to start each hypothesis from.
-    pub menus: &'a [(usize, Vec<(Letter, Letter)>, Letter)],
+    pub menus: &'a [PlacedMenu],
+    /// How many right-rotor ring settings to sweep.
+    pub rings: usize,
+    /// How many middle-rotor ring settings to sweep.
+    pub middles: usize,
     /// How many settings to keep.
     pub keep: usize,
 }
@@ -179,6 +201,10 @@ pub struct BombeHit {
     pub order: usize,
     /// Which reflector, likewise.
     pub reflector: usize,
+    /// The middle rotor's ring setting.
+    pub middle: Ring,
+    /// The right rotor's ring setting.
+    pub ring: Ring,
     /// Where the three rotors started.
     pub positions: [Indicator; 3],
     /// Which placement of the crib produced it.
@@ -196,6 +222,8 @@ pub struct EnigmaHit {
     pub order: usize,
     /// Which reflector, likewise.
     pub reflector: usize,
+    /// The middle rotor's ring setting.
+    pub middle: Ring,
     /// The right rotor's ring setting.
     pub ring: Ring,
     /// Where the three rotors started.
@@ -252,8 +280,15 @@ fn compute_pipeline(
 }
 
 /// Turn a dispatch's raw answers back into settings.
-fn decode_hits(packed: &[u32], order: usize, rings: u32, positions: u32) -> Vec<EnigmaHit> {
-    let per_reflector = rings * positions;
+fn decode_hits(
+    packed: &[u32],
+    order: usize,
+    rings: u32,
+    middles: u32,
+    positions: u32,
+) -> Vec<EnigmaHit> {
+    let per_middle = rings * positions;
+    let per_reflector = middles * per_middle;
     packed
         .as_chunks::<2>()
         .0
@@ -265,12 +300,14 @@ fn decode_hits(packed: &[u32], order: usize, rings: u32, positions: u32) -> Vec<
             }
             let index = pair[1];
             let within = index % per_reflector;
-            let p = within % positions;
+            let inner = within % per_middle;
+            let p = inner % positions;
             Some(EnigmaHit {
                 score: f64::from(score),
                 order,
                 reflector: (index / per_reflector) as usize,
-                ring: Ring::new((within / positions) as u8),
+                middle: Ring::new((within / per_middle) as u8),
+                ring: Ring::new((inner / positions) as u8),
                 positions: [
                     Indicator::new((p / (ALPHABET as u32 * ALPHABET as u32)) as u8),
                     Indicator::new(((p / ALPHABET as u32) % ALPHABET as u32) as u8),
@@ -409,6 +446,53 @@ fn bytes_to_words(bytes: &[u8]) -> Vec<u32> {
 }
 
 impl Gpu {
+    /// Dispatch one pass and copy each result buffer, whole, to where the host can read it.
+    fn run_pass(
+        &self,
+        pipeline: &wgpu::ComputePipeline,
+        bind: &wgpu::BindGroup,
+        groups: u32,
+        readbacks: &[(&wgpu::Buffer, &wgpu::Buffer)],
+    ) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, bind, &[]);
+            pass.dispatch_workgroups(groups, 1, 1);
+        }
+        for (from, to) in readbacks {
+            encoder.copy_buffer_to_buffer(from, 0, to, 0, from.size());
+        }
+        self.queue.submit(Some(encoder.finish()));
+    }
+
+    /// Bind buffers to a layout in the order the shader numbers them.
+    ///
+    /// Every kernel here binds its buffers 0, 1, 2 and on, so a list says everything the descriptor did in a tenth of the lines.
+    fn bind(
+        &self,
+        label: &str,
+        layout: &wgpu::BindGroupLayout,
+        buffers: &[&wgpu::Buffer],
+    ) -> wgpu::BindGroup {
+        let entries: Vec<wgpu::BindGroupEntry> = buffers
+            .iter()
+            .enumerate()
+            .map(|(i, buffer)| wgpu::BindGroupEntry {
+                binding: i as u32,
+                resource: buffer.as_entire_binding(),
+            })
+            .collect();
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout,
+            entries: &entries,
+        })
+    }
+
     /// Open a device, or explain why not.
     ///
     /// # Errors
@@ -510,10 +594,14 @@ impl Gpu {
             orders,
             reflectors,
             rings,
+            middles,
             keep,
         } = *job;
         let tables = pack_enigma_tables(reflectors);
 
+        // One dispatch per middle ring, not one for all of them.
+        // Every thread hands back only the best setting in its block, so the block is the finest grain the sweep can resolve: with the twenty-six middle rings in one dispatch a block was nine thousand settings, and a true setting had to beat all of them to be seen at all.
+        // A planted message with its middle ring at F was lost exactly there, before any plugboard was grown on it.
         let positions = (ALPHABET as u32).pow(3);
         let count = reflectors.len() as u32 * rings as u32 * positions;
         let chunk = count.div_ceil(THREADS);
@@ -525,72 +613,79 @@ impl Gpu {
         let out_buffer = self.readable("out", (out_len * 4) as u64);
         let out_staging = self.staging("out-read", (out_len * 4) as u64);
 
+        let keep = keep.max(1);
         let mut found: Vec<EnigmaHit> = Vec::new();
         for (o, rotors) in orders.iter().enumerate() {
-            let params = vec![
-                ct.len() as u32,
-                count,
-                THREADS,
-                rings as u32,
-                reflectors.len() as u32,
-                positions,
-                (ALPHABET as u32).pow(order as u32 - 1),
-                order as u32,
-                chunk,
-                rotors[0] as u32,
-                rotors[1] as u32,
-                rotors[2] as u32,
-            ];
-            let params_buffer = self.storage("params", &words_to_bytes(&params));
-            let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("enigma"),
-                layout: &self.enigma_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: ct_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: tables_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: logp_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: params_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: out_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-                pass.set_pipeline(&self.enigma_pipeline);
-                pass.set_bind_group(0, &bind, &[]);
-                pass.dispatch_workgroups(THREADS / WORKGROUP, 1, 1);
-            }
-            encoder.copy_buffer_to_buffer(&out_buffer, 0, &out_staging, 0, (out_len * 4) as u64);
-            self.queue.submit(Some(encoder.finish()));
+            for middle in 0..middles as u32 {
+                // A whole dispatch the kernel would only skip, setting by setting.
+                if middle >= 13 && enigma::notches_repeat_by_half_turn(rotors[1]) {
+                    continue;
+                }
+                let params = vec![
+                    ct.len() as u32,
+                    count,
+                    THREADS,
+                    rings as u32,
+                    1,
+                    reflectors.len() as u32,
+                    positions,
+                    (ALPHABET as u32).pow(order as u32 - 1),
+                    order as u32,
+                    chunk,
+                    rotors[0] as u32,
+                    rotors[1] as u32,
+                    rotors[2] as u32,
+                    middle,
+                ];
+                let params_buffer = self.storage("params", &words_to_bytes(&params));
+                let bind = self.bind(
+                    "enigma",
+                    &self.enigma_layout,
+                    &[
+                        &ct_buffer,
+                        &tables_buffer,
+                        &logp_buffer,
+                        &params_buffer,
+                        &out_buffer,
+                    ],
+                );
+                let mut encoder = self
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                {
+                    let mut pass =
+                        encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+                    pass.set_pipeline(&self.enigma_pipeline);
+                    pass.set_bind_group(0, &bind, &[]);
+                    pass.dispatch_workgroups(THREADS / WORKGROUP, 1, 1);
+                }
+                encoder.copy_buffer_to_buffer(
+                    &out_buffer,
+                    0,
+                    &out_staging,
+                    0,
+                    (out_len * 4) as u64,
+                );
+                self.queue.submit(Some(encoder.finish()));
 
-            let packed = bytes_to_words(&self.read(&out_staging));
-            found.extend(decode_hits(&packed, o, rings as u32, positions));
-            found.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
-            found.dedup_by(|a, b| {
-                a.order == b.order
-                    && a.reflector == b.reflector
-                    && a.ring == b.ring
-                    && a.positions == b.positions
-            });
-            found.truncate(keep.max(1));
+                let packed = bytes_to_words(&self.read(&out_staging));
+                found.extend(
+                    decode_hits(&packed, o, rings as u32, 1, positions)
+                        .into_iter()
+                        .map(|hit| EnigmaHit {
+                            middle: Ring::new(middle as u8),
+                            ..hit
+                        }),
+                );
+                // Cut back to the best `keep` only once the pile is twice that, and by selection rather than sorting: 8,736 dispatches each sorting ten million hits was most of an hour of host time.
+                if found.len() > 2 * keep {
+                    found.select_nth_unstable_by(keep, |a, b| b.score.total_cmp(&a.score));
+                    found.truncate(keep);
+                }
+            }
         }
+        found.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
+        found.truncate(keep);
         found
     }
 
@@ -608,6 +703,8 @@ impl Gpu {
             orders,
             reflectors,
             menus,
+            rings,
+            middles,
             keep,
         } = *job;
         let crib = menus.first().map_or(0, |m| m.1.len());
@@ -619,9 +716,10 @@ impl Gpu {
         }
         let tables = pack_enigma_tables(reflectors);
         let packed = pack_menus(menus, crib);
+        let reach = menus.iter().map(|m| m.0 + crib).max().unwrap_or(ct.len());
 
         let positions = (ALPHABET as u32).pow(3);
-        let count = reflectors.len() as u32 * positions;
+        let count = reflectors.len() as u32 * middles as u32 * rings as u32 * positions;
         let threads = THREADS.min(count);
         let chunk = count.div_ceil(threads);
         let groups = threads.div_ceil(BOMBE_WORKGROUP);
@@ -630,7 +728,7 @@ impl Gpu {
         let tables_buffer = self.storage("tables", &words_to_bytes(&tables));
         let logp_buffer = self.storage("logp", &floats_to_bytes(logp));
         let menus_buffer = self.storage("menus", &words_to_bytes(&packed));
-        let out_len = threads as usize * 2;
+        let out_len = threads as usize * 3;
         let out_buffer = self.readable("out", (out_len * 4) as u64);
         let out_staging = self.staging("out-read", (out_len * 4) as u64);
         let stops_buffer = self.readable("stops", u64::from(threads) * 4);
@@ -653,42 +751,42 @@ impl Gpu {
                 rotors[0] as u32,
                 rotors[1] as u32,
                 rotors[2] as u32,
-                0,
-                0,
-                0,
+                rings as u32,
+                middles as u32,
+                reach as u32,
             ];
             let params_buffer = self.storage("params", &words_to_bytes(&params));
-            let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("bombe"),
-                layout: &self.bombe_layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: ct_buffer.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: tables_buffer.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 2, resource: logp_buffer.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 3, resource: menus_buffer.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 4, resource: params_buffer.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 5, resource: out_buffer.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 6, resource: stops_buffer.as_entire_binding() },
+            let bind = self.bind(
+                "bombe",
+                &self.bombe_layout,
+                &[
+                    &ct_buffer,
+                    &tables_buffer,
+                    &logp_buffer,
+                    &menus_buffer,
+                    &params_buffer,
+                    &out_buffer,
+                    &stops_buffer,
                 ],
-            });
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-                pass.set_pipeline(&self.bombe_pipeline);
-                pass.set_bind_group(0, &bind, &[]);
-                pass.dispatch_workgroups(groups, 1, 1);
-            }
-            encoder.copy_buffer_to_buffer(&out_buffer, 0, &out_staging, 0, (out_len * 4) as u64);
-            encoder.copy_buffer_to_buffer(&stops_buffer, 0, &stops_staging, 0, u64::from(threads) * 4);
-            self.queue.submit(Some(encoder.finish()));
+            );
+            self.run_pass(
+                &self.bombe_pipeline,
+                &bind,
+                groups,
+                &[(&out_buffer, &out_staging), (&stops_buffer, &stops_staging)],
+            );
 
             let hits = bytes_to_words(&self.read(&out_staging));
             for found in bytes_to_words(&self.read(&stops_staging)) {
                 total += u64::from(found);
             }
-            best.extend(decode_stops(&hits, o, menus.len() as u32, positions));
+            best.extend(decode_stops(
+                &hits,
+                o,
+                rings as u32,
+                middles as u32,
+                positions,
+            ));
             best.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
             best.truncate(keep.max(1));
         }
@@ -722,13 +820,14 @@ impl Gpu {
         }
         let tables = pack_enigma_tables(reflectors);
 
-        let mut packed = Vec::with_capacity(candidates.len() * 8);
+        let mut packed = Vec::with_capacity(candidates.len() * 9);
         for hit in candidates {
             let rotors = rotor_orders[hit.order];
             packed.push(rotors[0] as u32);
             packed.push(rotors[1] as u32);
             packed.push(rotors[2] as u32);
             packed.push(hit.reflector as u32);
+            packed.push(u32::from(hit.middle.value()));
             packed.push(u32::from(hit.ring.value()));
             packed.push(u32::from(hit.positions[0].value()));
             packed.push(u32::from(hit.positions[1].value()));
@@ -756,36 +855,18 @@ impl Gpu {
         let out_buffer = self.readable("out", (out_len * 4) as u64);
         let out_staging = self.staging("out-read", (out_len * 4) as u64);
 
-        let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("plugboard"),
-            layout: &self.plug_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ct_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: tables_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: logp_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: settings_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: out_buffer.as_entire_binding(),
-                },
+        let bind = self.bind(
+            "plugboard",
+            &self.plug_layout,
+            &[
+                &ct_buffer,
+                &tables_buffer,
+                &logp_buffer,
+                &params_buffer,
+                &settings_buffer,
+                &out_buffer,
             ],
-        });
+        );
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -895,28 +976,7 @@ impl Gpu {
         staging: &wgpu::Buffer,
         out_len: usize,
     ) {
-        let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("periodic"),
-            layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ct.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: table.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: params.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: out.as_entire_binding(),
-                },
-            ],
-        });
+        let bind = self.bind("periodic", &self.layout, &[ct, table, params, out]);
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

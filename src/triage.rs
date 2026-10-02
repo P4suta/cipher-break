@@ -267,8 +267,8 @@ pub fn assess_all(sts: &[Statistic], ls: &[Letter], population: &[Vec<Letter>]) 
             Tail::Upper => v.z,
             Tail::Lower => -v.z,
         };
-        v.family_p = extremes.iter().filter(|&&e| e >= reach).count() as f64
-            / extremes.len().max(1) as f64;
+        v.family_p =
+            extremes.iter().filter(|&&e| e >= reach).count() as f64 / extremes.len().max(1) as f64;
     }
     verdicts
 }
@@ -417,7 +417,12 @@ mod tests {
                 v.family_p,
                 v.p
             );
-            assert!((0.0..=1.0).contains(&v.family_p), "{}: {}", v.name, v.family_p);
+            assert!(
+                (0.0..=1.0).contains(&v.family_p),
+                "{}: {}",
+                v.name,
+                v.family_p
+            );
         }
 
         // The point of the correction: on a text with nothing in it, some row of a dozen will still land at a small P, and the family-wise figure is what refuses to be impressed by it.
@@ -439,10 +444,18 @@ mod tests {
         use crate::alphabet::to_letters;
 
         assert_eq!(alt(&to_letters("")), 0.0);
-        assert_eq!(alt(&to_letters("QW")), 0.0, "both hands left, so no crossing");
+        assert_eq!(
+            alt(&to_letters("QW")),
+            0.0,
+            "both hands left, so no crossing"
+        );
         assert_eq!(alt(&to_letters("QP")), 1.0, "left then right");
         assert_eq!(alt(&to_letters("QPQP")), 3.0, "every step crosses");
-        assert_eq!(alt(&to_letters("QWER")), 0.0, "four left-hand keys in a row");
+        assert_eq!(
+            alt(&to_letters("QWER")),
+            0.0,
+            "four left-hand keys in a row"
+        );
 
         // Neighbouring keys and alternating hands are different questions, which is why both are asked.
         // QWERTY's rows run left to right, so neighbours are usually the same hand.
@@ -459,10 +472,26 @@ mod tests {
         use crate::alphabet::to_letters;
 
         assert_eq!(run(&to_letters("")), 0.0);
-        assert_eq!(run(&to_letters("AEIOU")), 0.0, "every letter a vowel, so no run at all");
-        assert_eq!(run(&to_letters("BCDFG")), 5.0, "no vowel anywhere, so the whole text");
-        assert_eq!(run(&to_letters("BCAdEfG")), 2.0, "the longest of several, not the last");
-        assert_eq!(run(&to_letters("ABCD")), 3.0, "a run that reaches the end still counts");
+        assert_eq!(
+            run(&to_letters("AEIOU")),
+            0.0,
+            "every letter a vowel, so no run at all"
+        );
+        assert_eq!(
+            run(&to_letters("BCDFG")),
+            5.0,
+            "no vowel anywhere, so the whole text"
+        );
+        assert_eq!(
+            run(&to_letters("BCAdEfG")),
+            2.0,
+            "the longest of several, not the last"
+        );
+        assert_eq!(
+            run(&to_letters("ABCD")),
+            3.0,
+            "a run that reaches the end still counts"
+        );
     }
 
     #[test]
@@ -473,7 +502,11 @@ mod tests {
         // The same number of vowels, spread out or gathered up.
         let spread = to_letters("BAB BAB BAB BAB".replace(' ', "").as_str());
         let heaped = to_letters("AAAA BBBB BBBB BBBB".replace(' ', "").as_str());
-        assert_eq!(vowels(&spread), vowels(&heaped), "the same vowels either way");
+        assert_eq!(
+            vowels(&spread),
+            vowels(&heaped),
+            "the same vowels either way"
+        );
         assert!(
             run(&heaped) > run(&spread),
             "and only the run can tell that one of them is gathered at an end: {} vs {}",
@@ -497,7 +530,9 @@ mod tests {
         let draws = enigma_population(200, 400, german, &mut rng);
 
         let vowels = |t: &[Letter]| {
-            t.iter().filter(|&&l| b"AEIOU".contains(&(l + b'A'))).count() as f64
+            t.iter()
+                .filter(|&&l| b"AEIOU".contains(&(l + b'A')))
+                .count() as f64
                 / t.len() as f64
         };
         let machine: f64 = draws.iter().map(|t| vowels(t)).sum::<f64>() / draws.len() as f64;

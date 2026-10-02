@@ -33,6 +33,10 @@ cb <ciphertext|file|->                run the whole catalogue and report
 cb solve   <input> [options]          the same, spelled out
 cb report  <input>                    diagnostics only: what the text is
 cb crib    <input> [--word W]         where a guessed word could sit, and could not
+cb bombe   <input> [--word W] [--m3]  attack an Enigma message through a crib
+           [--rings] [--at N] [--plan] sweep the rings; hold the crib at offset N; the table alone
+           [--finish N]               how many stops to finish and read
+           [--right-rings]            sweep the right ring only, holding the middle at A
 cb try     <attack> <input>           run one attack by name
 cb list                               every attack in the catalogue
 cb devices                            what this machine can compute with
@@ -46,6 +50,7 @@ cb train   [--order N] [--cutoff N]   learn a model from a corpus on stdin
 | `--nulls N` | shuffles each attack is calibrated against |
 | `--gpu` | run the big exhaustive sweeps on the GPU |
 | `--language de` | a language you already know, for a sharper judge |
+| `--focus FILE` | a quadgram model to judge by instead, for German narrower than the bank's |
 | `--trace` | say what each stage of each attack did |
 | `--models DIR` | language models instead of the built-in bank |
 | `--seed N`, `--top N`, `--plain` | reproducibility, how much to show, no colour |
@@ -62,7 +67,7 @@ cb train   [--order N] [--cutoff N]   learn a model from a corpus on stdin
 | transposition | columnar to width 8, rail fence | every column order and every height |
 | concealment | null ciphers: every nth letter, forwards and back | every stride and offset to 12 |
 | rotor | Enigma M3 and naval M4, eight rotors, both reflectors | rotors and rings exhausted, plugboard grown a lead at a time |
-| rotor, with a crib | Turing's bombe, with the diagonal board | every rotor setting refuted or not, exactly, whatever the plugboard |
+| rotor, with a crib | Turing's bombe, with the diagonal board | every rotor setting refuted or not, exactly, whatever the plugboard; with `--rings`, every ring setting too |
 
 Adding one means writing an `Attack`: a name, a key space, and a way of searching it.
 Everything else — the calibration, the nulls, the ranking, the trace, the report — works on it the day it arrives.
@@ -115,7 +120,20 @@ $ cb bombe message.txt --word KEINEBESONDERENVORKOMMNISSE
   bombe on KEINEBESONDERENVORKOMMNISSE   11631734784 all   -inf   -inf   -
 ```
 
-`-inf` there is the strongest answer this tool can give: eleven billion settings, every one refuted, so those words are not in that message under any four-rotor Enigma and any plugboard whatever.
+`-inf` there is the strongest answer this tool can give: eleven billion settings, every one refuted.
+Without `--rings` it is an answer about the rings at A, though, and not about any four-rotor Enigma.
+The right ring decides when the middle rotor steps, which in seventy letters it does two or three times, and a crib laid across a step taken at the wrong letter is refuted at the very setting that enciphered it.
+`--rings` sweeps the middle and right rings as well — up to 676 times the work, less the settings that are exact copies of others, which the sweep skips — and only then does a refutation cover the machine.
+
+`--at N` holds the crib at one offset, which is how a guess about a message's opening is asked: one placement where a guess about anywhere is thirty-odd.
+`--plan` prints the table of what each crib could refute and stops, before an hour is spent on any of them.
+
+A stop is not a reading.
+The crib forces the leads of the letters it touches and says nothing of the rest, and a decipherment with half its board missing reads as noise even at the right setting.
+So every stop is finished before it is judged: its free letters climbed, the rings the crib could not see chosen among those that agree with it, the free letters climbed again.
+What it is judged against is noise finished the same way — random settings given boards real stops were forced to — and the verdict says how often the best of that many tries on nothing gets as far.
+A planted seventy-two letter U-534 signal with all ten leads, its rings at F and T and a sixteen-letter crib, comes back first and read, where chance gets that far once in a billion.
+It reads four points below fluent German when it is right: naval shorthand does, which is why the verdict is chance and not fluency.
 
 It needs a crib that is really there and one long enough to close loops in its menu.
 A menu contradicts only where it forces a letter twice, so a crib of sixteen distinct-ish letters over twenty-odd nodes is a forest and refutes nothing; `cb bombe` refuses one that closes nothing rather than running it and looking busy.

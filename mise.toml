@@ -23,6 +23,8 @@ run = ["cargo test --release --lib", "cargo test --release --test solves"]
 
 [tasks."test:reference"]
 description = "Run the Haskell reference suite"
+# After the build, not beside it: both write the same dist-newstyle, and run side by side under `check` they collide on its package database.
+depends = ["build:reference"]
 dir = "reference"
 run = "cabal test --test-show-details=direct"
 
@@ -44,8 +46,8 @@ description = "Check that Rust and the Haskell reference agree on the same ciphe
 # This compares the statistic both compute without any search in it, so a drift in the arithmetic shows up before it can hide inside a sweep.
 run = """
 set -e
-rust=$(cargo run --release --quiet -- report data/ciphertext.txt --plain | awk '/^  cipher-break/{print $5}')
-cd reference && haskell=$(cabal run -v0 cipher-break -- analyze ../data/ciphertext.txt --null 1 | awk '/^IC /{print $2}')
+rust=$(cargo run --release --quiet -- report data/ciphertext.txt --plain | awk '/^  cipher-break/{for (i = 1; i < NF; i++) if ($i == "IC") print $(i + 1)}')
+cd reference && haskell=$(cabal run -v0 cipher-break-reference -- analyze ../data/ciphertext.txt --null 1 | awk '/^IC /{print $2}')
 echo "rust IC $rust, haskell IC $haskell"
 [ "$rust" = "$haskell" ] || { echo "the two implementations disagree"; exit 1; }
 """

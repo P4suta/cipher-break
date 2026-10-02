@@ -133,11 +133,8 @@ impl Menu {
     pub fn survival_rate(&self, rotors: [usize; 3], reflector: [u8; ALPHABET]) -> f64 {
         let span = (ALPHABET as u32).pow(3);
         let reach = self.offset + self.edges.len();
-        let mut positions = Positions::of(
-            Settings::at(rotors, 0, [0; 3], [0; 3]),
-            reflector,
-            reach,
-        );
+        let mut positions =
+            Positions::of(Settings::at(rotors, 0, [0; 3], [0; 3]), reflector, reach);
         let mut scratch = Scratch::new();
         let mut survived = 0u32;
         for index in 0..span {
@@ -152,7 +149,10 @@ impl Menu {
                 ],
             );
             positions.restart(settings, reach);
-            if matches!(scan_with(self, &positions, &mut scratch), Stop::Survived { .. }) {
+            if matches!(
+                scan_with(self, &positions, &mut scratch),
+                Stop::Survived { .. }
+            ) {
                 survived += 1;
             }
         }
@@ -217,6 +217,11 @@ pub enum Stop {
         assumed: (Letter, Letter),
         /// What the crib then forced.
         board: Plugboard,
+        /// A bit for every letter whose lead the crib decided, including the letters it decided are not plugged.
+        ///
+        /// The board alone cannot say which is which: a letter the crib proved unplugged and a letter it never reached both map to themselves.
+        /// Finishing a stop needs the difference, because the first must stay as it is and the second is still free.
+        known: u32,
     },
 }
 
@@ -348,19 +353,45 @@ pub fn scan_with(menu: &Menu, positions: &Positions, scratch: &mut Scratch) -> S
     let start = menu.hub;
     for guess in 0..ALPHABET as u8 {
         if follow(menu, positions, start, guess, scratch) {
-            let mut board = Plugboard::empty();
-            for l in 0..ALPHABET as u8 {
-                if let Some(p) = scratch.known(l) {
-                    board.connect(l, p);
-                }
-            }
-            return Stop::Survived {
-                assumed: (start, guess),
-                board,
-            };
+            return survived(scratch, start, guess);
         }
     }
     Stop::Refuted
+}
+
+/// Every hypothesis about the hub that survives, not only the first.
+///
+/// A bombe that is only asked whether a setting survives can stop at the first hypothesis that does; one that is going to read the message cannot, because on a short crib two hypotheses can survive the same setting and only one of them is the board that was really fitted.
+#[must_use]
+pub fn scan_all_with(menu: &Menu, positions: &Positions, scratch: &mut Scratch) -> Vec<Stop> {
+    if menu.edges.is_empty() {
+        return Vec::new();
+    }
+    let start = menu.hub;
+    let mut out = Vec::new();
+    for guess in 0..ALPHABET as u8 {
+        if follow(menu, positions, start, guess, scratch) {
+            out.push(survived(scratch, start, guess));
+        }
+    }
+    out
+}
+
+/// What a surviving hypothesis forced, read out of the workspace before the next one overwrites it.
+fn survived(scratch: &Scratch, start: Letter, guess: Letter) -> Stop {
+    let mut board = Plugboard::empty();
+    let mut known = 0u32;
+    for l in 0..ALPHABET as u8 {
+        if let Some(p) = scratch.known(l) {
+            board.connect(l, p);
+            known |= 1 << l;
+        }
+    }
+    Stop::Survived {
+        assumed: (start, guess),
+        board,
+        known,
+    }
 }
 
 /// Follow one assumption through the menu.

@@ -13,6 +13,33 @@
       "page_numbering": "PDF pages, counted from 1; pages 12 and 13 are printed VIII and IX"
     },
     {
+      "id": "mahon-46",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 46",
+      "archive_identifier": "TNA HW 25/2; Turing Digital Archive A09",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-048.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-048.gif",
+      "sha256": "a016377d7f5b91fc53bc6447632706b274c4a0668dabd72465c9e9b40d993aa7",
+      "review_scope": "Original image checked for Shark re-encodings on Plaice for Baltic U-boats"
+    },
+    {
+      "id": "mahon-47",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 47",
+      "archive_identifier": "TNA HW 25/2; Turing Digital Archive A09",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-049.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-049.gif",
+      "sha256": "29ea1ac0cead7eb219da4eb1e22dd90d44128ff8d9cfa0f0a21567be3d50cee3",
+      "review_scope": "Original image checked for Baltic training-message repetitions; no target date, text or Thetis identification is supplied"
+    },
+    {
+      "id": "mahon-96",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 96",
+      "archive_identifier": "TNA HW 25/2; Turing Digital Archive A09",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-098.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-098.gif",
+      "sha256": "4fc918ba8d361bd5f3c30ad44c5dbd6dcb1494a24109967093894a65dd65e6ef",
+      "review_scope": "Original image checked for Laube/Potsdam correspondence with Plaice and January 1945 Baltic U-boat key discussion"
+    },
+    {
       "id": "mahon-108",
       "title": "A.P. Mahon, The History of Hut Eight, printed page 108",
       "archive_identifier": "TNA HW 25/2; Turing Digital Archive A09",
@@ -85,8 +112,8 @@
       "url": "https://cryptocellar.org/enigma/files/nr-4457-rip-401.pdf",
       "local_path": "reports/p1030680/sources/rip-401.pdf",
       "sha256": "81a548ea0baea1c6b45129024eca9262ad4c13800d9dc059e60b193c752823f8",
-      "read_pages": [1, 29, 30, 31, 32, 33, 34],
-      "page_numbering": "PDF pages, counted from 1; PDF pages 32-34 are printed 45-47"
+      "read_pages": [1, 29, 30, 31, 32, 33, 34, 89, 92, 100],
+      "page_numbering": "PDF pages, counted from 1; PDF pages 32-34 are printed 45-47, and pages 89, 92 and 100 are printed 112, 114 and 122"
     },
     {
       "id": "nsa-finding-aid",
@@ -235,6 +262,37 @@
       "page_numbering": "PDF pages, counted from 1; PDF pages 11 and 13 are printed 10 and 12",
       "review_scope": "Narrative capture and dispatch entries; full-text keyword review; cover and May 8/13/14 entries checked against images",
       "identity_limit": "The title and covered dates match the NN 379 catalog entry and IF 101 bibliography; their exact copy equivalence and the cover's handwritten reference are not established"
+    },
+    {
+      "id": "ticom-i11",
+      "title": "TICOM I-11, Allgemeine Aufgaben der Abteilung Funk, Opt. Signal und Erkennungssignale der 4/SkL II, 11 June 1945",
+      "url": "https://archive.org/download/ticom/TicomI-11.pdf",
+      "local_path": "reports/p1030680/sources/TicomI-11.pdf",
+      "sha256": "630618bb7ef39df9ebdc17fc416eadc18bc29c45dc043174c62f329795897fe6",
+      "read_pages": [1, 4],
+      "page_numbering": "PDF pages, counted from 1; page 4 is printed 2",
+      "review_scope": "Cover and original German account of current key preparation, soluble-ink reproduction and courier distribution at IIcc under Pitzer checked against rendered scans; contingency wheel/ring/plug changes give no Thetis-specific setting or common-net rule"
+    },
+    {
+      "id": "ticom-i24",
+      "title": "TICOM I-24, interrogation of OKM/4 SKL II members on soluble printing inks and German-Japanese communications, 4 July 1945",
+      "url": "https://archive.org/download/ticom/TicomI-24.pdf",
+      "local_path": "reports/p1030680/sources/TicomI-24.pdf",
+      "sha256": "c51352542568d8bc3273cd9766541043ef8094edb8f775bcb072925988f9423c",
+      "read_pages": [1, 6],
+      "page_numbering": "PDF pages, counted from 1; page 6 is printed 6 and contains Pitzer statement 12",
+      "review_scope": "Cover and statement 12 checked against rendered scans; Pitzer reports destruction of the office's retained back keys and names Ob. Insp. Lier as compiler"
+    },
+    {
+      "id": "afsa-df225",
+      "title": "AFSA DF-225, Organization of the Communications Service of the German Navy, 4/SKL, December 1950 translation",
+      "archive_identifier": "TICOM T-1401; Auszug aus Geheimanlage Nr. 71 zu LB.OKM, Blatt 90/1944",
+      "url": "https://archive.org/download/ticom/Df-225KmSigintServiceOrganization.pdf",
+      "local_path": "reports/p1030680/sources/Df-225KmSigintServiceOrganization.pdf",
+      "sha256": "0c431805e59fb0c87d63662e4a46f0010bb4777d8787da10055810386b1f8219",
+      "read_pages": [2, 8],
+      "page_numbering": "PDF pages, counted from 1; PDF page 8 is printed 8",
+      "review_scope": "Cover identifies the translated 1944 German organizational document and refers separately to DF-226; printed 8 assigns naval-key and radio-name production/distribution to IIcc under Pitzer. Both checked against rendered scans."
     },
     {
       "id": "ticom-i38",
@@ -402,6 +460,24 @@
       "status": "verified_selected_pairs",
       "search_effect": "Retain the existing indicator readings; two matching pairs do not establish whole-edition compatibility or the Thetis machine key.",
       "target_key_restriction": false
+    },
+    {
+      "id": "H14",
+      "claim": "Mahon identifies Plaice as the expanded Baltic Laube/Potsdam key from January 1944 and describes Baltic U-boat re-encodings and repeated training messages separately.",
+      "sources": ["mahon-46", "mahon-47", "mahon-96"],
+      "status": "verified_official_history",
+      "search_effect": "Interpret the existing Plaice Grund-table history as Potsdam evidence; Baltic location or a training subject does not identify a Thetis message or justify sharing its key.",
+      "target_key_restriction": false,
+      "unknowns": "No reviewed passage provides a Thetis alias, target-linked plaintext or Thetis daily setting."
+    },
+    {
+      "id": "H15",
+      "claim": "TICOM I-11's original German account and DF-225's translation of a 1944 organization document assign naval-key production/distribution to IIcc under Pitzer; TICOM I-24 records Pitzer's June 1945 statement that 4 SKL II destroyed its retained back keys after reducing its records, and names Ob. Insp. Lier as compiler.",
+      "sources": ["ticom-i11", "ticom-i24", "afsa-df225"],
+      "status": "verified_original_report_translation_and_interrogation_statement",
+      "search_effect": "Use the office and personnel names to locate captured registers and distributed copies; office destruction does not establish that every May Thetis copy was destroyed.",
+      "target_key_restriction": false,
+      "unknowns": "None of the reviewed passages identifies Thetis, a May 1 setting, or an applicable common wheel-order rule."
     }
   ],
   "archival_leads": [
@@ -444,12 +520,13 @@
     {
       "id": "A05",
       "title": "Publication 475: recovered or captured key-sheet contents",
-      "identifier": "R.I.P. 401 printed page 47, cross-reference to publication 475 with its prefix crossed out",
+      "identifier": "R.I.P. 401 printed pages 47, 112, 114 and 122, cross-references to publication 475 with its R.I.P. prefix crossed out",
       "source": "rip-401",
       "catalog_checked": "rip-finding-aid",
       "additional_catalog_checked": ["crane-library-finding-aid"],
       "access_route": "Locate through NARA RG 38 Radio Intelligence Publications or the Crane Collection finding aids",
       "status": "cross_reference_only",
+      "lookup_detail": "Printed page 112 refers to recovered-key tabulation; page 114 points to publication 475 page 35 for Eichendorff/Kleist; page 122 points to pages 925-928 for merchant indicator designators. These references are not Thetis key evidence.",
       "unknowns": "No publication 475 entry was identified in the consulted RIP and Crane Library aids; full title, item, box and Thetis coverage remain unconfirmed"
     },
     {
@@ -522,6 +599,16 @@
       "access_route": "Resolve old inventory numbers in the current PA AA Invenio catalog before any future reading-room or reproduction request",
       "status": "unmatched_mirror_catalog_entries",
       "unknowns": "Year fields are blank; a message distribution list is not established as a cipher-net allotment list, and neither entry identifies Thetis or the target"
+    },
+    {
+      "id": "A13",
+      "title": "Naval-key production and office-record provenance",
+      "identifier": "TICOM I-11, printed 2; TICOM I-24, printed 6 statement 12; AFSA DF-225, printed 8; source document TICOM T-1401, Geheimanlage Nr. 71 zu LB.OKM Blatt 90/1944; DF-226 is a separate cross-reference",
+      "source": "ticom-i24",
+      "additional_sources": ["ticom-i11", "afsa-df225", "nsa-finding-aid"],
+      "access_route": "Public I-11, I-24 and DF-225 scans reviewed; use 4/SKL IIc/IIcc, Pitzer and Ob. Insp. Lier to identify original registers and distributed key copies in current catalogs",
+      "status": "public_reports_reviewed_original_register_unlocated",
+      "unknowns": "No current call number for the original T-1401, DF-226 or a May 1945 key-production register was established; Thetis applicability remains unconfirmed"
     }
   ]
 }

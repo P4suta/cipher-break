@@ -17,7 +17,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -26,5 +26,9 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       - name: Scan history for secrets
         run: mise x gitleaks@8.30.1 -- gitleaks git --redact=100 --no-banner --log-opts=--all .
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Update Cabal package index
+        run: cabal update
       - name: Build, lint and test
         run: mise run check

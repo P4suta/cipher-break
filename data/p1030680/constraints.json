@@ -112,8 +112,8 @@
       "url": "https://cryptocellar.org/enigma/files/nr-4457-rip-401.pdf",
       "local_path": "reports/p1030680/sources/rip-401.pdf",
       "sha256": "81a548ea0baea1c6b45129024eca9262ad4c13800d9dc059e60b193c752823f8",
-      "read_pages": [1, 29, 30, 31, 32, 33, 34, 89, 92, 100],
-      "page_numbering": "PDF pages, counted from 1; PDF pages 32-34 are printed 45-47, and pages 89, 92 and 100 are printed 112, 114 and 122"
+      "read_pages": [1, 29, 30, 31, 32, 33, 34, 68, 89, 92, 100],
+      "page_numbering": "PDF pages, counted from 1; PDF pages 32-34 are printed 45-47, page 68 is printed 92, and pages 89, 92 and 100 are printed 112, 114 and 122"
     },
     {
       "id": "nsa-finding-aid",
@@ -478,6 +478,16 @@
       "search_effect": "Use the office and personnel names to locate captured registers and distributed copies; office destruction does not establish that every May Thetis copy was destroyed.",
       "target_key_restriction": false,
       "unknowns": "None of the reviewed passages identifies Thetis, a May 1 setting, or an applicable common wheel-order rule."
+    },
+    {
+      "id": "H16",
+      "claim": "R.I.P. 401 Figure 24b depicts U-boat exercise traffic in the Baltic under the U-Uebungsschluessel, annotated as renamed Thetis in 1944, separately from the Eastern Baltic Potsdam/Plaice branch.",
+      "sources": ["rip-401"],
+      "pages": "printed 92, Figure 24b; PDF page 68 checked against the rendered original",
+      "status": "verified_primary_chart",
+      "search_effect": "Include the older U-Uebungsschluessel name when locating Thetis records; do not infer a shared Potsdam daily key from Baltic geography.",
+      "target_key_restriction": false,
+      "unknowns": "The chart's 1944 renaming annotation supplies no exact effective date, May 1 machine setting, allocation edition or target-linked plaintext."
     }
   ],
   "archival_leads": [

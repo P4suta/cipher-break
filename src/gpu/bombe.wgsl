@@ -346,7 +346,11 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
                     c = through_backward(params.r2, c, s2);
                     if (((r.board.known >> c) & 1u) == 1u) { c = board_get(r.board, c); }
 
-                    if (i >= offset && i < offset + params.crib) { continue; }
+                    if (i >= offset && i < offset + params.crib) {
+                        g = 0u;
+                        held_letters = 0u;
+                        continue;
+                    }
                     held_letters = held_letters + 1u;
                     g = (g % params.modulus) * 26u + c;
                     if (held_letters >= params.order) {
@@ -354,7 +358,7 @@ fn sweep(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
                         grams = grams + 1u;
                     }
                 }
-                let s = acc / f32(max(grams, 1u));
+                let s = select(-1.0e30, acc / f32(max(grams, 1u)), grams > 0u);
                 if (s > best) {
                     best = s;
                     best_index = index;

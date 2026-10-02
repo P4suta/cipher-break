@@ -327,9 +327,11 @@ pub fn recovery(args: &[String]) -> Result<()> {
         "fixture": "P1030698: 72 letters, ten plug leads", "seed": 1,
         "shuffle_seed": 20_261_002, "nulls": 8, "shortlist": 64,
         "crib_length": 24, "scope": "one known rotor order and composite reflector; all middle/right rings",
+        "crib_cases": [{"offset":0,"length":24},{"offset":0,"length":16},{"offset":30,"length":19}],
         "whole_key_space_validated": false, "tests": []
     });
-    report["full_check_in_this_run"] = json!(!gpu_only);
+    report["full_check_requested"] = json!(!gpu_only);
+    report["full_check_in_this_run"] = json!(false);
     report["provenance_sha256"] = json!(crate::audit::provenance()?);
     json_write(&path, &report)?;
     let start = Instant::now();
@@ -340,6 +342,7 @@ pub fn recovery(args: &[String]) -> Result<()> {
         &mut report,
         gpu_only,
     );
+    report["full_check_in_this_run"] = json!(full_check_ran(&report));
     report["status"] = json!(if result.is_ok() {
         if gpu_only { "gpu_passed" } else { "passed" }
     } else {
@@ -352,6 +355,13 @@ pub fn recovery(args: &[String]) -> Result<()> {
     }
     json_write(&path, &report)?;
     result
+}
+
+fn full_check_ran(report: &Value) -> bool {
+    report["tests"].as_array().is_some_and(|runs| {
+        runs.iter()
+            .any(|run| run["command"]["argv"] == json!(["mise", "run", "check"]))
+    })
 }
 
 fn recover_tests(
@@ -373,12 +383,20 @@ fn recover_tests(
         "data/ciphertext.txt",
         "data/german-quadgrams.txt",
         "data/models.bundle",
+        "data/p1030680/model-corpus.txt",
         "tests/recovery.rs",
     ]
     .iter()
     .map(|p| Ok(((*p).to_owned(), sha(&crate::root().join(p))?)))
     .collect::<Result<_>>()?;
     report["input_sha256"] = json!(inputs);
+    let model_path = crate::root().join("reports/p1030680/naval-quadgrams.txt");
+    fs::write(&model_path, crate::audit::training_model()?.render(1))?;
+    report["scoring_model"] = json!({
+        "sha256":sha(&model_path)?, "base":"data/german-quadgrams.txt",
+        "corpus":"data/p1030680/model-corpus.txt", "training_message":"P1030659",
+        "count_weight":1,"held_out_message":"P1030698", "target_key_restriction":false
+    });
     for (suite, name) in GPU_TESTS {
         let listing = Cmd::new([
             "mise",
@@ -473,6 +491,17 @@ fn exactly_one(output: &str, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requesting_the_full_check_does_not_claim_it_ran() {
+        let mut report = json!({"full_check_requested":true,"tests":[]});
+        assert!(!full_check_ran(&report));
+        report["tests"] = json!([{"command":{"argv":["cargo","test"]}}]);
+        assert!(!full_check_ran(&report));
+        report["tests"] =
+            json!([{"command":{"argv":["mise","run","check"]},"result":{"exit_code":1}}]);
+        assert!(full_check_ran(&report));
+    }
 
     #[test]
     fn a_missing_or_duplicated_gpu_test_cannot_pass() {

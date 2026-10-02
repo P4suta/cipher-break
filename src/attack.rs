@@ -1578,17 +1578,35 @@ fn sift(stops: &mut Vec<Pending>, keep: usize) {
 
 #[must_use]
 pub fn score_outside_the_crib(plain: &[Letter], ctx: &Context, offset: usize, len: usize) -> f64 {
-    let end = (offset + len).min(plain.len());
+    let end = offset.saturating_add(len).min(plain.len());
     if offset >= plain.len() || end <= offset {
         return ctx.score(plain);
     }
-    let mut rest: Vec<Letter> = Vec::with_capacity(plain.len() - (end - offset));
-    rest.extend_from_slice(&plain[..offset]);
-    rest.extend_from_slice(&plain[end..]);
-    if rest.is_empty() {
+    let segments = [&plain[..offset], &plain[end..]];
+    let order = ctx
+        .focus
+        .zip(ctx.focus_scale)
+        .map_or(ctx.judge.order(), |(model, _)| model.order());
+    let grams: usize = segments
+        .iter()
+        .map(|s| s.len().saturating_sub(order.saturating_sub(1)))
+        .sum();
+    if grams == 0 || order == 0 {
         return f64::NEG_INFINITY;
     }
-    ctx.score(&rest)
+    if segments[0].is_empty() {
+        return ctx.score(segments[1]);
+    }
+    if segments[1].is_empty() {
+        return ctx.score(segments[0]);
+    }
+    let effective_len = grams + order - 1;
+    match ctx.focus.zip(ctx.focus_scale) {
+        Some((model, scale)) => scale.standardise(effective_len, model.score_segments(&segments)),
+        None => ctx
+            .scale
+            .standardise(effective_len, ctx.judge.score_segments(&segments)),
+    }
 }
 
 pub const BOMBE_FINISH: usize = 200_000;

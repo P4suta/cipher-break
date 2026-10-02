@@ -257,6 +257,14 @@ impl Polyglot {
     pub fn score(&self, ls: &[Letter]) -> f64 {
         self.fit(ls)
     }
+
+    #[must_use]
+    pub fn score_segments(&self, segments: &[&[Letter]]) -> f64 {
+        self.models
+            .iter()
+            .map(|(_, model)| model.score_segments(segments))
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
 }
 
 #[cfg(test)]
@@ -277,6 +285,19 @@ mod tests {
     fn it_picks_the_language_a_text_belongs_to() {
         assert_eq!(bank().identify(&to_letters("THETHETHEAND")).0, "en");
         assert_eq!(bank().identify(&to_letters("KAKAKIKIKUKU")).0, "xx");
+    }
+
+    #[test]
+    fn separated_segments_share_one_language_choice() {
+        let first = Model::train(3, &to_letters("AAAAAA"));
+        let second = Model::train(3, &to_letters("ZZZZZZ"));
+        let bank = Polyglot::new(vec![("a".into(), first.clone()), ("z".into(), second)]);
+        let a = to_letters("AAA");
+        let z = to_letters("ZZZ");
+        let expected = f64::midpoint(first.score(&a), first.score(&z));
+        assert_eq!(bank.score_segments(&[&a, &z]), expected);
+        assert!(expected < f64::midpoint(bank.score(&a), bank.score(&z)));
+        assert_eq!(Polyglot::default().score_segments(&[&a]), f64::NEG_INFINITY);
     }
 
     #[test]

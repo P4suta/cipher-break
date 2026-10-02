@@ -43,8 +43,9 @@ fn dispatch(args: &[String]) -> Result<()> {
         "p1030680" => match rest.split_first().map(|(a, b)| (a.as_str(), b)) {
             Some(("audit", options)) => audit::run(options),
             Some(("sources", options)) => audit::sources(options),
+            Some(("model", options)) => audit::model(options),
             Some(("recovery", options)) => jobs::recovery(options),
-            _ => bail!("use p1030680 sources, audit, or recovery; see cargo xtask help"),
+            _ => bail!("use p1030680 sources, model, audit, or recovery; see cargo xtask help"),
         },
         "help" | "--help" | "-h" => {
             println!(
@@ -53,6 +54,7 @@ fn dispatch(args: &[String]) -> Result<()> {
                  cargo xtask bench [--period N]\n\
                  cargo xtask cribs LIST [MODEL_PATH_OR_GS_URI]\n\
                  cargo xtask p1030680 sources [--sources DIR]\n\
+                 cargo xtask p1030680 model\n\
                  cargo xtask p1030680 audit [--sources DIR] [--output DIR] [--recovery-result FILE]\n\
                  cargo xtask p1030680 recovery [--max-minutes N] [--gpu-only]  (through domyjob on a cloud GPU)\n\
                  cargo xtask cloud preflight [--project ID] [--zone ZONE] [--machine TYPE]\n\

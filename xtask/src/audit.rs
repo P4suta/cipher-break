@@ -129,6 +129,7 @@ pub fn provenance() -> Result<BTreeMap<String, String>> {
         "xtask/Cargo.toml",
         "data/models.bundle",
         "data/german-quadgrams.txt",
+        "data/p1030680/model-corpus.txt",
         "data/p1030680/candidates.json",
         "data/p1030680/transcription.json",
     ]
@@ -280,10 +281,11 @@ fn build(sources: &Path, recovery_path: &Path) -> Result<(Value, Value)> {
         "matches_current_provenance": recovery["provenance_sha256"] == json!(provenance),
         "result_sha256": if recovery_path.exists() { Some(sha(recovery_path)?) } else { None },
         "argv": ["mise", "x", "--", "cargo", "xtask", "cloud", "run", "gpu", "--standard", "--recovery"],
-        "input": "published P1030698 and synthetic double-step starts", "model": "data/german-quadgrams.txt",
-        "model_sha256": model_sha, "seed": 1, "shuffle_seed": 20_261_002, "nulls": 8,
+        "input": "published P1030698 and synthetic double-step starts", "model": "data/german-quadgrams.txt plus independent P1030659 counts",
+        "model_sha256": model_sha, "corpus_sha256": sha(&root.join("data/p1030680/model-corpus.txt"))?, "seed": 1, "shuffle_seed": 20_261_002, "nulls": 8,
         "rotor_orders": [[4, 3, 8]], "reflectors": ["gamma/W B-thin"],
-        "rings": "all middle/right, left normalized to A", "shortlist": 64, "crib_length": 24,
+        "rings": "all middle/right, left normalized to A", "shortlist": 64,
+        "crib_cases": [{"offset":0,"length":24},{"offset":0,"length":16},{"offset":30,"length":19}],
         "maximum_vm_hours": 2, "maximum_usd": 5
     })];
     let mut candidates = Vec::new();
@@ -373,6 +375,50 @@ fn build(sources: &Path, recovery_path: &Path) -> Result<(Value, Value)> {
             "maximum_search_candidates": 3, "provenance_sha256": provenance, "jobs": jobs
         }),
     ))
+}
+
+pub fn training_model() -> Result<cipher_break::ngram::Model> {
+    let corpus = fs::read_to_string(crate::root().join("data/p1030680/model-corpus.txt"))?;
+    ensure!(
+        corpus.trim().len() == 92 && corpus.trim().bytes().all(|c| c.is_ascii_uppercase()),
+        "expected the 92-letter reviewed training prefix"
+    );
+    Ok(cipher_break::ngram::Model::parse(&fs::read_to_string(
+        crate::root().join("data/german-quadgrams.txt"),
+    )?)
+    .context("German base model")?
+    .supplemented(&cipher_break::alphabet::to_letters(&corpus)))
+}
+
+pub fn model(args: &[String]) -> Result<()> {
+    ensure!(args.is_empty(), "model takes no options");
+    let root = crate::root();
+    let corpus_path = root.join("data/p1030680/model-corpus.txt");
+    let source = root.join("reports/p1030680/sources/P1030659.html");
+    ensure!(
+        sha(&source)? == "52d35174309e8000ca6039308b26474fe85cf6f28219ff2ea63da1805cc0f171",
+        "the training source differs from the reviewed publisher page"
+    );
+    let corpus = fs::read_to_string(&corpus_path)?;
+    ensure!(
+        published_plaintext(&source)?.starts_with(corpus.trim()),
+        "the training prefix differs from its source"
+    );
+    let base = root.join("data/german-quadgrams.txt");
+    let model = training_model()?;
+    let output = root.join("reports/p1030680/naval-quadgrams.txt");
+    fs::write(&output, model.render(1))?;
+    json_write(
+        &root.join("reports/p1030680/naval-model.json"),
+        &json!({
+            "model":output,"sha256":sha(&output)?,"base_sha256":sha(&base)?,"corpus_sha256":sha(&corpus_path)?,
+            "training_message":"P1030659","training_source":"https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030659",
+            "source_sha256":sha(&source)?,"letters":92,"count_weight":1,"held_out_message":"P1030698",
+            "target_key_restriction":false,"order":model.order(),"counts":model.total()
+        }),
+    )?;
+    println!("model: {}", output.display());
+    Ok(())
 }
 
 pub fn sources(args: &[String]) -> Result<()> {

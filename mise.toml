@@ -19,7 +19,7 @@ run = "cabal build all"
 
 [tasks.test]
 description = "Run the Rust suites: unit, then the planted ciphers"
-run = ["cargo test --release --lib", "cargo test --release --test solves"]
+run = "cargo test --release"
 
 [tasks."test:reference"]
 description = "Run the Haskell reference suite"
@@ -42,6 +42,7 @@ depends = ["build", "build:reference", "lint", "test", "test:reference", "agree"
 
 [tasks.agree]
 description = "Check that Rust and the Haskell reference agree on the same ciphertext"
+depends = ["build", "test:reference"]
 # Two implementations are only worth having while they answer alike.
 # This compares the statistic both compute without any search in it, so a drift in the arithmetic shows up before it can hide inside a sweep.
 run = """

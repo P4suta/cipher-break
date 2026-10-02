@@ -178,6 +178,21 @@ Tests plant keys in real ciphers and demand them back — a Caesar shift, a Vige
 The root is Rust: the same algorithms, written to be fast.
 They share `data/`, so a model trained by either is read by both, and `mise run agree` checks that they still answer alike.
 
+## Development
+
+`rust-toolchain.toml` pins Rust, and `mise.toml` pins GHC and Cabal.
+With rustup and mise installed:
+
+```console
+$ mise install
+$ mise run check
+```
+
+The check builds both implementations, checks Rust formatting and Clippy, runs the test suites, and compares their diagnostics on the committed ciphertext.
+Exhaustive Enigma sweeps and GPU integration tests are marked `#[ignore]`; run a selected test explicitly when working on those attacks.
+
+GitHub Actions runs the same check and scans the Git history for secrets on pushes and pull requests.
+
 ## Licence
 
 MIT or Apache-2.0, at your option.

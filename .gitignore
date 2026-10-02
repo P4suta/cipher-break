@@ -9,3 +9,20 @@
 # njutest writes a directory per run; the verdict belongs in a commit message,
 # not in the tree.
 /reports/
+
+# Local configuration and credentials.
+.env
+.env.*
+!.env.example
+/mise.local.toml
+/.mise.local.toml
+/.aws/
+/.gcloud/
+/.ssh/
+credentials*.json
+*service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+.DS_Store

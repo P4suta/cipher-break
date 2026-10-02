@@ -1,0 +1,342 @@
+{
+  "crib_length": 24,
+  "finished_at": "2026-10-02T18:54:30.093938822Z",
+  "fixture": "P1030698: 72 letters, ten plug leads",
+  "full_check_in_this_run": false,
+  "input_sha256": {
+    "data/ciphertext.txt": "694a947107250fe317e94da50b267a772988591f72b3e3462dae601bdc70a6fc",
+    "data/german-quadgrams.txt": "2b726fd11d6f516f06e9d469b0b97d6a1004fc490acf1ba55f6f70e36d166296",
+    "data/models.bundle": "dcc99fdd06d9be1c52b5ffc0ee579867c232c98337eb27a6a79d9db35b43a884",
+    "tests/recovery.rs": "f684ab0a31bf736d395e3000e2108350d627ab89fbf3ac60cae1264af35b355b"
+  },
+  "maximum_minutes": 45,
+  "nulls": 8,
+  "provenance_sha256": {
+    ".cargo/config.toml": "94ed02ac777763c481ec7d838b4399b2ba1541ffd26eb69acda495f43d85d67c",
+    "Cargo.lock": "dceda7614a9ee5c6d832ce135b4fb22700e7fe5e7f72c86f1717f57ad5a8afa2",
+    "Cargo.toml": "98844022903ea8ba19485d0f21251dc2a34a83a580a3412b73522cb05793c3b4",
+    "data/cloud-prices.json": "70a7ca4aedf6c3dc6b744548ceaa9772ef4f42dfa47d4d9b3e7b6dbd9b984879",
+    "data/german-quadgrams.txt": "2b726fd11d6f516f06e9d469b0b97d6a1004fc490acf1ba55f6f70e36d166296",
+    "data/models.bundle": "dcc99fdd06d9be1c52b5ffc0ee579867c232c98337eb27a6a79d9db35b43a884",
+    "data/p1030680/candidates.json": "142aa5da24246de0961aee16508bcb6bbb2f91f27762cd74f76c351787b63324",
+    "data/p1030680/transcription.json": "80f604ebd59599acdfd60904d12e4dd83c21dec670566cd70ebb74593cc54406",
+    "mise.toml": "91d512f6f6216b12171e3dfdd07c3e3146c1d51a09b761bb6fd26ded629335f1",
+    "rust-toolchain.toml": "4d7d5425fe623392e565a964fc135c563c316ce125058199eb40b2953ba6ecbb",
+    "src/alphabet.rs": "ac9456d16f301801677ec25ac50db059b7611b1ed8cf7ab78ced2bd0d1246ac0",
+    "src/anneal.rs": "9f371997058330b3ba9d98973a55277b63b90bc435edf8534789d213eace3adf",
+    "src/attack.rs": "b7314af8f10b1a4c2daab8f3f67d7937bb49320de3fe6d85cf2f1e587d7fc8c9",
+    "src/bombe.rs": "56f9ab5d485cb3af7ac6db3e5a530d723b24fd1847a42ab96ce209de84660757",
+    "src/ciphers/autokey.rs": "09a10d1de243fdd0ed6318227c298f9e0f43435d488716e3db05a357516116e6",
+    "src/ciphers/bifid.rs": "a0f16949bf2ee5dd4d80fad0e4ecc0822d1efc603ac6ce28451bd1215188ea88",
+    "src/ciphers/enigma.rs": "db099c06296e24d6aac446c3e9ab8354b3ac6b5566c5b03dc8934c21699afe03",
+    "src/ciphers/hill.rs": "4bb864f77e70f32f2d903455dda7769537ccea34535135f23b017e7f0dd1c9d0",
+    "src/ciphers/mod.rs": "025c2f982bc02c339a439ae931cc4a7fa553b45e21f68dd0ff03fef2b8ff9447",
+    "src/ciphers/periodic.rs": "5c95633bed3b02688cc4f29343f0035066beb75c8a2ba6d8e3da093c541e3c42",
+    "src/ciphers/playfair.rs": "938108562694394501b16c5614d8c11067eb553e7a6e3541415596994da60a7f",
+    "src/ciphers/porta.rs": "6af445a3a51aecbb6f2959a9e7c713b54dc4f7859aabe71be6332b83c89f9573",
+    "src/ciphers/substitution.rs": "a531789b292c051fd636761cba5fe52dd48ee725cd3d9b92a62e547582c933f7",
+    "src/ciphers/transposition.rs": "0d0b7c4b658d3ff5089c494989d9ef0b54328886f7beeec14eb81a47cfded94d",
+    "src/crib.rs": "64ffe2d216f49381c6f6f11fa559dd21d555c8a249947b5c2c51d700beba849c",
+    "src/enigma_types.rs": "84d025a8294230065cfafae58f92f4c718d6faf9f61f3d900f98a181e7ad8f65",
+    "src/gpu.rs": "bdba234d2df3104f51a69cb3108e642b9c09c046188b128ab21a7552ad6d0a48",
+    "src/gpu/bombe.wgsl": "1791093ead123d8b80c4274dce08be908a79635b279a55642aa3b59dcbff5497",
+    "src/gpu/enigma.wgsl": "c012e33df51c87722d7317b5070e720c06a3a05916ff52384bb40eb1cfc86350",
+    "src/gpu/periodic.wgsl": "c5107f09e98675477790e0ffc1147a96aa8d62863fc98692dfe9f595982d8c4d",
+    "src/gpu/plugboard.wgsl": "43fc4867dfc4451c0189d7287d50eb37750f112205a4de0c27f7f2b905603ffd",
+    "src/lib.rs": "3d6c18acca4a732f202f8a86fa0bb86707fad213d2f73ce75a0aec9ebf467333",
+    "src/main.rs": "63363836b9c063db194a82a1ac0d856591891c339de1b07d1b668414cbc708f5",
+    "src/ngram.rs": "fce1e920715f1cfdc627d12b61135b62bdb571d314aff68ed5fa0d6bcdb3548d",
+    "src/polyglot.rs": "34c0127e62d08d8c4124579836bcd5a4a7e04ab8c30dd83b4164ccace8045fa0",
+    "src/report.rs": "8d5e50ae4d0d2b615f61a6bca618e675bff36b5f0d47b549c134f77362282c18",
+    "src/rng.rs": "7b5ee863497dee314be20f66b7b88526fb730f470bd9dca8f54d38ce3f809beb",
+    "src/square.rs": "81ba44fd8180ecc2f529bcaaf519207d50122b9cb050e4ad35ea00cb549f9a37",
+    "src/stats.rs": "e25749ada5f6bc9721e824c05f5aaf0181338188748ee46a66b33a5d575eff1c",
+    "src/sweep.rs": "34897c117de04bf47de5924c6b7e9d9bc70f313721c40cf7fdb51678c4aa65a7",
+    "src/trace.rs": "34bbb644654fc2be311536f8904ecc857610d91939417a01cfae1631b36dd9f9",
+    "src/triage.rs": "3593b246f754c351860305416c36035c4c171d0d307e41c5ef3a8ea74358c807",
+    "tests/enigma.rs": "46bc424f32f19b3fb28201c83dc2256a62ca36e2417066feee30aff7dfe55fbc",
+    "tests/recovery.rs": "f684ab0a31bf736d395e3000e2108350d627ab89fbf3ac60cae1264af35b355b",
+    "xtask/Cargo.toml": "bf09baeea6b9c6d72810ddb9369656382b59351753ba507c87d14a4777dbf6b8",
+    "xtask/assets/gcp/SKILL.md": "40ba773c5826a6d19ea2b6b5e6350f123369d65450956fefe0835dd993e217e8",
+    "xtask/assets/gcp/references/clients.md": "028540b92caf44c6114645442c754ee443c790f6bfbf0c332f559bba20489577",
+    "xtask/src/audit.rs": "c36045b676a0aa63309f1f2e8a99f074404f92024dcc77d03c1e5dfae5d42290",
+    "xtask/src/bootstrap.rs": "b51437545f1f5407dc2cbebb9af3382a4dd1295e778d58240abe102813c89d72",
+    "xtask/src/cloud.rs": "9d4c8d74aa2d7c51e06b9f69ecd110fc422055e53adce4c79616a80ebcb9004a",
+    "xtask/src/gcp.rs": "48cfcb77c615fcb84ceb7a962b477ceb5843e8d14d520fbd4e5dc1662abe3abd",
+    "xtask/src/jobs.rs": "2ef4d40a3bcc2929d4ef1005351c911fcf197ff2d4f9c40ec23b761ab83f61d7",
+    "xtask/src/main.rs": "fb2ef4d7515a71d3c470e7526c2cd158dfeaf9834f8f41e4baad309e0d1f212a",
+    "xtask/src/process.rs": "ece8abe2b5a97ece3f2be5c8d0d46d4409bc782f9d1d77f9888a53ff37c34afe",
+    "xtask/src/runner.rs": "0aadae8c4cb66d98e6bf400ce9b59160fad28792a2535e86f05540be34ecd8bf"
+  },
+  "scope": "one known rotor order and composite reflector; all middle/right rings",
+  "seconds": 295.668050842,
+  "seed": 1,
+  "shortlist": 64,
+  "shuffle_seed": 20261002,
+  "started_at": "2026-10-02T18:49:34.325924111Z",
+  "status": "gpu_passed",
+  "tests": [
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "trust",
+          "--yes"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 0.020662593,
+        "stderr": "mise trusted ~/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace\n",
+        "stdout": "",
+        "timed_out": false
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "install"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 188.193143368,
+        "stderr": "mise by @jdx – installing 2 tools\nmise plugin:ghc      clone https://github.com/mise-plugins/mise-ghcup.git\nmise plugin:ghc    ✓ https://github.com/mise-plugins/mise-ghcup.git#a6407a2\nmise ghc@9.14.1 \u001b[1m\u001b[92m[ Info  ]\u001b[0m\u001b[0m downloading: https://downloads.haskell.org/~ghc/9.14.1/ghc-9.14.1-x86_64-ubuntu24_04-linux.tar.xz as file /home/yasunobu/.local/share/mise/plugins/ghc/.ghcup/tmp/ghcup-93c2b0fd135c327b/ghc-9.14.1-x86_64-ubuntu24_04-linux.tar.xz\nmise ghc@9.14.1   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\nmise ghc@9.14.1                                  Dload  Upload   Total   Spent    Left  Speed\nmise ██████░░░░░░░░░░ 0/2 · 3.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  2.4s\n  cabal@3.16.1.0  extracting                                   2.4s\nmise ✓ cabal@3.16.1.0  2.4s  cabal-install-3.16.1.0-x86_64-linux-alpine3_12.tar.xz\nmise ████████░░░░░░░░ 1/2 · 6.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  5.4s\nmise ghc@9.14.1 \r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r 10  294M   10 30.2M    0     0   118M      0  0:00:02 --:--:--  0:00:02  118M\r 43  294M   43  127M    0     0   101M      0  0:00:02  0:00:01  0:00:01  101M\r 52  294M   52  154M    0     0  68.4M      0  0:00:04  0:00:02  0:00:02 68.4M\r 61  294M   61  182M    0     0  55.9M      0  0:00:05  0:00:03  0:00:02 55.8M\r 71  294M   71  209M    0     0  49.2M      0  0:00:05  0:00:04  0:00:01 49.2M\r 81  294M   81  239M    0     0  45.6M      0  0:00:06  0:00:05  0:00:01 41.9M\r 90  294M   90  267M    0     0  42.7M      0  0:00:06  0:00:06 --:--:-- 27.9M\r100  294M  100  294M    0     0  41.5M      0  0:00:07  0:00:07 --:--:-- 29.0M\nmise ghc@9.14.1 \u001b[1m\u001b[92m[ Info  ]\u001b[0m\u001b[0m verifying digest of: ghc-9.14.1-x86_64-ubuntu24_04-linux.tar.xz\nmise ████████░░░░░░░░ 1/2 · 9.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  8.4s\nmise ghc@9.14.1 \u001b[1m\u001b[92m[ Info  ]\u001b[0m\u001b[0m isolated installing Cabal to /home/yasunobu/.local/share/mise/installs/ghc/9.14.1\nmise ghc@9.14.1 \u001b[1m\u001b[92m[ Info  ]\u001b[0m\u001b[0m Unpacking: ghc-9.14.1-x86_64-ubuntu24_04-linux.tar.xz to /home/yasunobu/.local/share/mise/plugins/ghc/.ghcup/tmp/ghcup-884c29395885cb78\nmise ████████░░░░░░░░ 1/2 · 12.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  11.4s\nmise ████████░░░░░░░░ 1/2 · 15.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  14.4s\nmise ████████░░░░░░░░ 1/2 · 18.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  17.4s\nmise ████████░░░░░░░░ 1/2 · 21.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  20.4s\nmise ████████░░░░░░░░ 1/2 · 24.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  23.4s\nmise ████████░░░░░░░░ 1/2 · 27.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  26.4s\nmise ████████░░░░░░░░ 1/2 · 30.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  29.4s\nmise ████████░░░░░░░░ 1/2 · 33.0s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  32.4s\nmise ghc@9.14.1 \u001b[1m\u001b[92m[ Info  ]\u001b[0m\u001b[0m Installing ghc\nmise ████████░░░░░░░░ 1/2 · 36.3s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  35.7s\nmise ████████░░░░░░░░ 1/2 · 39.9s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  39.3s\nmise ghc@9.14.1 \r\u001b[6A\u001b[0J\nmise ████████░░░░░░░░ 1/2 · 43.9s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  43.3s\nmise ████████░░░░░░░░ 1/2 · 48.3s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  47.7s\nmise ████████░░░░░░░░ 1/2 · 53.2s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  52.5s\nmise ████████░░░░░░░░ 1/2 · 58.5s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  57.8s\nmise ████████░░░░░░░░ 1/2 · 64.3s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  63.7s\nmise ████████░░░░░░░░ 1/2 · 70.7s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  70.1s\nmise ████████░░░░░░░░ 1/2 · 77.8s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  77.2s\nmise ████████░░░░░░░░ 1/2 · 85.6s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  85.0s\nmise ████████░░░░░░░░ 1/2 · 94.2s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  93.5s\nmise ████████░░░░░░░░ 1/2 · 103.6s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  103.0s\nmise ████████░░░░░░░░ 1/2 · 113.9s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  113.3s\nmise ████████░░░░░░░░ 1/2 · 125.3s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  124.7s\nmise ████████░░░░░░░░ 1/2 · 137.9s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  137.2s\nmise ████████░░░░░░░░ 1/2 · 151.7s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  151.0s\nmise ████████░░░░░░░░ 1/2 · 166.8s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  166.2s\nmise ████████░░░░░░░░ 1/2 · 183.5s\n  ghc@9.14.1      ~/.local/share/mise/plugins/ghc/bin/install  182.9s\nmise ghc@9.14.1 \r\u001b[6A\u001b[0J\u001b[1m\u001b[92m[ Info  ]\u001b[0m\u001b[0m ghc installation successful\nmise ✓ ghc@9.14.1      187.5s\nmise ████████████████ 2/2 · installed 2 tools in 188.2s\n",
+        "stdout": "",
+        "timed_out": false
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "rustc",
+          "--version"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 0.040816881,
+        "stderr": "",
+        "stdout": "rustc 1.98.1 (48a229cea 2026-09-01)\n",
+        "timed_out": false
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "--version"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 0.040573591,
+        "stderr": "",
+        "stdout": "cargo 1.98.1 (797e8a9bc 2026-08-05)\n",
+        "timed_out": false
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "enigma",
+          "--",
+          "--ignored",
+          "--exact",
+          "device::the_device_refutes_exactly_what_the_processor_refutes",
+          "--list"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 77.510960932,
+        "stderr": " Downloading crates ...\n  Downloaded arrayvec v0.7.8\n  Downloaded libloading v0.8.9\n  Downloaded cfg_aliases v0.2.2\n  Downloaded renderdoc-sys v1.1.0\n  Downloaded hexf-parse v0.2.1\n  Downloaded gpu-descriptor-types v0.2.0\n  Downloaded wgpu-core-deps-windows-linux-android v27.0.0\n  Downloaded bit-set v0.8.0\n  Downloaded profiling v1.0.18\n  Downloaded document-features v0.2.12\n  Downloaded gpu-descriptor v0.3.2\n  Downloaded scopeguard v1.2.0\n  Downloaded pollster v0.4.0\n  Downloaded gpu-alloc-types v0.3.1\n  Downloaded foldhash v0.2.0\n  Downloaded raw-window-handle v0.6.2\n  Downloaded termcolor v1.4.1\n  Downloaded autocfg v1.5.1\n  Downloaded bit-vec v0.8.0\n  Downloaded khronos-egl v6.0.0\n  Downloaded rustc-hash v1.1.0\n  Downloaded thiserror-impl v2.0.20\n  Downloaded bytemuck_derive v1.12.1\n  Downloaded foldhash v0.1.5\n  Downloaded gpu-alloc v0.6.2\n  Downloaded pkg-config v0.3.34\n  Downloaded spirv v0.3.0+sdk-1.3.268.0\n  Downloaded static_assertions v1.1.0\n  Downloaded lock_api v0.4.14\n  Downloaded thiserror v2.0.20\n  Downloaded smallvec v1.16.1\n  Downloaded litrs v1.0.0\n  Downloaded codespan-reporting v0.12.0\n  Downloaded parking_lot v0.12.5\n  Downloaded once_cell v1.21.4\n  Downloaded ordered-float v5.5.0\n  Downloaded bytemuck v1.25.2\n  Downloaded num-traits v0.2.19\n  Downloaded parking_lot_core v0.9.12\n  Downloaded bitflags v2.13.2\n  Downloaded log v0.4.34\n  Downloaded half v2.7.1\n  Downloaded wgpu-types v27.0.1\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded hashbrown v0.16.1\n  Downloaded glow v0.16.0\n  Downloaded hashbrown v0.15.5\n  Downloaded libm v0.2.16\n  Downloaded wgpu v27.0.1\n  Downloaded unicode-width v0.2.2\n  Downloaded zerocopy v0.8.57\n  Downloaded syn v2.0.119\n  Downloaded wgpu-core v27.0.3\n  Downloaded wgpu-hal v27.0.4\n  Downloaded ash v0.38.0+1.3.281\n  Downloaded naga v27.0.3\n  Downloaded libc v0.2.189\n   Compiling proc-macro2 v1.0.107\n   Compiling quote v1.0.47\n   Compiling unicode-ident v1.0.26\n   Compiling cfg_aliases v0.2.2\n   Compiling bitflags v2.13.2\n   Compiling cfg-if v1.0.5\n   Compiling libm v0.2.16\n   Compiling autocfg v1.5.1\n   Compiling libc v0.2.189\n   Compiling zerocopy v0.8.57\n   Compiling thiserror v2.0.20\n   Compiling parking_lot_core v0.9.12\n   Compiling naga v27.0.3\n   Compiling libloading v0.8.9\n   Compiling scopeguard v1.2.0\n   Compiling ash v0.38.0+1.3.281\n   Compiling foldhash v0.1.5\n   Compiling num-traits v0.2.19\n   Compiling smallvec v1.16.1\n   Compiling khronos-egl v6.0.0\n   Compiling equivalent v1.0.2\n   Compiling crossbeam-utils v0.8.23\n   Compiling bit-vec v0.8.0\n   Compiling hashbrown v0.17.1\n   Compiling log v0.4.34\n   Compiling unicode-width v0.2.2\n   Compiling foldhash v0.2.0\n   Compiling hashbrown v0.15.5\n   Compiling hashbrown v0.16.1\n   Compiling codespan-reporting v0.12.0\n   Compiling syn v3.0.6\n   Compiling syn v2.0.119\n   Compiling indexmap v2.14.2\n   Compiling bit-set v0.8.0\n   Compiling lock_api v0.4.14\n   Compiling spirv v0.3.0+sdk-1.3.268.0\n   Compiling gpu-alloc-types v0.3.1\n   Compiling gpu-descriptor-types v0.2.0\n   Compiling wgpu-hal v27.0.4\n   Compiling hexf-parse v0.2.1\n   Compiling crossbeam-epoch v0.9.21\n   Compiling rustc-hash v1.1.0\n   Compiling once_cell v1.21.4\n   Compiling arrayvec v0.7.8\n   Compiling gpu-alloc v0.6.2\n   Compiling gpu-descriptor v0.3.2\n   Compiling ordered-float v5.5.0\n   Compiling parking_lot v0.12.5\n   Compiling renderdoc-sys v1.1.0\n   Compiling raw-window-handle v0.6.2\n   Compiling crossbeam-deque v0.8.8\n   Compiling glow v0.16.0\n   Compiling profiling v1.0.18\n   Compiling wgpu-core v27.0.3\n   Compiling rayon-core v1.13.0\n   Compiling litrs v1.0.0\n   Compiling wgpu v27.0.1\n   Compiling either v1.18.0\n   Compiling static_assertions v1.1.0\n   Compiling document-features v0.2.12\n   Compiling pollster v0.4.0\n   Compiling thiserror-impl v2.0.20\n   Compiling bytemuck_derive v1.12.1\n   Compiling rayon v1.12.0\n   Compiling zerocopy-derive v0.8.57\n   Compiling bytemuck v1.25.2\n   Compiling wgpu-types v27.0.1\n   Compiling half v2.7.1\n   Compiling wgpu-core-deps-windows-linux-android v27.0.0\n   Compiling cipher-break v0.1.0 (/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace)\n    Finished `release` profile [optimized] target(s) in 1m 17s\n     Running tests/enigma.rs (target/release/deps/enigma-767d8029dc18ae3e)\n",
+        "stdout": "device::the_device_refutes_exactly_what_the_processor_refutes: test\n\n1 test, 0 benchmarks\n",
+        "timed_out": false
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "enigma",
+          "--",
+          "--ignored",
+          "--exact",
+          "device::the_device_refutes_exactly_what_the_processor_refutes",
+          "--nocapture"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 3.586413136,
+        "stderr": "    Finished `release` profile [optimized] target(s) in 0.09s\n     Running tests/enigma.rs (target/release/deps/enigma-767d8029dc18ae3e)\nerror: XDG_RUNTIME_DIR is invalid or not set in the environment.\n",
+        "stdout": "\nrunning 1 test\n  processor 24861 stops, device 24861 stops\ntest device::the_device_refutes_exactly_what_the_processor_refutes ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 3.10s\n\n",
+        "timed_out": false
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "enigma",
+          "--",
+          "--ignored",
+          "--exact",
+          "device::climbs_a_plugboard_exactly_as_the_processor_does",
+          "--list"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 0.141204036,
+        "stderr": "    Finished `release` profile [optimized] target(s) in 0.09s\n     Running tests/enigma.rs (target/release/deps/enigma-767d8029dc18ae3e)\n",
+        "stdout": "device::climbs_a_plugboard_exactly_as_the_processor_does: test\n\n1 test, 0 benchmarks\n",
+        "timed_out": false
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "enigma",
+          "--",
+          "--ignored",
+          "--exact",
+          "device::climbs_a_plugboard_exactly_as_the_processor_does",
+          "--nocapture"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 3.561538654,
+        "stderr": "    Finished `release` profile [optimized] target(s) in 0.09s\n     Running tests/enigma.rs (target/release/deps/enigma-767d8029dc18ae3e)\nerror: XDG_RUNTIME_DIR is invalid or not set in the environment.\n",
+        "stdout": "\nrunning 1 test\n  naval, short, ring A         device -9.5044 (-9.5044 here, 2 leads), processor -9.5044\n  naval, long, ring A          device -9.6129 (-9.6129 here, 3 leads), processor -9.6129\n  naval, short, right ring T   device -9.8513 (-9.8513 here, 3 leads), processor -9.8513\n  naval, short, middle ring F  device -9.8513 (-9.8513 here, 3 leads), processor -9.8513\n  naval, long, right ring T    device -9.6129 (-9.6129 here, 3 leads), processor -9.6129\ntest device::climbs_a_plugboard_exactly_as_the_processor_does ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 3.10s\n\n",
+        "timed_out": false
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "recovery",
+          "--",
+          "--ignored",
+          "--exact",
+          "the_gpu_shortlist_recovers_ten_leads_and_rejects_shuffles",
+          "--list"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 19.146029264,
+        "stderr": "   Compiling cipher-break v0.1.0 (/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace)\n    Finished `release` profile [optimized] target(s) in 19.09s\n     Running tests/recovery.rs (target/release/deps/recovery-feb128b664f526bb)\n",
+        "stdout": "the_gpu_shortlist_recovers_ten_leads_and_rejects_shuffles: test\n\n1 test, 0 benchmarks\n",
+        "timed_out": false
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "recovery",
+          "--",
+          "--ignored",
+          "--exact",
+          "the_gpu_shortlist_recovers_ten_leads_and_rejects_shuffles",
+          "--nocapture"
+        ],
+        "cwd": "/home/yasunobu/.local/state/domyjob/runner-3db79bcab20ee4db/jobs/6939a038d8d1a34082c635855a1c09fe/workspace",
+        "env": {}
+      },
+      "result": {
+        "exit_code": 0,
+        "seconds": 3.121172745,
+        "stderr": "    Finished `release` profile [optimized] target(s) in 0.10s\n     Running tests/recovery.rs (target/release/deps/recovery-feb128b664f526bb)\nerror: XDG_RUNTIME_DIR is invalid or not set in the environment.\n",
+        "stdout": "\nrunning 1 test\nGPU: Tesla T4\nsweep: 2 stops, 2 shortlisted, 0.084s\nrecovered: gamma/W B-thin, rotors [4, 3, 8], rings AAH, start PVE, plugs CH EJ NV OU TY LG SZ PK DI QB\nTTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX\nshuffle 0: -inf\nshuffle 1: -inf\nshuffle 2: -inf\nshuffle 3: -inf\nsweep: 0 stops, 0 shortlisted, 0.074s\nshuffle 4: -inf\nshuffle 5: -inf\nshuffle 6: -inf\nshuffle 7: -inf\npilot empirical p: 1/9; eight shuffles cannot establish p < 0.001\ntest the_gpu_shortlist_recovers_ten_leads_and_rejects_shuffles ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 2.62s\n\n",
+        "timed_out": false
+      }
+    }
+  ],
+  "whole_key_space_validated": false
+}

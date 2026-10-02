@@ -1,0 +1,259 @@
+{
+  "version": 1,
+  "reviewed_on": "2026-10-03",
+  "input_version": "body-v1",
+  "sources": [
+    {
+      "id": "kbook-992",
+      "title": "Kenngruppenbuch, M.Dv.98, Berlin 1941, copy 992",
+      "url": "https://www.cryptomuseum.com/crypto/enigma/m4/files/KBuch_1941_992_q50.pdf",
+      "local_path": "reports/p1030680/sources/KBuch_1941_992.pdf",
+      "sha256": "c2ed6369d69d62ce3b40e7c07f23ac44a0a9fbc80cdecfd4bf4becfe8b830445",
+      "read_pages": [12, 13, 115, 116],
+      "page_numbering": "PDF pages, counted from 1; pages 12 and 13 are printed VIII and IX"
+    },
+    {
+      "id": "mahon-108",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 108",
+      "archive_identifier": "TNA HW 25/2; Turing Digital Archive A09",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-110.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-110.gif",
+      "sha256": "7563f3dc10188978932e46d0a65785a716d3acb92c6fe4170360770b68ee160f"
+    },
+    {
+      "id": "mahon-109",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 109",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-111.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-111.gif",
+      "sha256": "27fd8c7a41264c58ec7c21d43a6e05a9a4a9e55656823dee980795f334928bbe"
+    },
+    {
+      "id": "mahon-110",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 110",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-112.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-112.gif",
+      "sha256": "c66a6eb4bef2cd6eec5a9b89d2148f9911a63586415eb0e577f0d116edc1e92d"
+    },
+    {
+      "id": "mahon-111",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 111",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-113.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-113.gif",
+      "sha256": "3dea4e11cf8447215d4b2f7ff6c09ed4c65d1ea08874e591501a8b2bf3438e2b"
+    },
+    {
+      "id": "mahon-112",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 112",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-114.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-114.gif",
+      "sha256": "621e4bbf331489d9cfc5a99d8e2bed173ddeb123491f5d2afe4636da76350d77"
+    },
+    {
+      "id": "mahon-113",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 113",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-115.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-115.gif",
+      "sha256": "6c643aec99625f3a8b2e6e4609b00957af2ca56ca831a8e9b8b68730f90db2bc"
+    },
+    {
+      "id": "mahon-114",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 114",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-116.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-116.gif",
+      "sha256": "f4bb880a79867952b18d544b3547e5c9d33420cf31692fbdd2d8592b290aeeb5"
+    },
+    {
+      "id": "published-potsdam-keys",
+      "title": "The U-534 messages: recovered daily Potsdam keys",
+      "url": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=The+messages",
+      "local_path": "reports/p1030680/sources/The_messages.html",
+      "sha256": "ac259197eb1bf3f7a187e02bfe6c5f572054739804888f2758ea043714a1874d"
+    },
+    {
+      "id": "mdv-32-3-62",
+      "title": "Der Schluessel M, Allgemeine Bestimmungen, M.Dv.32/3, Berlin 1941, amended copy 62",
+      "url": "https://www.cryptomuseum.com/crypto/enigma/m4/files/Schluessel_M_Allgemeine_Bestimmungen_1941_62.pdf",
+      "local_path": "reports/p1030680/sources/Schluessel_M_Allgemeine_Bestimmungen_1941_62.pdf",
+      "sha256": "325b000426fd2613649493dc5e510159e760c830b7e7cb14cbf42db092a2de1a",
+      "read_pages": [1, 3, 34, 35],
+      "page_numbering": "PDF pages, counted from 1; PDF pages 34 and 35 are printed 33 and 34a, Deckblatt 8"
+    },
+    {
+      "id": "rip-401",
+      "title": "R.I.P. 401, German Naval Ciphers, public partial copy",
+      "archive_identifier": "NARA RG 457, Entry A1 9032, Box 1393, NR 4457, ACNR 35285A, catalog 2811218",
+      "url": "https://cryptocellar.org/enigma/files/nr-4457-rip-401.pdf",
+      "local_path": "reports/p1030680/sources/rip-401.pdf",
+      "sha256": "81a548ea0baea1c6b45129024eca9262ad4c13800d9dc059e60b193c752823f8",
+      "read_pages": [1, 29, 30, 31, 32, 33, 34],
+      "page_numbering": "PDF pages, counted from 1; PDF pages 32-34 are printed 45-47"
+    },
+    {
+      "id": "nsa-finding-aid",
+      "title": "NARA RG 457 Historic Cryptographic Collection, box list, maritime.org mirror",
+      "url": "https://www.maritime.org/doc/nara/nsaopendoor.php",
+      "local_path": "reports/p1030680/sources/nsaopendoor.html",
+      "sha256": "7de3c074e344ba07718914d98b972a80c2ef92af9ec05b2a256843c78ffe8178",
+      "review_scope": "Boxes 37, 38-39, 73, 620 and 1393; matching identifiers are catalog leads, not examined holdings"
+    },
+    {
+      "id": "rip-finding-aid",
+      "title": "NARA RG 38 Radio Intelligence Publications finding aid, maritime.org mirror",
+      "url": "https://maritime.org/doc/nara/ripdocs.php",
+      "local_path": "reports/p1030680/sources/rip-finding-aid.html",
+      "sha256": "20903547a3148280c8db6cfae76b43d679864467883d2c6d94b88b2592c4b441",
+      "review_scope": "Box 168 lists R.I.P. 401, Copy 25; publication 475 is not listed in the consulted aid"
+    },
+    {
+      "id": "ncm-library-catalog",
+      "title": "National Cryptologic Museum Library catalog",
+      "url": "https://www.nsa.gov/portals/75/documents/about/cryptologic-heritage/museum/national-cryptologic-museum-library-catalog.pdf",
+      "review_scope": "Indexed catalog entry VF 6-44 for TICOM NN 379; the report itself was not read",
+      "retrieval_status": "Web catalog excerpt read; direct PDF download returned HTTP 403"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "H01",
+      "claim": "The published 568/AAEL, 438/AACU and 528/AAFB keys are dated 30 April, 1 May and 2 May 1945, respectively, on Potsdam.",
+      "sources": ["published-potsdam-keys"],
+      "status": "verified_source_statement",
+      "search_effect": "Do not count these as three independent May 1 key nets or fix Thetis's rightmost rotor to VIII from their agreement.",
+      "target_key_restriction": false
+    },
+    {
+      "id": "H02",
+      "claim": "Kenngruppenbuch printed VIII, sections 26-28, distinguishes the key-net group from the procedure group and requires checking the current allotment list.",
+      "sources": ["kbook-992"],
+      "status": "verified_original_procedure",
+      "search_effect": "The book alone does not date the target's key-net allocation or specify its machine settings.",
+      "target_key_restriction": false
+    },
+    {
+      "id": "H03",
+      "claim": "The Hering amendment label in copy 992 cites order MND IIc 2063/43 of 11 February 1943 and an amendment entered on 19 April 1943.",
+      "sources": ["kbook-992"],
+      "status": "verified_original_label",
+      "search_effect": "The code word Hering is not by itself proof of a May 1945 allotment edition; compare the actual table, amendment and validity notice.",
+      "target_key_restriction": false
+    },
+    {
+      "id": "H04",
+      "claim": "Mahon reports deteriorating wheel-order rules in February-March 1945 and unrestricted Greek-wheel ring positions spreading to Bonito and Plaice in March.",
+      "sources": ["mahon-108"],
+      "status": "verified_official_history",
+      "search_effect": "Older naval wheel-order and Greek-ring habits remain hypotheses unless a dated Thetis rule is found.",
+      "target_key_restriction": false
+    },
+    {
+      "id": "H05",
+      "claim": "Plaice introduced multiple Grund settings in March 1945; Mahon identifies 288 entries, selected by K-book row coordinates, and separate new Plaice and Dolphin tables at the beginning of May.",
+      "sources": ["mahon-110", "mahon-111", "mahon-112"],
+      "status": "verified_official_history",
+      "search_effect": "Potsdam-to-Thetis transfer of MNNS or DGUG requires evidence that the applicable tables and coordinate mappings coincide.",
+      "target_key_restriction": false,
+      "unknowns": "Thetis is not identified as using either recovered table on the target date."
+    },
+    {
+      "id": "H06",
+      "claim": "Mahon says the Grund tables were captured shortly after the planned May 5 bigram change; the subsequent surrender revealed fifteen bigram tables, with Grund tables due to spread further.",
+      "sources": ["mahon-113", "mahon-114"],
+      "status": "verified_official_history",
+      "search_effect": "Look for the captured-table report and its inventory; wartime capture does not establish that a Thetis table survives or is public today.",
+      "target_key_restriction": false,
+      "unknowns": "No surviving table item, box or Thetis applicability has been located."
+    },
+    {
+      "id": "H07",
+      "claim": "The target's failed Potsdam trials reproduce the published MNNS and DGUG settings, but no consulted primary source equates its Potsdam and Thetis Grund tables.",
+      "sources": ["published-potsdam-keys", "mahon-112", "mahon-113"],
+      "status": "conditional_hypothesis",
+      "search_effect": "Keep an indicator-constrained attack conditional; do not remove unconstrained starts or rings from coverage claims.",
+      "target_key_restriction": false
+    },
+    {
+      "id": "H08",
+      "claim": "M.Dv.32/3 section 157 assigns Thetis to tactical U-boat exercises and specifies a 0700 DGZ key change, with Allgemein and Offizier sheets normally issued monthly; section 153 specifies a 1200 DGZ change for Potsdam.",
+      "sources": ["mdv-32-3-62"],
+      "status": "verified_original_procedure",
+      "search_effect": "Separate key-sheet issue period from daily validity, and verify the target's time and the applicable amendment before choosing a daily key.",
+      "target_key_restriction": false,
+      "unknowns": "Deckblatt 8's effective date and continued applicability on 1 May 1945 are not established by this reviewed copy."
+    },
+    {
+      "id": "H09",
+      "claim": "Copy 992's Hering Part B prints Thetis at columns 621-653 but crosses it out by hand; R.I.P. 401 Figure 14 separately dates a Hering list to 4 March 1945.",
+      "sources": ["kbook-992", "rip-401"],
+      "status": "verified_original_tables",
+      "search_effect": "Match the actual edition, amendments and date rather than transferring the allocation by its repeated code word.",
+      "target_key_restriction": false,
+      "unknowns": "The handwritten replacement and its date are not adopted as a target key-net identification."
+    },
+    {
+      "id": "H10",
+      "claim": "R.I.P. 401 printed page 47 points to publication 475 for recovered or captured key-sheet contents; the RG 457 finding aid lists German Key Logs through May 1945 in Box 620, NR 1665.",
+      "sources": ["rip-401", "nsa-finding-aid"],
+      "status": "verified_archival_leads",
+      "search_effect": "Prioritize locating publication 475 and examining the listed holdings; do not infer that they contain a surviving Thetis daily key.",
+      "target_key_restriction": false,
+      "unknowns": "No consulted scan provides the target's Thetis key or Grund table."
+    }
+  ],
+  "archival_leads": [
+    {
+      "id": "A01",
+      "title": "German Key Logs, February 1941-May 1945",
+      "identifier": "NARA RG 457, Historic Cryptographic Collection, Box 620, NR 1665, former CBKJ17, ACNR 7465A",
+      "source": "nsa-finding-aid",
+      "access_route": "NARA College Park onsite holdings or a future copy request after confirming current identifiers",
+      "status": "catalog_entry_only",
+      "unknowns": "Net coverage, whether settings or only operational logs are recorded, and Thetis applicability"
+    },
+    {
+      "id": "A02",
+      "title": "German Cipher Book and Related Key Sheets, 1944-1945; German Cipher Key Tables for F, M and N, 1941-1945",
+      "identifier": "NARA RG 457, Box 37, NR 201/202, former CBBA55, ACNR 4775A/4776A",
+      "source": "nsa-finding-aid",
+      "access_route": "NARA College Park; confirm current box and folder references before a future copy request",
+      "status": "catalog_entry_only",
+      "unknowns": "No scan or finding-aid description identifies May 1945 Thetis sheets"
+    },
+    {
+      "id": "A03",
+      "title": "German Naval High Command Baltic Sea Communications; German Cipher Tables for North Sea, Baltic Sea and Norway",
+      "identifier": "NARA RG 457, Box 73, NR 328/332, former CBBB41, ACNR 6445A/6609A",
+      "source": "nsa-finding-aid",
+      "access_route": "NARA College Park onsite holdings or a future copy request",
+      "status": "catalog_entry_only",
+      "unknowns": "The first catalog item is dated 1945; the second begins in 1943, without an established ending date or key net"
+    },
+    {
+      "id": "A04",
+      "title": "Allocation Lists for Discriminants and Call Signs 4 and 5",
+      "identifier": "NARA RG 457, Boxes 38-39, NR 205, former CBBA56, ACNR 4811A",
+      "source": "nsa-finding-aid",
+      "access_route": "NARA College Park; compare complete Part A/B, amendment orders and validity notices",
+      "status": "catalog_entry_only",
+      "unknowns": "The listing begins in 1941 and does not establish that the effective March 1945 Hering edition is present"
+    },
+    {
+      "id": "A05",
+      "title": "Publication 475: recovered or captured key-sheet contents",
+      "identifier": "R.I.P. 401 printed page 47, cross-reference to publication 475 with its prefix crossed out",
+      "source": "rip-401",
+      "catalog_checked": "rip-finding-aid",
+      "access_route": "Locate through NARA RG 38 Radio Intelligence Publications or the Crane Collection finding aids",
+      "status": "cross_reference_only",
+      "unknowns": "Publication 475 is not listed in the consulted RG 38 aid; full title, item, box and Thetis coverage remain unconfirmed"
+    },
+    {
+      "id": "A06",
+      "title": "Narrative and Report of Proceedings of TICOM Team 6, 11 April-6 July 1945",
+      "identifier": "TICOM NN 379; National Cryptologic Museum Library shelf VF 6-44",
+      "source": "ncm-library-catalog",
+      "access_route": "Library holding or a future copy request; check inventory for captured Grund and bigram tables",
+      "status": "catalog_entry_only",
+      "unknowns": "The report was not read and no surviving Thetis table is identified by the catalog title"
+    }
+  ]
+}

@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
+[tool_alias]
+# Install the pinned compiler through GHCup on every platform.
+ghc = "asdf:mise-plugins/mise-ghcup"
+
 [tools]
 ghc = "9.14.1"
 cabal = "3.16.1.0"

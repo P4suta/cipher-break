@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
+[workspace]
+members = ["xtask"]
+default-members = ["."]
+resolver = "3"
+
 [package]
 name = "cipher-break"
 version = "0.1.0"

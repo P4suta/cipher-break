@@ -1,0 +1,47 @@
+{
+  "version": "body-v1",
+  "message": "P1030680",
+  "source": "https://enigma.hoerenberg.com/cms/download.php?cat=75_Unbroken&file=P1030680_VROL_NMKA_WS.jpg",
+  "reviewed": "2026-10-02",
+  "date_written": "1.5.45",
+  "time_written": "11:??; the superscript minutes remain uncertain",
+  "circuit_written": "NB",
+  "body_groups": [
+    "JCRS", "AJTG", "SJEY", "EXYK", "KZZS", "HVUO",
+    "CTRF", "RCRP", "FVYP", "LKPP", "LGRH", "VVBB",
+    "TBRS", "XSWX", "GGTY", "TVKQ", "NGSC", "HVGF"
+  ],
+  "body_variants": [],
+  "body_review": "The photographed body agrees with the publisher's transcription; no specific alternative body letter is justified by this review.",
+  "indicator_variants": [
+    {"id": "front", "groups": ["VROL", "NMKA"], "book_groups": ["EACH", "SEDM"]},
+    {"id": "repeat", "groups": ["VAOL", "NMKA"], "book_groups": ["KACH", "OEDM"]}
+  ],
+  "indicator_reconstruction": {
+    "selection_plan": "Bruno, Kennwort Quelle, Pruefnr. 1772a; the handwritten Mai 45 column selects A on day 1.",
+    "bigram_table": "Quelle A, Pruef-Nr. 1772; VA appears at KO and VR at ES, matching the publisher's inverse lookups.",
+    "scope": "The plan and table identifiers agree, but their effective use on the target's Thetis net has not been independently verified.",
+    "sources": [
+      "https://enigma.hoerenberg.com/cms/download.php?cat=60_The%20U534%20messages&file=Tauschtafelplan_Bruno_Quelle.jpg",
+      "https://enigma.hoerenberg.com/cms/download.php?cat=60_The%20U534%20messages&file=Tauschtafel_Quelle_A.jpg"
+    ]
+  },
+  "annotations": [
+    "ELKC is crossed out at the top.",
+    "Buchgruppen has overwritten first letters, now reading EACH / SEDM.",
+    "Row number 14 and a corrected lower number 9 are visible; an earlier 5 is the publisher's reconstruction.",
+    "PUYY and M-Thetis are written in the interpretation column.",
+    "IPZA / YK appears in the attempted plaintext column.",
+    "K / O is written next to the repeated indicator groups."
+  ],
+  "key_assignment": {
+    "keybook_entry": "ACH = column 645, row 14",
+    "allocation_photo": "columns 621-653 = M Thetis",
+    "effective_date": null,
+    "status": "M-Thetis is the principal hypothesis; the dated allocation edition and daily-key validity interval remain unverified.",
+    "sources": [
+      "https://enigma.hoerenberg.com/cms/download.php?cat=75_Unbroken&file=KBook_ACH_Thetis_WS.jpg",
+      "https://enigma.hoerenberg.com/cms/download.php?cat=75_Unbroken&file=Zuteilungsliste_Kenngruppen.jpg"
+    ]
+  }
+}

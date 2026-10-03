@@ -380,6 +380,27 @@
       "review_scope": "Header, handwritten Mai 45 at column six and printed A at day 1"
     },
     {
+      "id": "bauer-1997-appendices",
+      "title": "Arthur O. Bauer, Funkpeilung als alliierte Waffe gegen deutsche U-Boote 1939-1945, 1997, appendices F and G",
+      "url": "https://raw.githubusercontent.com/Digital-Defiance/HELUT/d90da14950a692331917a081dc527e1e5b3a2eea/site/public/selm/article-antiUbootRDF-AOB-97.pdf",
+      "local_path": "reports/p1030680/sources/bauer-full-d90da149.pdf",
+      "sha256": "b2cab85efcb80fea045a29478d7f30ceff803eec5345c01d7fe1e694e8e0b245",
+      "read_pages": [2, 3, 277, 278],
+      "page_numbering": "PDF pages 2 and 3 are printed 1 and 2; PDF pages 277 and 278 are printed 314 and 315",
+      "provenance_status": "Public scan pinned to a third-party repository commit; the title and 1997 imprint were checked against the images",
+      "review_scope": "Appendix F reproduces a May 1945 Hydra outer key sheet, Pruefnummer 2170, with plugs and a 1200 DGZ change; Grund settings are explicitly on another sheet. Appendix G reproduces Quelle Tafel D; its overwritten check number was not transcribed. Neither appendix supplies a Thetis setting."
+    },
+    {
+      "id": "burke-key-logs",
+      "title": "Colin Burke, Raising the Intelligence Bar Far, Far Too High: The Bombes and the U-Boat War, 2011",
+      "url": "https://userpages.umbc.edu/~burke/raisinglong1-2011.pdf",
+      "local_path": "reports/p1030680/sources/burke-raising-bar-2011.pdf",
+      "sha256": "b8149539bc9b2d47f2a467feff05f62eabcb21dcda5facea5b5c5939aeef7b3b",
+      "read_pages": [9, 27],
+      "page_numbering": "PDF pages, counted from 1",
+      "review_scope": "The Records section describes daily key-breaking times and which Allied center solved Shark first; notes 41 and 44 identify RG 457 Box 620, NR 1665, ACNR 7465A. This is a researcher's description, not an examination of the logs themselves."
+    },
+    {
       "id": "tna-defe3-577",
       "title": "TNA DEFE 3/577, intercepted Axis radio intelligence, 29 April-3 May 1945",
       "url": "https://discovery.nationalarchives.gov.uk/details/r/C1910474",
@@ -557,6 +578,24 @@
       "search_effect": "Do not use SED/OED or the Allgemein label alone to exclude inner officer encryption. No new crib or GPU job is adopted from this procedure-only evidence.",
       "target_key_restriction": false,
       "unknowns": "The target's effective allotment edition remains unverified; its form's blank address and interpretation fields do not reveal the decrypted procedure header."
+    },
+    {
+      "id": "H19",
+      "claim": "Bauer's appendix F reproduces a May 1945 Hydra outer key sheet with daily plug connections and a 1200 DGZ change; it refers Grund settings to another sheet and gives no inner wheel order or ring settings. Appendix G is Quelle Tafel D, rather than the publisher's Tafel A.",
+      "sources": ["bauer-1997-appendices", "published-quelle-1772", "published-bruno-1772a"],
+      "status": "verified_reproduced_original_tables",
+      "search_effect": "Do not transfer the Hydra plugs to Thetis or substitute Tafel D for the published May 1 Tafel A selection without an applicable net and edition rule.",
+      "target_key_restriction": false,
+      "unknowns": "No cross-net key-sharing rule, Thetis sheet or matching Grund table is supplied; handwritten strikeouts do not establish the target's key interval."
+    },
+    {
+      "id": "H20",
+      "claim": "Burke describes NR 1665 German Cipher Key Logs as records of daily Shark key-breaking times and the Allied center that first solved the key.",
+      "sources": ["burke-key-logs", "nsa-finding-aid"],
+      "status": "verified_published_research_description",
+      "search_effect": "Prioritize the actual cipher-book/key-sheet holdings in NR 201/202 for machine settings; retain NR 1665 as a coverage and timing lead, while asking whether it also includes settings.",
+      "target_key_restriction": false,
+      "unknowns": "The logs themselves remain unread; their Thetis coverage and whether settings accompany the timing records are not established."
     }
   ],
   "archival_leads": [
@@ -565,9 +604,11 @@
       "title": "German Key Logs, February 1941-May 1945",
       "identifier": "NARA RG 457, Historic Cryptographic Collection, Box 620, NR 1665, former CBKJ17, ACNR 7465A",
       "source": "nsa-finding-aid",
+      "additional_sources": ["burke-key-logs"],
       "access_route": "NARA College Park onsite holdings or a future copy request after confirming current identifiers",
-      "status": "catalog_entry_only",
-      "unknowns": "Net coverage, whether settings or only operational logs are recorded, and Thetis applicability"
+      "status": "catalog_entry_and_published_research_description",
+      "lookup_detail": "Burke describes this item as daily Shark key-breaking times and first-solving-center records; actual key settings and Thetis coverage require direct inspection.",
+      "unknowns": "Net coverage, whether settings accompany the operational logs, and Thetis applicability"
     },
     {
       "id": "A02",

@@ -40,6 +40,33 @@
       "review_scope": "Original image checked for Laube/Potsdam correspondence with Plaice and January 1945 Baltic U-boat key discussion"
     },
     {
+      "id": "mahon-51",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 51",
+      "archive_identifier": "TNA HW 25/2; Turing Digital Archive A09",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-053.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-053.gif",
+      "sha256": "aa428511f2708faf050b0c467eb9500b0bb993b8bc2b2be402502ea47cd92cea",
+      "review_scope": "Original image checked for Offizier re-encipherment, shared wheel order, separate message-setting lists and plugboard practice; no target-specific assignment is supplied"
+    },
+    {
+      "id": "mahon-52",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 52",
+      "archive_identifier": "TNA HW 25/2; Turing Digital Archive A09",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-054.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-054.gif",
+      "sha256": "f989a7256792c9184570e5f2b845b657979949e8a9592f9a473258aab18d92f7",
+      "review_scope": "Original image checked for readable preambles followed by inner ciphertext, with separate attacks on the Offizier part; historic examples are not target-linked cribs"
+    },
+    {
+      "id": "mahon-54",
+      "title": "A.P. Mahon, The History of Hut Eight, printed page 54",
+      "archive_identifier": "TNA HW 25/2; Turing Digital Archive A09",
+      "url": "https://www.alanturing.net/turing_archive/archive/a/A09/A09-056.gif",
+      "local_path": "reports/p1030680/sources/Mahon_A09-056.gif",
+      "sha256": "887a8ae23aec065b6ad7a793dc94f3366dec02a940c328b7bf0a88fcc5110959",
+      "review_scope": "Original image checked for Stab's independent inner settings and the later Sonder procedure; no May 1945 Thetis setting is supplied"
+    },
+    {
       "id": "mahon-108",
       "title": "A.P. Mahon, The History of Hut Eight, printed page 108",
       "archive_identifier": "TNA HW 25/2; Turing Digital Archive A09",
@@ -106,14 +133,37 @@
       "page_numbering": "PDF pages, counted from 1; PDF pages 34 and 35 are printed 33 and 34a, Deckblatt 8"
     },
     {
+      "id": "mdv-32-1-4508",
+      "title": "Der Schluessel M, Verfahren M Allgemein, M.Dv.32/1, Berlin 1940, copy 4508",
+      "url": "https://www.cryptomuseum.com/crypto/enigma/files/schluessel_m.pdf",
+      "local_path": "reports/p1030680/sources/schluessel_m.pdf",
+      "sha256": "93b2f6db52e747cc9d235da5b4589e6516144e749992f46bc368bb07d297de87",
+      "read_pages": [1, 2, 8, 9, 10, 11],
+      "page_numbering": "PDF pages, counted from 1; page 11 contains printed 18-19, sections 81-89",
+      "review_scope": "Original cover and the Offizier/Stab outer procedure checked visually; section 85 includes a final 4-8-letter fill word, while a public translated transcription of section 85 stops at item 5",
+      "edition_limit": "The cover dates this copy to 1940; the effective amendments and continued applicability to Thetis on 1 May 1945 are unverified"
+    },
+    {
+      "id": "mdv-32-2-translated",
+      "title": "Enigma Offizier and Staff Procedure, M.Dv.32/2, Berlin 1940, translated copy 790, formatted by Tony Sale in 2001",
+      "archive_identifier": "Sale's index attributes the original to NARA Box 622, NR 1669, CBKJ21, ACNR 7464A; original translator not identified",
+      "url": "https://www.codesandciphers.org.uk/documents/officer/officer1.pdf",
+      "local_path": "reports/p1030680/sources/mdv32-2-translated.pdf",
+      "sha256": "ffd5a68a75dc069a3891093538e819ab8c2d8b72cc6dacc7787419544c71734d",
+      "read_pages": [2, 3, 4, 5, 6, 7],
+      "page_numbering": "PDF and printed page numbers coincide",
+      "review_scope": "Full procedure text read; pages 2-3 rendered for date and separate Offizier/Stab inner-setting rules; the underlying German copy was not examined",
+      "edition_limit": "The translated authorization takes effect on 15 April 1940; an October 1941 edition is separately cataloged, and applicability to the target is unverified"
+    },
+    {
       "id": "rip-401",
       "title": "R.I.P. 401, German Naval Ciphers, public partial copy",
       "archive_identifier": "NARA RG 457, Entry A1 9032, Box 1393, NR 4457, ACNR 35285A, catalog 2811218",
       "url": "https://cryptocellar.org/enigma/files/nr-4457-rip-401.pdf",
       "local_path": "reports/p1030680/sources/rip-401.pdf",
       "sha256": "81a548ea0baea1c6b45129024eca9262ad4c13800d9dc059e60b193c752823f8",
-      "read_pages": [1, 29, 30, 31, 32, 33, 34, 68, 89, 92, 100],
-      "page_numbering": "PDF pages, counted from 1; PDF pages 32-34 are printed 45-47, page 68 is printed 92, and pages 89, 92 and 100 are printed 112, 114 and 122"
+      "read_pages": [1, 29, 30, 31, 32, 33, 34, 39, 41, 42, 68, 89, 92, 100],
+      "page_numbering": "PDF pages, counted from 1; PDF pages 32-34 are printed 45-47, page 39 is printed 57, pages 41-42 are printed 59 and 61, page 68 is printed 92, and pages 89, 92 and 100 are printed 112, 114 and 122"
     },
     {
       "id": "nsa-finding-aid",
@@ -488,6 +538,25 @@
       "search_effect": "Include the older U-Uebungsschluessel name when locating Thetis records; do not infer a shared Potsdam daily key from Baltic geography.",
       "target_key_restriction": false,
       "unknowns": "The chart's 1944 renaming annotation supplies no exact effective date, May 1 machine setting, allocation edition or target-linked plaintext."
+    },
+    {
+      "id": "H17",
+      "claim": "M.Dv.32/1 copy 4508, printed 18-19, sections 83-88, requires the radio crew to encipher an Offizier/Stab header and the already-enciphered groups using M Allgemein; Mahon and R.I.P. 401 describe a readable preamble followed by inner ciphertext after the outer decryption.",
+      "sources": ["mdv-32-1-4508", "mdv-32-2-translated", "mahon-51", "mahon-52", "mahon-54", "rip-401"],
+      "status": "verified_original_procedure_and_official_history",
+      "search_effect": "Keep two-stage traffic as an unresolved procedure branch; the current planted recovery validates a single-stage German body, and a whole-body German judge must not exclude a correct outer decryption containing inner ciphertext.",
+      "target_key_restriction": false,
+      "unknowns": "The target is not identified as Offizier, Stab or Sonder. Offizier's shared regular inner setting does not establish shared plugs or message starts; Stab's inner settings are separate in the translated 1940 rule. The relevant target-date instruction and both key layers remain unknown."
+    },
+    {
+      "id": "H18",
+      "claim": "Copy 992's Hering Part B assigns Enigma procedure-group columns 1-733 to Allgemein; its Offizier/Allgemein column split is under RHV, not Schluessel M. M.Dv.32/1 section 85 places the Offizier/Stab marker inside the outer ciphertext.",
+      "sources": ["kbook-992", "mdv-32-1-4508"],
+      "pages": "K-book PDF page 115; M.Dv.32/1 PDF page 11, printed 18-19",
+      "status": "verified_original_table_and_procedure",
+      "search_effect": "Do not use SED/OED or the Allgemein label alone to exclude inner officer encryption. No new crib or GPU job is adopted from this procedure-only evidence.",
+      "target_key_restriction": false,
+      "unknowns": "The target's effective allotment edition remains unverified; its form's blank address and interpretation fields do not reveal the decrypted procedure header."
     }
   ],
   "archival_leads": [
@@ -619,6 +688,21 @@
       "access_route": "Public I-11, I-24 and DF-225 scans reviewed; use 4/SKL IIc/IIcc, Pitzer and Ob. Insp. Lier to identify original registers and distributed key copies in current catalogs",
       "status": "public_reports_reviewed_original_register_unlocated",
       "unknowns": "No current call number for the original T-1401, DF-226 or a May 1945 key-production register was established; Thetis applicability remains unconfirmed"
+    },
+    {
+      "id": "A14",
+      "title": "Original Offizier/Stab instructions and their later editions",
+      "identifier": "NARA RG 457, Box 622, NR 1669, CBKJ21, ACNR 7464A, March 1940; BArch RM 6/615, formerly PG 241 and RMD 4/32 2 1940; BArch RM 6/616, formerly RMD 4/32 2 1941, October 1941 edition",
+      "source": "mdv-32-2-translated",
+      "catalog_urls": [
+        "https://www.codesandciphers.org.uk/documents/officer/officerx.htm",
+        "https://www.deutsche-digitale-bibliothek.de/item/DENYDI4IMKWNK3X6JLSJ65NEU6VRFTI5",
+        "https://www.deutsche-digitale-bibliothek.de/item/5PEJTBR2IOB5USB42TLQHRRFOCD6KDVS"
+      ],
+      "access_route": "Public translated 1940 procedure reviewed; DDB's Bundesarchiv metadata read through the web tool; use the named holdings to match a later original and amendment notices",
+      "status": "translated_procedure_and_catalog_metadata_reviewed",
+      "retrieval_limit": "Direct DDB downloads returned a bot-verification page; the Invenio linked record was not accessible and no German document scan was retrieved",
+      "unknowns": "The catalog records do not prove digitisation, equivalence to translated copy 790 or applicability in May 1945, and they supply no Thetis daily key"
     }
   ]
 }

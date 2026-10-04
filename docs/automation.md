@@ -183,3 +183,11 @@ Restart existing Codex, Claude or OpenCode sessions after changing their MCP reg
 It verifies published checksums, Apple installer notarization and code signing, Windows Authenticode, and the matching node fingerprint on all three machines.
 The installed release is v0.0.0 from source revision ef8d23d75001f1104efe13828a5441149b35deb7.
 It uses that release's current CLI and prevents automatic source builds on the Mac or cloud worker.
+
+## Secret scanning
+
+The required history scan uses Gitleaks 8.30.1 with every default rule and the repository's [.gitleaks.toml](../.gitleaks.toml).
+Its single exception requires both the exact canonical recovery-record path and the complete source-digest field syntax; it remains stable across new commits and squash merges.
+The recovery evidence separately binds that digest to the actual source file.
+The [policy validation record](../data/p1030680/security-policy-result.json) records a full-history scan, fresh committed positive and negative controls, and an intentionally broken conjunction.
+This checked external-tool boundary leaves the implementation proofs and hardware provenance unchanged and requires reassessment when the scanner or exception contract changes.

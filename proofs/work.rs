@@ -3,7 +3,10 @@
 #[path = "../xtask/src/proof_work.rs"]
 mod proof_work;
 
-use proof_work::{Evidence, Obligation, Selection, Workload, admitted, completed, experiment_command, needs_proof_tools, needs_run, placement_selected, planned, proof_command};
+use proof_work::{
+    Evidence, Obligation, Selection, Workload, admitted, completed, experiment_command,
+    measurement_command, needs_proof_tools, needs_run, placement_selected, planned, proof_command,
+};
 
 #[kani::proof]
 fn explicit_placements_preserve_valid_offsets_without_overflow_or_fallback() {
@@ -16,7 +19,10 @@ fn explicit_placements_preserve_valid_offsets_without_overflow_or_fallback() {
     assert!(!selected || crib <= length);
     assert!(!selected || fits);
     assert!(!selected || requested.is_none_or(|expected| actual == expected));
-    assert_eq!(selected, fits && requested.is_none_or(|expected| actual == expected));
+    assert_eq!(
+        selected,
+        fits && requested.is_none_or(|expected| actual == expected)
+    );
     kani::cover!(selected && requested.is_none());
     kani::cover!(selected && requested.is_some());
     kani::cover!(!selected && fits);
@@ -31,11 +37,32 @@ fn requested_proofs_include_their_contract_prerequisites() {
     let current: bool = kani::any();
     assert!(planned(Selection::All, kind, requested));
     assert!(planned(Selection::Reciprocal, Obligation::Queue, requested));
-    assert!(planned(Selection::Reciprocal, Obligation::Partition, requested));
-    assert!(planned(Selection::One(Obligation::Reciprocal), Obligation::Queue, requested));
-    assert!(planned(Selection::One(Obligation::Propagation), Obligation::Queue, requested));
-    assert!(planned(Selection::One(Obligation::Propagation), Obligation::Partition, requested)
-        && planned(Selection::One(Obligation::Propagation), Obligation::Reciprocal, requested));
+    assert!(planned(
+        Selection::Reciprocal,
+        Obligation::Partition,
+        requested
+    ));
+    assert!(planned(
+        Selection::One(Obligation::Reciprocal),
+        Obligation::Queue,
+        requested
+    ));
+    assert!(planned(
+        Selection::One(Obligation::Propagation),
+        Obligation::Queue,
+        requested
+    ));
+    assert!(
+        planned(
+            Selection::One(Obligation::Propagation),
+            Obligation::Partition,
+            requested
+        ) && planned(
+            Selection::One(Obligation::Propagation),
+            Obligation::Reciprocal,
+            requested
+        )
+    );
     assert_eq!(needs_run(requested, current), requested || !current);
     kani::cover!(planned(selection, kind, requested) && needs_run(requested, current));
     kani::cover!(planned(selection, kind, requested) && !needs_run(requested, current));
@@ -50,13 +77,21 @@ fn verification_bootstrap_cannot_authorize_an_unproved_ciphertext_search() {
     assert!(!permitted || evidence != Evidence::Missing);
     assert!(!permitted || workload != Workload::Search || evidence == Evidence::Search);
     assert!(permitted || workload != Workload::Verification || evidence == Evidence::Missing);
-    assert!(!permitted || workload != Workload::Experiment || matches!(evidence, Evidence::Recovered | Evidence::Search));
+    assert!(
+        !permitted
+            || workload != Workload::Experiment
+            || matches!(evidence, Evidence::Recovered | Evidence::Search)
+    );
     let passed: bool = kani::any();
     assert_eq!(admitted(workload, completed(workload, passed)), passed);
-    kani::cover!(workload == Workload::Verification && evidence == Evidence::Bootstrap && permitted);
+    kani::cover!(
+        workload == Workload::Verification && evidence == Evidence::Bootstrap && permitted
+    );
     kani::cover!(workload == Workload::Search && evidence == Evidence::Bootstrap && !permitted);
     kani::cover!(workload == Workload::Recovery && evidence == Evidence::Bootstrap && permitted);
     kani::cover!(workload == Workload::Experiment && evidence == Evidence::Bootstrap && !permitted);
+    assert!(permitted || workload != Workload::Measurement || evidence == Evidence::Missing);
+    kani::cover!(workload == Workload::Measurement && evidence == Evidence::Bootstrap && permitted);
     let full: bool = kani::any();
     let tools = needs_proof_tools(workload, full);
     assert!(!tools || workload == Workload::Verification || workload == Workload::Recovery && full);
@@ -72,7 +107,11 @@ fn verification_commands_require_every_fixed_argument_and_a_registered_case() {
     let length: usize = kani::any();
     let registered: bool = kani::any();
     let slots: [Option<&[u8]>; 7] = std::array::from_fn(|_| {
-        if kani::any::<bool>() { Some(kani::arbitrary::any_slice_ref_unbounded()) } else { None }
+        if kani::any::<bool>() {
+            Some(kani::arbitrary::any_slice_ref_unbounded())
+        } else {
+            None
+        }
     });
     let permitted = proof_command(length, slots, registered);
     assert!(!permitted || length == 7);
@@ -87,15 +126,78 @@ fn verification_commands_require_every_fixed_argument_and_a_registered_case() {
     kani::cover!(permitted);
     kani::cover!(!permitted && length == 7 && !registered);
     let experiment_slots: [Option<&[u8]>; 12] = std::array::from_fn(|_| {
-        if kani::any::<bool>() { Some(kani::arbitrary::any_slice_ref_unbounded()) } else { None }
+        if kani::any::<bool>() {
+            Some(kani::arbitrary::any_slice_ref_unbounded())
+        } else {
+            None
+        }
     });
     let experiment = experiment_command(length, experiment_slots);
     assert!(!experiment || (8..=12).contains(&length));
-    assert!(!experiment || experiment_slots[0] == Some(b"cargo".as_slice()) && experiment_slots[1] == Some(b"xtask".as_slice()) && experiment_slots[2] == Some(b"p1030680".as_slice()) && experiment_slots[3] == Some(b"campaign".as_slice()));
-    assert!(!experiment || matches!(experiment_slots[5], Some(b"C01" | b"C03" | b"C04" | b"C06")) && matches!(experiment_slots[7], Some(b"90" | b"100")));
-    assert!(!experiment || experiment_slots[4] == Some(b"--candidate".as_slice()) && experiment_slots[6] == Some(b"--max-minutes".as_slice()));
-    assert!(!experiment || experiment_slots[8] != Some(b"--at".as_slice()) || experiment_slots[5] == Some(b"C06".as_slice()) && matches!(experiment_slots[9], Some(b"0" | b"4" | b"5" | b"14" | b"18" | b"19" | b"24" | b"29" | b"33" | b"39" | b"42")));
+    assert!(
+        !experiment
+            || experiment_slots[0] == Some(b"cargo".as_slice())
+                && experiment_slots[1] == Some(b"xtask".as_slice())
+                && experiment_slots[2] == Some(b"p1030680".as_slice())
+                && experiment_slots[3] == Some(b"campaign".as_slice())
+    );
+    assert!(
+        !experiment
+            || matches!(experiment_slots[5], Some(b"C01" | b"C03" | b"C04" | b"C06"))
+                && matches!(experiment_slots[7], Some(b"90" | b"100"))
+    );
+    assert!(
+        !experiment
+            || experiment_slots[4] == Some(b"--candidate".as_slice())
+                && experiment_slots[6] == Some(b"--max-minutes".as_slice())
+    );
+    assert!(
+        !experiment
+            || experiment_slots[8] != Some(b"--at".as_slice())
+            || experiment_slots[5] == Some(b"C06".as_slice())
+                && matches!(
+                    experiment_slots[9],
+                    Some(
+                        b"0" | b"4"
+                            | b"5"
+                            | b"14"
+                            | b"18"
+                            | b"19"
+                            | b"24"
+                            | b"29"
+                            | b"33"
+                            | b"39"
+                            | b"42"
+                    )
+                )
+    );
     kani::cover!(experiment);
     kani::cover!(experiment && experiment_slots[8] == Some(b"--at".as_slice()));
     kani::cover!(!experiment && length == 10);
+    let measurement_slots: [Option<&[u8]>; 5] = std::array::from_fn(|_| {
+        if kani::any::<bool>() {
+            Some(kani::arbitrary::any_slice_ref_unbounded())
+        } else {
+            None
+        }
+    });
+    let measurement = measurement_command(length, measurement_slots);
+    assert!(!measurement || matches!(length, 3 | 5));
+    assert!(
+        !measurement
+            || measurement_slots[0] == Some(b"cargo".as_slice())
+                && measurement_slots[1] == Some(b"xtask".as_slice())
+                && measurement_slots[2] == Some(b"bench".as_slice())
+    );
+    assert!(
+        !measurement
+            || length == 3
+            || measurement_slots[3] == Some(b"--period".as_slice())
+                && matches!(
+                    measurement_slots[4],
+                    Some(b"1" | b"2" | b"3" | b"4" | b"5" | b"6")
+                )
+    );
+    kani::cover!(measurement && length == 3);
+    kani::cover!(measurement && length == 5);
 }

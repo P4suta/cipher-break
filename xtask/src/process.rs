@@ -221,15 +221,37 @@ mod tests {
     #[test]
     fn arguments_are_never_shell_expressions() {
         let argument = "$(touch should-not-exist) `id` ; $HOME";
-        assert_eq!(
-            Cmd::new(["printf", "%s", argument]).checked().unwrap(),
-            argument
-        );
+        if std::env::var_os("CB_ARGUMENT_PROBE").is_some() {
+            println!("CB_ARGUMENT={}", std::env::args().next_back().unwrap());
+            return;
+        }
+        let executable = std::env::current_exe().unwrap();
+        let command = Cmd::new([
+            executable.to_str().unwrap(),
+            "--exact",
+            "process::tests::arguments_are_never_shell_expressions",
+            "--nocapture",
+            "--skip",
+            argument,
+        ])
+        .env("CB_ARGUMENT_PROBE", "1");
+        let output = command.checked().unwrap();
+        assert!(output.contains(&format!("CB_ARGUMENT={argument}\n")));
     }
 
     #[test]
     fn timeout_is_a_failure() {
-        let command = Cmd::new(["sleep", "5"]);
+        if std::env::var_os("CB_TIMEOUT_PROBE").is_some() {
+            std::thread::sleep(Duration::from_secs(5));
+            return;
+        }
+        let executable = std::env::current_exe().unwrap();
+        let command = Cmd::new([
+            executable.to_str().unwrap(),
+            "--exact",
+            "process::tests::timeout_is_a_failure",
+        ])
+        .env("CB_TIMEOUT_PROBE", "1");
         let result = command
             .execute(Duration::from_millis(30), false, None)
             .unwrap();

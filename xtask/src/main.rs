@@ -6,6 +6,7 @@ mod audit;
 mod bootstrap;
 mod campaign;
 mod cloud;
+mod completion;
 mod formal;
 mod gcp;
 mod jobs;

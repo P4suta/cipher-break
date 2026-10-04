@@ -53,9 +53,9 @@
     {
       "scope": "ControllerLifecycle",
       "kind": "external",
-      "sources": ["xtask/src/cloud.rs", "xtask/src/proof_work.rs", "xtask/src/runner.rs", "xtask/src/artifacts.rs"],
-      "required_proofs": ["cloud-proof-command", "cloud-proof-work", "lease", "artifact-staging"],
-      "reason": "The official cloud API, SSH transfer and remote deletion service are external assumptions. Fixed command admission and staging every required artifact before reading any are proved; native eviction regressions and real cloud runs check transfer hashes, absolute deletion deadlines and verified removal.",
+      "sources": ["xtask/src/cloud.rs", "xtask/src/proof_work.rs", "xtask/src/runner.rs", "xtask/src/artifacts.rs", "xtask/src/completion.rs"],
+      "required_proofs": ["cloud-proof-command", "cloud-proof-work", "lease", "artifact-staging", "cleanup-completion"],
+      "reason": "The official cloud API, SSH transfer and remote deletion service are external assumptions. Fixed command admission, staging all artifacts before reading, and attempting persistence before returning operation or cleanup failures are proved. Native eviction and cleanup-failure regressions and real cloud runs check transfer hashes, absolute deletion deadlines and verified removal.",
       "limits": "A successful command or requested cleanup does not prove remote deletion. Resource inventories and cleanup receipts remain operational evidence.",
       "revisit": "Reassess API, retry or cleanup changes and verify cloud inventory after each real run."
     },
@@ -64,7 +64,7 @@
       "kind": "external",
       "sources": ["xtask/src/audit.rs", "xtask/src/formal.rs", "xtask/src/gcp.rs"],
       "required_proofs": ["placement-bounds", "crib-offset", "self-encryption", "proof-gate", "negative-gate", "cloud-proof-command"],
-      "reason": "Bounds and proof-admission decisions have native proofs. JSON/TOML decoding, filesystem reads and external CLI responses remain library and system boundaries, checked with malformed, missing, duplicate and stale-input regressions in the full project check.",
+      "reason": "Bounds and proof-admission decisions have native proofs. JSON/TOML decoding, filesystem reads, symlink resolution and external CLI responses remain library and system boundaries, checked with malformed, missing, duplicate, stale-input, preserved-link and broken-link regressions in the full project check.",
       "limits": "Passing a decoder or a few fixtures does not establish complete validation of arbitrary external service responses; unknown assessment fields and omitted obligations fail the gate.",
       "revisit": "Add source-bound proofs for any newly isolated deterministic parser decisions and reassess changed external schemas."
     }

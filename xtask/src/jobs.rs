@@ -180,7 +180,9 @@ pub fn bench(options: &[String]) -> Result<()> {
             "xtask".into(),
             "bench".into(),
         ];
-        command.extend_from_slice(options);
+        if !options.is_empty() {
+            command.extend(["--period".into(), periods[0].to_string()]);
+        }
         return crate::cloud::dispatch(&command);
     }
     let build = Cmd::new([

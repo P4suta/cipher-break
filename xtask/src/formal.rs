@@ -16,8 +16,9 @@ use std::time::{Duration, Instant};
 
 const KANI_VERSION: &str = "0.68.0";
 const LEAN_VERSION: &str = "4.34.1";
-const BOOTSTRAP: [&str; 9] = [
+const BOOTSTRAP: [&str; 10] = [
     "artifact-staging",
+    "cleanup-completion",
     "proof-plan",
     "cloud-proof-command",
     "cloud-proof-work",
@@ -94,8 +95,8 @@ const CASES: &[Case] = &[
         scope: Scope::LocalLemma,
         source: "proofs/work.rs",
         harness: "verification_commands_require_every_fixed_argument_and_a_registered_case",
-        covers: 5,
-        assertions: 14,
+        covers: 7,
+        assertions: 17,
     },
     Case {
         name: "campaign-placement",
@@ -110,8 +111,8 @@ const CASES: &[Case] = &[
         scope: Scope::LocalLemma,
         source: "proofs/work.rs",
         harness: "verification_bootstrap_cannot_authorize_an_unproved_ciphertext_search",
-        covers: 6,
-        assertions: 8,
+        covers: 7,
+        assertions: 9,
     },
     Case {
         name: "search-scope",
@@ -120,6 +121,14 @@ const CASES: &[Case] = &[
         harness: "local_lemmas_cannot_replace_a_required_search_contract",
         covers: 2,
         assertions: 3,
+    },
+    Case {
+        name: "cleanup-completion",
+        scope: Scope::LocalLemma,
+        source: "proofs/completion.rs",
+        harness: "cleanup_records_are_attempted_before_returning_the_first_failure",
+        covers: 5,
+        assertions: 2,
     },
     Case {
         name: "lease",
@@ -352,6 +361,8 @@ fn sources(case: &Case) -> Result<BTreeMap<String, String>> {
             "xtask/src/runner.rs",
             "xtask/src/cloud.rs",
         ]);
+    } else if case.source == "proofs/completion.rs" {
+        paths.extend(["xtask/src/completion.rs", "xtask/src/cloud.rs"]);
     } else if case.source == "proofs/search-scope.rs" {
         paths.push("xtask/src/search_scope.rs");
     } else if case.source == "proofs/lease.rs" {
@@ -1127,38 +1138,38 @@ pub fn workload_attestation(workload: Workload) -> Result<Value> {
     let _lock = lock(&crate::root().join("reports/proofs"))?;
     let result = match workload {
         Workload::Search => verify_search().and_then(|()| attestation_locked()),
-        Workload::Verification | Workload::Recovery | Workload::Experiment => {
-            (|| -> Result<Value> {
-                let mut cases = Vec::new();
-                for name in BOOTSTRAP {
-                    let case = CASES
-                        .iter()
-                        .find(|case| case.name == name)
-                        .context("missing bootstrap contract")?;
-                    verify_case(case)?;
-                    cases.push(json!({"case":name, "receipt_sha256":sha(&receipt_path(name))?, "source_sha256":sources(case)?}));
-                }
-                let recovery = if workload == Workload::Experiment {
-                    let report =
-                        json_read(&crate::root().join("data/p1030680/recovery-result.json"))?;
-                    ensure!(
-                        crate::audit::recovery_status(&report, &crate::audit::provenance()?)
-                            == "passed"
-                            && report["full_check_in_this_run"] == true,
-                        "bounded experiments require current full known-key recovery and matched recovery controls"
-                    );
-                    json!({"sha256":sha(&crate::root().join("data/p1030680/recovery-result.json"))?, "status":"passed"})
-                } else {
-                    Value::Null
-                };
-                Ok(
-                    json!({"status":"bounded_workload_admitted", "workload":format!("{workload:?}"), "whole_search_proved":false,
-                "scope":"fixed proof or known-key recovery commands, or a bounded sourced candidate experiment with current empirical recovery; remaining solver proof gaps stay explicit",
+        Workload::Verification
+        | Workload::Recovery
+        | Workload::Measurement
+        | Workload::Experiment => (|| -> Result<Value> {
+            let mut cases = Vec::new();
+            for name in BOOTSTRAP {
+                let case = CASES
+                    .iter()
+                    .find(|case| case.name == name)
+                    .context("missing bootstrap contract")?;
+                verify_case(case)?;
+                cases.push(json!({"case":name, "receipt_sha256":sha(&receipt_path(name))?, "source_sha256":sources(case)?}));
+            }
+            let recovery = if workload == Workload::Experiment {
+                let report = json_read(&crate::root().join("data/p1030680/recovery-result.json"))?;
+                ensure!(
+                    crate::audit::recovery_status(&report, &crate::audit::provenance()?)
+                        == "passed"
+                        && report["full_check_in_this_run"] == true,
+                    "bounded experiments require current full known-key recovery and matched recovery controls"
+                );
+                json!({"sha256":sha(&crate::root().join("data/p1030680/recovery-result.json"))?, "status":"passed"})
+            } else {
+                Value::Null
+            };
+            Ok(
+                json!({"status":"bounded_workload_admitted", "workload":format!("{workload:?}"), "whole_search_proved":false,
+                "scope":"fixed proof, known-key recovery or runtime-only benchmark commands, or a bounded sourced candidate experiment with current empirical recovery; remaining solver proof gaps stay explicit",
                 "recovery":recovery,
                 "cases":cases, "receipt_validator_sha256":sha(&crate::root().join("xtask/src/formal.rs"))?}),
-                )
-            })()
-        }
+            )
+        })(),
     };
     let evidence = completed(workload, result.is_ok());
     let attestation = result?;

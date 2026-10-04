@@ -5,6 +5,7 @@
 pub enum Workload {
     Verification,
     Recovery,
+    Measurement,
     Experiment,
     Search,
 }
@@ -69,7 +70,9 @@ pub fn needs_run(requested: bool, current: bool) -> bool {
 pub fn completed(workload: Workload, passed: bool) -> Evidence {
     if passed {
         match workload {
-            Workload::Verification | Workload::Recovery => Evidence::Bootstrap,
+            Workload::Verification | Workload::Recovery | Workload::Measurement => {
+                Evidence::Bootstrap
+            }
             Workload::Experiment => Evidence::Recovered,
             Workload::Search => Evidence::Search,
         }
@@ -83,7 +86,10 @@ pub fn admitted(workload: Workload, evidence: Evidence) -> bool {
         (_, Evidence::Missing)
         | (Workload::Search, Evidence::Bootstrap | Evidence::Recovered)
         | (Workload::Experiment, Evidence::Bootstrap) => false,
-        (Workload::Verification | Workload::Recovery, Evidence::Bootstrap)
+        (
+            Workload::Verification | Workload::Recovery | Workload::Measurement,
+            Evidence::Bootstrap,
+        )
         | (_, Evidence::Recovered | Evidence::Search) => true,
     }
 }
@@ -155,4 +161,14 @@ pub fn proof_command(length: usize, slots: [Option<&[u8]>; 7], registered: bool)
         && slots[3] == Some(b"--case".as_slice())
         && slots[5] == Some(b"--max-seconds".as_slice())
         && slots[6] == Some(b"3300".as_slice())
+}
+
+pub fn measurement_command(length: usize, slots: [Option<&[u8]>; 5]) -> bool {
+    slots[0] == Some(b"cargo".as_slice())
+        && slots[1] == Some(b"xtask".as_slice())
+        && slots[2] == Some(b"bench".as_slice())
+        && (length == 3
+            || (length == 5
+                && slots[3] == Some(b"--period".as_slice())
+                && matches!(slots[4], Some(b"1" | b"2" | b"3" | b"4" | b"5" | b"6"))))
 }

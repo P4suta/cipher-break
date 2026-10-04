@@ -7,7 +7,28 @@ The Cargo alias, local checks and worker commands build Rust in the release prof
 The mise tasks retain their names and delegate multi-step work to xtask.
 Commands execute structured argument vectors.
 The initial cross-platform domyjob installation uses explicit OS shell expressions inside Rust; there are no maintained shell or Python automation files.
-The existing cipher CLI and externally supplied scoring functions remain unchanged.
+The existing cipher commands, argument names and externally supplied scoring parameter remain available.
+Candidate finishing and language-verdict output changed intentionally, as described below.
+
+## CLI compatibility
+
+Bombe finishing retains compatible full-message ring traces until final ranking.
+`--finish N` limits shortlisted stops, rather than the number of plugboard completions or compatible ring traces within a stop.
+Each unresolved menu letter can branch into 26 assignments, and each completed menu can require up to 676 middle/right ring trials before duplicate full-message traces are removed.
+Every retained trace then performs free-lead optimization over the full message.
+The work therefore multiplies with menu completions, compatible traces and optimization trials; the default 200,000-stop limit is not a measured runtime guarantee.
+The controlled recovery gate uses 64 stops and five final readings; its timing does not estimate the default finishing limit or establish exhaustive candidate retention.
+Reducing internal completions or ring traces can remove a recoverable key, so those alternatives remain available within each shortlisted stop.
+
+The CLI prints candidate scores and complete settings, but the former automatic `READS AS LANGUAGE`, `FURTHER THAN CHANCE GOES` and `not further than chance goes` verdict strings were removed.
+The finishing-only noise comparison does not repeat rotor enumeration, shortlisting and whole-crib rejection, so it cannot support a reading declaration for the full procedure.
+Scripts that consumed those verdict strings need to use candidate records and separately checked, matched full-search controls; the output has no stable machine-readable decryption verdict.
+Re-encryption checks a proposed key/plaintext pair, while matched controls and independent evidence are still needed to identify an unknown plaintext.
+
+In a build with `--features gpu`, omitting `--gpu` still attempts GPU execution and permits CPU fallback when no usable adapter is available.
+Supplying `--gpu` requires a usable adapter and fails instead of silently falling back; a build without the GPU feature rejects that flag.
+`--plan` validates the plan without opening a GPU adapter.
+To select the CPU implementation explicitly, use a build without the GPU feature and omit `--gpu`.
 
 ## Local checks and audits
 
@@ -51,6 +72,7 @@ The controller retrieves the campaign report and its current recovery evidence b
 
 `cargo xtask agree` requires both existing implementations to print the committed fixture's IC of `0.0438`.
 `cargo xtask bench [--period N]` submits CPU and GPU runtime measurements to GCP through the same bounded runner; a runtime measurement does not declare plaintext.
+The runtime-only workload accepts exactly this command with an optional period from one through six, requires current bootstrap proofs and CPU checks, and cannot authorize a crib batch or ciphertext search.
 The cloud controller retrieves the worker's `bench.json` alongside its log under `reports/cloud/RUN_ID/out/`.
 
 ## Cloud runs
@@ -110,6 +132,8 @@ Artifact bytes use OpenSSH's file transfer rather than domyjob's bounded log tai
 The existing native SSH configuration and agent supply authentication; remote setup and execution still use domyjob.
 The transfer admits files up to 256 MiB, removes failed partial copies and cannot replace a verified result with unverified bytes.
 It deletes the VM and checks that its boot disk is gone even after a failed test or fetch.
+Deletion, SSH-configuration cleanup and cost-bound outcomes are persisted before their failures are returned, including when one cleanup stage fails.
+An unsuccessful record write remains an error and cannot be reported as a verified persistent result.
 The provider deadline remains effective if the local controller disconnects.
 
 The final recovery run completed its full source-bound assurance check, all four GPU tests and the complete Rust/Haskell suite.
@@ -145,6 +169,7 @@ mise x -- cargo xtask gcp runners
 ```
 
 `setup` installs Google's version-pinned local gcloud MCP server and backs up the three user configs before changing only their `gcloud` entry.
+Atomic configuration writes preserve existing relative or chained symlinks by replacing their resolved target; broken links are refused.
 The clients invoke the absolute Node executable and server bundle directly with a suitable PATH.
 The generic skill lives in `~/.agents/skills/gcp`, with a Claude discovery link.
 Its instructions contain no repository dependency, fixed project, cryptanalysis procedure or GPU choice.

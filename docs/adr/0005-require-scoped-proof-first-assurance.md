@@ -29,6 +29,8 @@ The production policy predicate itself has a source-bound native proof.
 `prove --verify-search` retains the stronger whole-search claim and remains unavailable until its actual contracts are proved.
 Full-search cloud admission continues to use the stronger check; a scoped pass cannot authorize that workload.
 Known-key verification may bootstrap through the existing narrow proof requirements, avoiding circular dependence on a recovery receipt that has not yet been produced.
+Runtime-only measurements use the same bootstrap with an exact benchmark command and an optional period from one through six.
+This workload cannot admit an arbitrary program, a crib batch or a reading declaration, and it does not satisfy the complete-search gate.
 
 ## Consequences
 

@@ -232,6 +232,13 @@ fn pretty(value: &Value) -> Result<Vec<u8>> {
 }
 
 pub fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    let resolved = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path)?,
+        Ok(_) => path.to_owned(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => path.to_owned(),
+        Err(error) => return Err(error.into()),
+    };
+    let path = resolved.as_path();
     fs::create_dir_all(path.parent().context("private file directory")?)?;
     let temporary = path.with_extension(format!("xtask-{}", std::process::id()));
     let mut options = File::options();
@@ -242,10 +249,17 @@ pub fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
         options.mode(0o600);
     }
     let mut file = options.open(&temporary)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    fs::rename(temporary, path)?;
-    Ok(())
+    let result = (|| {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temporary, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
 }
 
 fn check(project: Option<&str>) -> Result<()> {
@@ -473,5 +487,67 @@ mod tests {
     fn malformed_config_is_not_silently_replaced() {
         assert!(codex_config("invalid = [", &connection()).is_err());
         assert!(insert(&mut json!({"mcp": []}), "mcp", connection().opencode()).is_err());
+    }
+
+    fn directory(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "cipher-break-{name}-{}-{}",
+            std::process::id(),
+            time::OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        fs::create_dir(&path).unwrap();
+        path
+    }
+
+    fn symlink(target: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(target, link).unwrap();
+    }
+
+    #[test]
+    fn private_writes_preserve_relative_chained_symlinks_and_reject_broken_links() {
+        let directory = directory("private-links");
+        let target = directory.join("target.toml");
+        fs::write(&target, b"old").unwrap();
+        let alias = directory.join("alias.toml");
+        let config = directory.join("config.toml");
+        symlink(Path::new("target.toml"), &alias);
+        symlink(Path::new("alias.toml"), &config);
+        private_write(&config, b"new configuration").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"new configuration");
+        assert_eq!(fs::read_link(&config).unwrap(), Path::new("alias.toml"));
+        assert_eq!(fs::read_link(&alias).unwrap(), Path::new("target.toml"));
+        let broken = directory.join("broken.toml");
+        symlink(Path::new("missing.toml"), &broken);
+        assert!(private_write(&broken, b"refused").is_err());
+        assert_eq!(fs::read_link(&broken).unwrap(), Path::new("missing.toml"));
+        assert!(!directory.join("missing.toml").exists());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn private_write_removes_only_its_owned_failed_temporary_file() {
+        let directory = directory("private-write");
+        let path = directory.join("new/config.toml");
+        private_write(&path, b"complete").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"complete");
+        let temporary = path.with_extension(format!("xtask-{}", std::process::id()));
+        fs::write(&temporary, b"another owner").unwrap();
+        assert!(private_write(&path, b"refused").is_err());
+        assert_eq!(fs::read(&temporary).unwrap(), b"another owner");
+        assert_eq!(fs::read(&path).unwrap(), b"complete");
+        fs::remove_file(&temporary).unwrap();
+        let invalid = directory.join("directory.toml");
+        fs::create_dir(&invalid).unwrap();
+        assert!(private_write(&invalid, b"refused").is_err());
+        assert!(invalid.is_dir());
+        assert!(
+            !invalid
+                .with_extension(format!("xtask-{}", std::process::id()))
+                .exists()
+        );
+        fs::remove_dir_all(directory).unwrap();
     }
 }

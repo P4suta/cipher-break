@@ -368,6 +368,8 @@ pub fn dispatch(args: &[String]) -> Result<()> {
                 Workload::Recovery
             } else if experiment_command(&config.command) {
                 Workload::Experiment
+            } else if measurement_command(&config.command) {
+                Workload::Measurement
             } else {
                 Workload::Search
             };
@@ -503,6 +505,12 @@ fn run(config: &Config, workload: Workload) -> Result<()> {
         ensure!(
             !config.recovery && config.kind == "gpu" && experiment_command(&config.command),
             "experiment dispatch requires a bounded candidate campaign on a GPU"
+        );
+    }
+    if workload == Workload::Measurement {
+        ensure!(
+            !config.recovery && measurement_command(&config.command),
+            "measurement dispatch requires the fixed runtime-only benchmark command"
         );
     }
     let at = OffsetDateTime::now_utc();
@@ -679,18 +687,8 @@ fn run(config: &Config, workload: Workload) -> Result<()> {
         manifest["status"] = json!("failed");
     }
     let cleanup = delete_owned(&mut api, config, &name);
-    remove_ssh_config(&name)?;
-    manifest["cleanup_verified"] = json!(cleanup.is_ok());
-    manifest["finished_at"] = json!(now()?);
-    if cleanup.is_ok() {
-        bound_after_cleanup(&mut manifest)?;
-    }
-    if let Err(error) = &cleanup {
-        manifest["cleanup_error"] = json!(format!("{error:#}"));
-    }
-    json_write(&directory.join("manifest.json"), &manifest)?;
-    cleanup?;
-    operation?;
+    let ssh_cleanup = remove_ssh_config(&name);
+    finish_cleanup(&directory, &mut manifest, operation, cleanup, ssh_cleanup)?;
     println!(
         "Results: {}\nVM and boot disk deletion verified.",
         directory.display()
@@ -711,6 +709,40 @@ fn experiment_command(command: &[String]) -> bool {
         command.len(),
         std::array::from_fn(|index| command.get(index).map(String::as_bytes)),
     )
+}
+
+fn measurement_command(command: &[String]) -> bool {
+    crate::proof_work::measurement_command(
+        command.len(),
+        std::array::from_fn(|index| command.get(index).map(String::as_bytes)),
+    )
+}
+
+fn finish_cleanup(
+    directory: &Path,
+    manifest: &mut Value,
+    operation: Result<()>,
+    cleanup: Result<()>,
+    ssh_cleanup: Result<()>,
+) -> Result<()> {
+    manifest["cleanup_verified"] = json!(cleanup.is_ok());
+    if manifest["finished_at"].is_null() {
+        manifest["finished_at"] = json!(now()?);
+    }
+    let reservation = bound_after_cleanup(manifest);
+    for (field, result) in [
+        ("error", &operation),
+        ("cleanup_error", &cleanup),
+        ("ssh_config_error", &ssh_cleanup),
+        ("cost_bound_error", &reservation),
+    ] {
+        if let Err(error) = result {
+            manifest[field] = json!(format!("{error:#}"));
+        }
+    }
+    crate::completion::persist([operation, cleanup, ssh_cleanup, reservation], || {
+        json_write(&directory.join("manifest.json"), manifest)
+    })
 }
 
 fn committed_estimates(directory: &Path) -> Result<f64> {
@@ -1213,14 +1245,9 @@ fn cleanup_saved(args: &[String]) -> Result<()> {
         directory: directory.join("cleanup"),
         sequence: 0,
     };
-    delete_owned(&mut api, &parsed, id)?;
-    remove_ssh_config(id)?;
-    manifest["cleanup_verified"] = json!(true);
-    if manifest["finished_at"].is_null() {
-        manifest["finished_at"] = json!(now()?);
-    }
-    bound_after_cleanup(&mut manifest)?;
-    json_write(&directory.join("manifest.json"), &manifest)?;
+    let cleanup = delete_owned(&mut api, &parsed, id);
+    let ssh_cleanup = remove_ssh_config(id);
+    finish_cleanup(&directory, &mut manifest, Ok(()), cleanup, ssh_cleanup)?;
     println!("VM and boot disk deletion verified for {id}.");
     Ok(())
 }
@@ -1581,6 +1608,106 @@ mod tests {
         manifest["cleanup_verified"] = json!(true);
         bound_after_cleanup(&mut manifest).unwrap();
         assert!((manifest["reserved_estimate_usd"].as_f64().unwrap() - 1.3).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn cleanup_persists_deletion_and_cost_results_despite_ssh_failure() {
+        let directory = std::env::temp_dir().join(format!(
+            "cipher-break-cleanup-{}-{}",
+            std::process::id(),
+            OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let mut manifest = json!({"at":"2026-10-03T00:00:00Z", "finished_at":"2026-10-03T00:02:00Z", "instance":{}, "reserved_estimate_usd":3.0, "estimate":{"vm_hourly_usd":1.0,"disk_hourly_usd":0.0,"ipv4_hourly_usd":0.0,"other_reserve_usd":1.25,"maximum_estimated_usd":3.0}});
+        let error = finish_cleanup(
+            &directory,
+            &mut manifest,
+            Ok(()),
+            Ok(()),
+            Err(anyhow::anyhow!("SSH configuration is read-only")),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("read-only"));
+        let saved = json_read(&directory.join("manifest.json")).unwrap();
+        assert_eq!(saved["cleanup_verified"], true);
+        assert_eq!(saved["finished_at"], "2026-10-03T00:02:00Z");
+        assert!((saved["reserved_estimate_usd"].as_f64().unwrap() - 1.3).abs() < 0.000_001);
+        assert!(
+            saved["ssh_config_error"]
+                .as_str()
+                .unwrap()
+                .contains("read-only")
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cleanup_retains_all_failures_and_preserves_the_operation_error() {
+        let directory = std::env::temp_dir().join(format!(
+            "cipher-break-cleanup-errors-{}-{}",
+            std::process::id(),
+            OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let mut manifest = json!({"at":"invalid time", "instance":{}, "reserved_estimate_usd":3.0});
+        let error = finish_cleanup(
+            &directory,
+            &mut manifest,
+            Err(anyhow::anyhow!("worker failed")),
+            Ok(()),
+            Err(anyhow::anyhow!("SSH cleanup failed")),
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "worker failed");
+        let saved = json_read(&directory.join("manifest.json")).unwrap();
+        assert_eq!(saved["cleanup_verified"], true);
+        assert!(saved["finished_at"].is_string());
+        assert_eq!(saved["error"], "worker failed");
+        assert_eq!(saved["ssh_config_error"], "SSH cleanup failed");
+        assert!(saved["cost_bound_error"].is_string());
+        assert_eq!(saved["reserved_estimate_usd"], 3.0);
+        let error = finish_cleanup(
+            &directory,
+            &mut manifest,
+            Err(anyhow::anyhow!("worker failed")),
+            Err(anyhow::anyhow!("VM deletion failed")),
+            Err(anyhow::anyhow!("SSH cleanup failed")),
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "worker failed");
+        let saved = json_read(&directory.join("manifest.json")).unwrap();
+        assert_eq!(saved["cleanup_verified"], false);
+        assert_eq!(saved["cleanup_error"], "VM deletion failed");
+        assert_eq!(saved["reserved_estimate_usd"], 3.0);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn measurement_admission_accepts_only_the_runtime_benchmark() {
+        let base: Vec<_> = ["cargo", "xtask", "bench"].map(str::to_owned).into();
+        assert!(measurement_command(&base));
+        for period in 1..=6 {
+            let mut command = base.clone();
+            command.extend(["--period".into(), period.to_string()]);
+            assert!(measurement_command(&command));
+        }
+        for suffix in [
+            vec!["--period", "0"],
+            vec!["--period", "7"],
+            vec!["--period", "01"],
+            vec!["--gpu"],
+            vec!["--period", "1", "--gpu"],
+        ] {
+            let mut command = base.clone();
+            command.extend(suffix.into_iter().map(str::to_owned));
+            assert!(!measurement_command(&command));
+        }
+        for task in ["cribs", "prove", "solve", "p1030680"] {
+            let mut command = base.clone();
+            command[2] = task.into();
+            assert!(!measurement_command(&command));
+        }
+        assert!(!needs_proof_tools(Workload::Measurement, false));
     }
 
     #[test]

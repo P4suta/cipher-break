@@ -105,14 +105,123 @@ pub fn setup(target: &str, gpu: bool, directory: &Path) -> Result<()> {
 
 fn execute(command: &Cmd, directory: &Path, records: &mut Vec<Value>) -> Result<Outcome> {
     let mut outcome = command.live(Duration::from_secs(600))?;
+    let checked = outcome.require_success(command);
     records.push(json!({"command": command, "result": outcome}));
     json_write(
         &directory.join("bootstrap.json"),
-        &json!({"status": "running", "commands": records}),
+        &json!({"status": if checked.is_ok() { "running" } else { "failed" }, "commands": records}),
     )?;
-    outcome.require_success(command)?;
+    checked?;
     outcome.stdout = crate::runner::output(&outcome.stdout)?.to_owned();
     Ok(outcome)
+}
+
+pub fn proof_tools(target: &str, directory: &Path) -> Result<String> {
+    let proof_directory = directory.join("proof-bootstrap");
+    let directory = proof_directory.as_path();
+    let mut records = Vec::new();
+    let solver = solver_tool("linux-x64")?;
+    let home = execute(
+        &remote(target, ["printenv", "HOME"]),
+        directory,
+        &mut records,
+    )?
+    .stdout
+    .trim()
+    .to_owned();
+    ensure!(
+        home.starts_with('/') && !home.contains(['\n', '\r']),
+        "invalid remote proof home"
+    );
+    let path = format!(
+        "PATH={home}/.local/bin:{home}/.cargo/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    );
+    for args in [
+        vec![
+            "cargo",
+            "install",
+            "--locked",
+            "--version",
+            "0.68.0",
+            "kani-verifier",
+        ],
+        vec!["cargo", "kani", "setup"],
+        vec!["mise", "install", solver.as_str()],
+        vec![
+            "sudo",
+            "apt-get",
+            "install",
+            "-y",
+            "--no-install-recommends",
+            "elan",
+        ],
+        vec!["elan", "toolchain", "install", "leanprover/lean4:v4.34.1"],
+    ] {
+        let args = ["/usr/bin/env", path.as_str()].into_iter().chain(args);
+        execute(&remote(target, args), directory, &mut records)?;
+    }
+    let location = execute(
+        &remote(
+            target,
+            [
+                "/usr/bin/env",
+                path.as_str(),
+                "mise",
+                "exec",
+                solver.as_str(),
+                "--",
+                "which",
+                "z3",
+            ],
+        ),
+        directory,
+        &mut records,
+    )?
+    .stdout;
+    let binary = Path::new(location.trim());
+    ensure!(
+        binary.is_absolute() && !location.trim().contains(['\n', '\r']),
+        "invalid remote solver path"
+    );
+    let bin = binary
+        .parent()
+        .context("remote solver has no directory")?
+        .to_string_lossy()
+        .into_owned();
+    let version = execute(
+        &remote(target, [location.trim(), "--version"]),
+        directory,
+        &mut records,
+    )?;
+    ensure!(
+        version.stdout.trim() == "Z3 version 5.1.0 - 64 bit",
+        "unexpected remote solver version"
+    );
+    json_write(
+        &directory.join("proof-tools.json"),
+        &json!({"status":"installed", "commands":records, "solver_directory":bin}),
+    )?;
+    Ok(bin)
+}
+
+fn solver_tool(platform: &str) -> Result<String> {
+    let config: toml_edit::DocumentMut = include_str!("../../mise.toml").parse()?;
+    let tool = &config["tools"]["github:Z3Prover/z3"];
+    let options = tool["platforms"]
+        .get(platform)
+        .context("unsupported solver platform")?;
+    Ok(format!(
+        "github:Z3Prover/z3[asset_pattern={},checksum={},strip_components={},bin_path={}]@{}",
+        options["asset_pattern"].as_str().context("solver asset")?,
+        options["checksum"].as_str().context("solver digest")?,
+        tool["strip_components"]
+            .as_integer()
+            .context("solver archive root")?,
+        tool["bin_path"]
+            .as_str()
+            .context("solver binary directory")?,
+        tool["version"].as_str().context("solver version")?,
+    ))
 }
 
 fn driver(target: &str, directory: &Path, records: &mut Vec<Value>) -> Result<()> {
@@ -363,4 +472,55 @@ fn verify(
         "vendor checksum mismatch for {path}"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn solver_installation_selects_native_archives_instead_of_python_wheels() {
+        let request = solver_tool("linux-x64").unwrap();
+        assert!(request.contains("asset_pattern=z3-5.1.0-x64-glibc-2.39.zip"));
+        assert!(request.contains(
+            "checksum=sha256:f47be8d27d3230e823bf1eeede2fe0abaca55bb78d0b59974370e6689a92284a"
+        ));
+        assert!(request.contains("strip_components=1,bin_path=bin"));
+        assert!(request.ends_with("@z3-5.1.0"));
+        for platform in [
+            "macos-arm64",
+            "macos-x64",
+            "linux-arm64",
+            "windows-x64",
+            "windows-arm64",
+        ] {
+            assert!(
+                solver_tool(platform)
+                    .unwrap()
+                    .contains(".zip,checksum=sha256:")
+            );
+        }
+        assert!(solver_tool("unsupported").is_err());
+    }
+
+    #[test]
+    fn a_failed_bootstrap_command_retains_its_failure_status() {
+        let directory = (0..64)
+            .find_map(|index| {
+                let path = std::env::temp_dir()
+                    .join(format!("cb-bootstrap-test-{}-{index}", std::process::id()));
+                std::fs::create_dir(&path).ok().map(|()| path)
+            })
+            .expect("reserve bootstrap regression directory");
+        let command = Cmd::new([
+            std::env::current_exe().unwrap().to_str().unwrap(),
+            "--invalid-bootstrap-test-argument",
+        ]);
+        let mut records = Vec::new();
+        assert!(execute(&command, &directory, &mut records).is_err());
+        let receipt = crate::process::json_read(&directory.join("bootstrap.json")).unwrap();
+        assert_eq!(receipt["status"], "failed");
+        assert_ne!(receipt["commands"][0]["result"]["exit_code"], 0);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 }

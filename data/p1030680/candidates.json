@@ -5,6 +5,8 @@
   "candidates": [
     {
       "id": "C01",
+      "classification": "conditional_hypothesis",
+      "search_rationale": "The recovered May 1 message P1030659 uses this literal Comsubs Training address. A training address is a conditional format hypothesis for the principally Thetis target; no shared net, daily key, sender or subject is asserted. The historical printed keys failed current whole-menu replay, so the old finishing does not replace a corrected full sweep.",
       "hypothesis": "A message addressed to Comsubs Training",
       "cribs": [{"word": "FFFDDDUUUAUSBILDUNG", "source_message": "P1030659", "offsets": [0]}],
       "source": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030659",
@@ -12,7 +14,7 @@
       "source_form_date": "1.5; the year is contextual; small time digits are unresolved",
       "conditions": "The target begins with this exact address form and has the unaltered photographed body.",
       "prior_cribs": ["FFFDDDUUUAUSBILDUNG", "FFFDDDUUUAUSBILDUNGANALLE"],
-      "difference": "Audit the existing full-ring attempts and finishing limits before repeating this exact prefix.",
+      "difference": "Repeat the exact published prefix with corrected whole-menu completion and current known-key recovery after rejecting the two historical printed keys by replay.",
       "unknowns": "No source connects this address to the target; the prior VM run lacks a final status.",
       "eligible": false
     },
@@ -31,6 +33,8 @@
     },
     {
       "id": "C03",
+      "classification": "conditional_hypothesis",
+      "search_rationale": "Radio Control clarification requests are attested in the same recovered collection. The literal prefix is a conditional plaintext hypothesis; it does not assert a common daily key or a known target address.",
       "hypothesis": "A Radio Control request to retransmit an unreadable signal",
       "cribs": [
         {"word": "DIEFUNKSPRUECHEMITUHRZEIT", "source_message": "P1030692", "offsets": [0]},
@@ -69,6 +73,21 @@
       "prior_cribs": ["ANALLEVONVONFUN", "VONVONFUNKLEITUNG"],
       "difference": "Retain the actual decrypted FUNKHEITUNG spelling; the longer header has different menu constraints.",
       "unknowns": "Its key-change wording is incomplete and cannot establish the target's key interval or net.",
+      "eligible": false
+    },
+    {
+      "id": "C06",
+      "hypothesis": "Radio Control reports that a specified telegram cannot be solved",
+      "classification": "conditional_hypothesis",
+      "search_rationale": "P1030686 contains a literal Radio Control formula for an unresolved telegram. This is a testable message-format hypothesis for the short target, not evidence that either message shares a key or refers to the other.",
+      "cribs": [{"word": "FFFTTTNICHTZULOESENFUNKLEITUNG", "source_message": "P1030686", "offsets": "all"}],
+      "source": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030686",
+      "source_key": "Published Potsdam 438/AACU setting; no transfer of that setting to Thetis is assumed",
+      "source_form_date": "Not established for this hypothesis; not used as a target-key restriction",
+      "conditions": "The target contains this contiguous, literal formula in a single-layer Allgemein body. All compatible offsets remain queued.",
+      "prior_cribs": [],
+      "difference": "A new 30-letter attested formula supplies stronger menus than the earlier short signatures. Re-run the corrected CPU/GPU finishing, and retain unvisited offsets rather than excluding the whole hypothesis.",
+      "unknowns": "The target's subject and sender remain unknown. A successful search must recover coherent held-out text and pass exact re-encryption and matched full-search controls.",
       "eligible": false
     }
   ]

@@ -155,23 +155,47 @@ pub fn checked(target: &str, args: impl IntoIterator<Item = impl Into<String>>) 
     Ok(output(&remote(target, args).checked()?)?.to_owned())
 }
 
-// domyjob retains a bounded log tail, so large artifacts need small, checked chunks.
-pub fn read_file(target: &str, path: &str, destination: &Path) -> Result<()> {
-    // Each on command admits another job and can evict the original finished workspace.
+pub fn read_files(target: &str, files: &[(String, PathBuf)]) -> Result<()> {
+    ensure!(
+        !files.is_empty() && files.len() <= crate::artifacts::MAX_FILES,
+        "artifact batch must contain one or two files"
+    );
+    ensure!(
+        !target.is_empty()
+            && target
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.')),
+        "invalid artifact SSH alias"
+    );
     let temporary = checked(
         target,
         ["mktemp", "-d", "-t", "cipher-break-artifact.XXXXXXXX"],
     )?;
     let temporary = temporary.trim();
     ensure!(
-        temporary.starts_with("/tmp/cipher-break-artifact.") && !temporary.contains(['\n', '\r']),
+        temporary
+            .strip_prefix("/tmp/cipher-break-artifact.")
+            .is_some_and(
+                |suffix| suffix.len() == 8 && suffix.bytes().all(|c| c.is_ascii_alphanumeric())
+            ),
         "unexpected remote artifact directory"
     );
-    let staged = format!("{temporary}/artifact");
-    let copied = checked(target, ["cp", "--", path, &staged]);
-    let result = copied.and_then(|_| read_staged_file(target, &staged, destination));
-    let cleanup = checked(target, ["rm", "-f", "--", &staged])
-        .and_then(|_| checked(target, ["rmdir", "--", temporary]));
+    let staged: Vec<_> = files
+        .iter()
+        .enumerate()
+        .map(|(index, (source, destination))| {
+            (source, format!("{temporary}/artifact-{index}"), destination)
+        })
+        .collect();
+    let result = crate::artifacts::stage_then_read(
+        &staged,
+        |(source, path, _)| checked(target, ["cp", "--", source.as_str(), path]).map(|_| ()),
+        |(_, path, destination)| read_staged_file(target, path, destination),
+    );
+    let mut removal = vec!["rm", "-f", "--"];
+    removal.extend(staged.iter().map(|(_, path, _)| path.as_str()));
+    let cleanup =
+        checked(target, removal).and_then(|_| checked(target, ["rmdir", "--", temporary]));
     result?;
     cleanup?;
     Ok(())
@@ -184,8 +208,8 @@ fn read_staged_file(target: &str, path: &str, destination: &Path) -> Result<()> 
         .context("remote artifact length")?
         .parse::<usize>()?;
     ensure!(
-        length <= 4 * 1024 * 1024,
-        "remote artifact exceeds four MiB"
+        length <= 256 * 1024 * 1024,
+        "remote artifact exceeds 256 MiB"
     );
     let digest = checked(target, ["sha256sum", "--", path])?
         .split_whitespace()
@@ -193,58 +217,40 @@ fn read_staged_file(target: &str, path: &str, destination: &Path) -> Result<()> 
         .context("remote artifact digest")?
         .to_owned();
     let partial = destination.with_extension("partial");
-    let mut file = fs::OpenOptions::new()
+    let file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&partial)?;
-    let mut bytes = Vec::with_capacity(length);
-    for offset in (0..length).step_by(4096) {
-        let expected = (length - offset).min(4096);
-        let hex = checked(
-            target,
-            [
-                "od",
-                "-An",
-                "-v",
-                "-tx1",
-                "-N",
-                &expected.to_string(),
-                "-j",
-                &offset.to_string(),
-                "--",
-                path,
-            ],
-        )?;
-        let chunk = hex_chunk(&hex, expected)?;
-        file.write_all(&chunk)?;
-        bytes.extend(chunk);
+    drop(file);
+    let transfer = Cmd::new([
+        "scp",
+        "-B",
+        "--",
+        &format!("{target}:{path}"),
+        &partial.to_string_lossy(),
+    ]);
+    let result = (|| {
+        transfer
+            .live(Duration::from_secs(180))?
+            .require_success(&transfer)?;
+        ensure!(
+            fs::metadata(&partial)?.len() == length as u64 && sha(&partial)? == digest,
+            "remote artifact changed or was truncated during transfer"
+        );
+        let file = fs::File::options().read(true).write(true).open(&partial)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&partial, destination)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        fs::remove_file(&partial).context("remove failed partial artifact")?;
     }
-    ensure!(
-        crate::process::hash(&bytes) == digest,
-        "remote artifact changed or was truncated during transfer"
-    );
-    file.sync_all()?;
-    fs::rename(partial, destination)?;
-    Ok(())
-}
-
-fn hex_chunk(hex: &str, expected: usize) -> Result<Vec<u8>> {
-    let bytes = hex
-        .split_whitespace()
-        .map(|word| {
-            ensure!(word.len() == 2, "invalid artifact hex byte");
-            Ok(u8::from_str_radix(word, 16)?)
-        })
-        .collect::<Result<Vec<_>>>()?;
-    ensure!(
-        bytes.len() == expected,
-        "remote artifact chunk is truncated"
-    );
-    Ok(bytes)
+    result
 }
 
 // SSH transfers only the verified prebuilt node before domyjob exists on a new VM.
-// All subsequent commands and jobs run through domyjob.
+// Subsequent commands and jobs run through domyjob; artifact bytes use SFTP.
 pub fn install_node(target: &str, records: &Path) -> Result<()> {
     let release = local_ready()?;
     ensure!(
@@ -376,16 +382,6 @@ pub fn install_personal() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn artifact_chunks_preserve_bytes_and_reject_truncation() {
-        assert_eq!(
-            super::hex_chunk(" e3 81 82 00 ff\n", 5).unwrap(),
-            [0xe3, 0x81, 0x82, 0, 255]
-        );
-        assert!(super::hex_chunk("e3 81", 3).is_err());
-        assert!(super::hex_chunk("earlier log bytes omitted", 4).is_err());
-    }
-
     #[test]
     fn remote_output_requires_a_finished_job_header() {
         assert_eq!(

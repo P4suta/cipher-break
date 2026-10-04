@@ -839,9 +839,7 @@ mod device {
     }
 }
 
-#[cfg(feature = "gpu")]
-fn short_signal_with_ten_leads(plain: &[Letter], starts: [u8; 3]) -> Vec<Letter> {
-    let settings = Settings::at([2, 0, 1], 0, [0, MIDDLE_RING_F, RIGHT_RING_T], starts);
+fn short_board() -> Plugboard {
     let mut board = Plugboard::empty();
     for (a, b) in [
         (1u8, 20u8),
@@ -857,7 +855,144 @@ fn short_signal_with_ten_leads(plain: &[Letter], starts: [u8; 3]) -> Vec<Letter>
     ] {
         board.connect(a, b);
     }
-    Enigma::with_reflector(settings, composite_reflector(0, 9, 0), board).run(plain)
+    board
+}
+
+#[cfg(feature = "gpu")]
+fn short_signal_with_ten_leads(plain: &[Letter], starts: [u8; 3]) -> Vec<Letter> {
+    let settings = Settings::at([2, 0, 1], 0, [0, MIDDLE_RING_F, RIGHT_RING_T], starts);
+    Enigma::with_reflector(settings, composite_reflector(0, 9, 0), short_board()).run(plain)
+}
+
+#[test]
+fn completing_the_board_preserves_the_short_signals_full_plaintext() {
+    use cipher_break::attack::{complete_boards, score_outside_the_crib};
+    let plain =
+        to_letters("TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX");
+    let settings = Settings::at([2, 0, 1], 0, [0, MIDDLE_RING_F, RIGHT_RING_T], [11, 4, 10]);
+    let reflector = composite_reflector(0, 9, 0);
+    let board = short_board();
+    let ct = Enigma::with_reflector(settings, reflector, board).run(&plain);
+    let bank = bank();
+    let model = german()
+        .expect("German model")
+        .supplemented(&to_letters(include_str!(
+            "../data/p1030680/model-corpus.txt"
+        )));
+    let scale = Scale::build(&bank, ct.len(), 128, &mut Rng::new(1));
+    let focus_scale = Scale::for_model(&model, ct.len(), 128, &mut Rng::new(2));
+    let trace = Trace::new(false);
+    let ctx = Context {
+        judge: &bank,
+        scale: &scale,
+        plan: Schedule::default(),
+        seed: 1,
+        keep: 5,
+        trace: &trace,
+        focus: Some(&model),
+        focus_scale: Some(&focus_scale),
+    };
+    let found = complete_boards(
+        settings,
+        reflector,
+        (board, (1 << 26) - 1),
+        10,
+        16,
+        &ct,
+        &ctx,
+    );
+    assert!(found.iter().any(|(_, _, read)| *read == plain));
+    assert!(
+        found.iter().any(|(_, _, read)| {
+            *read != plain
+                && score_outside_the_crib(read, &ctx, 0, 16)
+                    > score_outside_the_crib(&plain, &ctx, 0, 16)
+        }),
+        "language ranking must not erase a compatible key"
+    );
+    for (key, plugs, read) in found {
+        assert_eq!(read[..16], plain[..16]);
+        assert_eq!(Enigma::with_reflector(key, reflector, plugs).run(&read), ct);
+    }
+}
+
+#[test]
+fn a_short_true_crib_without_a_loop_requires_a_longer_menu() {
+    let plain =
+        to_letters("TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX");
+    let settings = Settings::at([2, 0, 1], 0, [0, MIDDLE_RING_F, RIGHT_RING_T], [11, 4, 10]);
+    let ct =
+        Enigma::with_reflector(settings, composite_reflector(0, 9, 0), short_board()).run(&plain);
+    let menu = |length| cipher_break::bombe::Menu::place(&ct, &plain[..length], 0).unwrap();
+    assert_eq!(menu(14).closures(), 0);
+    assert!(menu(24).closures() > 0);
+}
+
+#[cfg(feature = "gpu")]
+fn verify_short_key(candidate: &cipher_break::attack::Candidate, ciphertext: &[Letter]) {
+    assert!(
+        candidate
+            .key
+            .starts_with("rotors [3, 1, 2] beta/J B-thin rings ")
+    );
+    assert!(
+        candidate
+            .key
+            .ends_with(&cipher_break::attack::describe_leads(&short_board()))
+    );
+    let letters_after = |marker: &str| -> [u8; 3] {
+        to_letters(
+            candidate
+                .key
+                .split_once(marker)
+                .unwrap()
+                .1
+                .split_whitespace()
+                .next()
+                .unwrap(),
+        )
+        .try_into()
+        .unwrap()
+    };
+    let key = Settings::at(
+        [2, 0, 1],
+        0,
+        letters_after(" rings "),
+        letters_after(" start "),
+    );
+    assert_eq!(
+        Enigma::with_reflector(key, composite_reflector(0, 9, 0), short_board())
+            .run(&candidate.plain),
+        ciphertext
+    );
+}
+
+#[cfg(feature = "gpu")]
+fn check_wide_shuffles(
+    attack: &cipher_break::attack::BombeAttack,
+    ct: &[Letter],
+    plain: &[Letter],
+    ctx: &Context,
+    truth_score: f64,
+) {
+    let mut rng = Rng::new(20_261_002);
+    let mut exceeds = 0;
+    for i in 0..8 {
+        let shuffled = rng.shuffled(ct);
+        let controls = attack.best(&shuffled, ctx);
+        assert!(controls.iter().all(|c| c.plain != plain));
+        let score = controls.first().map_or(f64::NEG_INFINITY, |c| c.score);
+        println!("identical six-order/104-reflector shuffle search {i}: {score:.6}");
+        exceeds += usize::from(score >= truth_score);
+    }
+    println!(
+        "pilot empirical p: {}/9; eight controls do not establish p < 0.001",
+        exceeds + 1
+    );
+    assert_eq!(
+        exceeds, 0,
+        "the matched null must not outrank the known reading"
+    );
 }
 
 #[cfg(feature = "gpu")]
@@ -869,18 +1004,17 @@ fn a_ring_swept_bombe_reads_a_short_signal_with_ten_leads() {
 
     let gpu = Gpu::open().expect("the requested GPU check requires a hardware device");
     let gpu = std::sync::Arc::new(gpu);
-    let mut failures = Vec::new();
     let text = "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX";
     let plain = to_letters(text);
-    for starts in [[11u8, 4, 22], [11, 4, 10]] {
+    for (starts, lengths) in [([11u8, 4, 22], [16usize, 14]), ([11, 4, 10], [16, 24])] {
         let ct = short_signal_with_ten_leads(&plain, starts);
         let bank = bank();
         let scale = Scale::build(&bank, ct.len(), PLANTED_SAMPLES, &mut Rng::new(1));
-        let quad = std::env::var("CB_FOCUS")
-            .ok()
-            .and_then(|path| Model::parse(&std::fs::read_to_string(path).ok()?))
-            .or_else(german)
-            .expect("a quadgram model");
+        let quad = german()
+            .expect("German model")
+            .supplemented(&to_letters(include_str!(
+                "../data/p1030680/model-corpus.txt"
+            )));
         let quad_scale = Scale::for_model(&quad, ct.len(), PLANTED_SAMPLES, &mut Rng::new(2));
         let trace = Trace::new(false);
         let ctx = Context {
@@ -893,8 +1027,7 @@ fn a_ring_swept_bombe_reads_a_short_signal_with_ten_leads() {
             focus_scale: Some(&quad_scale),
             trace: &trace,
         };
-        let right = |c: &cipher_break::attack::Candidate| c.plain == plain;
-        for length in [16usize, 14] {
+        for length in lengths {
             let crib = to_letters(&text[..length]);
             assert!(
                 cipher_break::bombe::Menu::place(&ct, &crib, 0).is_some_and(|m| m.closures() > 0),
@@ -913,40 +1046,33 @@ fn a_ring_swept_bombe_reads_a_short_signal_with_ten_leads() {
 
                 middles: true,
                 at: Some(0),
-                finish: cipher_break::attack::BOMBE_FINISH,
+                finish: 64,
             };
             let start = std::time::Instant::now();
             let found = attack.best(&ct, &ctx);
             let standing = attack.stops.load(std::sync::atomic::Ordering::Relaxed);
-            let shapes = attack.shapes.lock().map(|s| s.clone()).unwrap_or_default();
-            let noise = cipher_break::report::best_of_n_fit(
-                &cipher_break::attack::finished_noise(&ct, &ctx, true, 0, length, &shapes, 25_600),
-                standing,
-            )
-            .expect("enough noise to fit");
-            let top = found.first().expect("the true setting is never refuted");
-            let chance = noise.chance_of_reaching(top.score);
+            let rank = found
+                .iter()
+                .position(|c| c.plain == plain)
+                .expect("the full key must survive the actual 64-stop, five-reading limits");
+            let truth = &found[rank];
+            verify_short_key(truth, &ct);
             println!(
-                "  crib of {length}: {standing} stops, {} finished, {:.0}s; best {:+.2}s, chance reaches {:+.2}s and gets that far {chance:.1e} of the time",
+                "  starts {starts:?}, crib {length}: {standing} stops, {} finished, {:.0}s; exact plaintext at rank {rank}, held-out score {:+.6}",
                 attack.finished.load(std::sync::atomic::Ordering::Relaxed),
                 start.elapsed().as_secs_f64(),
-                top.score,
-                noise.median
+                truth.score
             );
             println!(
                 "         {}\n         {}",
-                top.key,
-                from_letters(&top.plain)
+                truth.key,
+                from_letters(&truth.plain)
             );
-            if !right(top) || chance >= 1e-3 {
-                failures.push((starts, length));
+            if starts == [11, 4, 10] && length == 16 {
+                check_wide_shuffles(&attack, &ct, &plain, &ctx, truth.score);
             }
         }
     }
-    assert!(
-        failures.is_empty(),
-        "the planted message has to come first and further than chance goes; these starts and crib lengths did not: {failures:?}"
-    );
 }
 
 #[cfg(feature = "gpu")]

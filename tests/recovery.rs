@@ -4,6 +4,8 @@
 use cipher_break::alphabet::from_letters;
 use cipher_break::alphabet::{Letter, to_letters};
 use cipher_break::anneal::Schedule;
+#[cfg(feature = "gpu")]
+use cipher_break::attack::complete_boards;
 use cipher_break::attack::{Context, complete_board, score_outside_the_crib};
 use cipher_break::bombe::{Menu, Positions, Scratch, Stop, complete_menu, scan_all_with};
 use cipher_break::ciphers::enigma::{Enigma, Plugboard, Settings, composite_reflector};
@@ -322,17 +324,19 @@ fn sweep_recovery(
         for stop in stops {
             if let Stop::Survived { board, known, .. } = stop {
                 for (forced, known) in complete_menu(&menu, &positions, (board, known), 10) {
-                    let (key, plugs, read) =
-                        complete_board(initial, reflector(), (forced, known), 10, reach, ct, ctx);
-                    assert_eq!(
-                        Enigma::with_reflector(key, reflector(), plugs).run(&read),
-                        ct
-                    );
-                    if read[range.clone()] != crib {
-                        continue;
+                    for (key, plugs, read) in
+                        complete_boards(initial, reflector(), (forced, known), 10, reach, ct, ctx)
+                    {
+                        assert_eq!(
+                            Enigma::with_reflector(key, reflector(), plugs).run(&read),
+                            ct
+                        );
+                        if read[range.clone()] != crib {
+                            continue;
+                        }
+                        let score = score_outside_the_crib(&read, ctx, offset, crib.len());
+                        completed.push((score, key, plugs, read));
                     }
-                    let score = score_outside_the_crib(&read, ctx, offset, crib.len());
-                    completed.push((score, key, plugs, read));
                 }
             }
         }
@@ -341,6 +345,8 @@ fn sweep_recovery(
         cipher_break::attack::penalised(r.0, r.2.pairs().len(), ct.len().saturating_sub(2).max(1))
     };
     completed.sort_unstable_by(|a, b| rank(b).total_cmp(&rank(a)));
+    let mut reads = std::collections::HashSet::new();
+    completed.retain(|c| reads.insert(c.3.clone()));
     (
         completed.first().map_or(f64::NEG_INFINITY, |c| c.0),
         completed,

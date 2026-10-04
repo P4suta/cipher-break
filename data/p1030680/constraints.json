@@ -138,9 +138,15 @@
       "url": "https://www.cryptomuseum.com/crypto/enigma/files/schluessel_m.pdf",
       "local_path": "reports/p1030680/sources/schluessel_m.pdf",
       "sha256": "93b2f6db52e747cc9d235da5b4589e6516144e749992f46bc368bb07d297de87",
-      "read_pages": [1, 2, 8, 9, 10, 11],
-      "page_numbering": "PDF pages, counted from 1; page 11 contains printed 18-19, sections 81-89",
-      "review_scope": "Original cover and the Offizier/Stab outer procedure checked visually; section 85 includes a final 4-8-letter fill word, while a public translated transcription of section 85 stops at item 5",
+      "read_pages": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      "page_numbering": "PDF pages, counted from 1; pages 6-7 contain printed 8-11, including sections 32-35; page 11 contains printed 18-19, sections 81-89",
+      "review_scope": "Original cover, ordinary padding and the Offizier/Stab outer procedure checked visually. Sections 32-33 append three or four repeats of the same bigram and one or more neutral words; sections 34-35 group by four and finish an incomplete group with consonants. Section 32's literal example KB KB KB was cross-checked against the published translation. Section 85 includes a final 4-8-letter fill word, while a public translated transcription of section 85 stops at item 5.",
+      "padding_translation_cross_check": {
+        "url": "https://www.codesandciphers.org.uk/documents/egenproc/page08.htm",
+        "local_path": "reports/p1030680/sources/mdv32-1-padding-translated.htm",
+        "sha256": "eb214775f5966d9b6f66114d6e5a201639d9a66bb3aecb2e3b3d3f40907c9b8d",
+        "scope": "Section 32: three or four identical bigrams, with the example KB KB KB GARDEROBENSTANDER. The German original remains authoritative; the initial KK reading was corrected."
+      },
       "edition_limit": "The cover dates this copy to 1940; the effective amendments and continued applicability to Thetis on 1 May 1945 are unverified"
     },
     {
@@ -407,8 +413,9 @@
       "retrieval_url": "https://discovery.nationalarchives.gov.uk/API/records/v1/details/C1910474",
       "local_path": "reports/p1030680/sources/tna-defe3-577-details.json",
       "sha256": "c31e3a9d04989c599271d8c104a920c2ac22d90e28c833a99096b4a910a84bd3",
-      "review_scope": "Official metadata confirms covering dates and digitised: true; links and scannedLists are empty",
-      "retrieval_status": "Metadata read; the record webpage requested JavaScript verification, and no full-reel download URL was obtained"
+      "review_scope": "Official metadata plus all five user-supplied PDF parts, 1040 pages in total; complete OCR response coverage and selected visual checks are recorded in data/p1030680/ultra-review.json",
+      "retrieval_status": "Full reel obtained from the user's official download; all OCR batches retrieved and page coverage validated; selected translations reviewed, with no target-linked Thetis pair established",
+      "scan_manifest": "data/p1030680/ultra-review.json"
     },
     {
       "id": "tna-defe3-578",
@@ -419,6 +426,30 @@
       "sha256": "2495fbcbecf3416fd0c347bdba5acce934d50818db39a8117a8c8dcedf4bc875",
       "review_scope": "Official metadata confirms covering dates and digitised: true; links and scannedLists are empty",
       "retrieval_status": "Metadata read; full reel not retrieved"
+    },
+    {
+      "id": "mdv98-zuteilung-3271",
+      "title": "Zuteilungsliste fuer Kenngruppen zum K. Buch, Ausgabe 1941, M.Dv.Nr.98, Pruefnr.3271",
+      "url": "https://raw.githubusercontent.com/Digital-Defiance/HELUT/0f24ed6451bf617d0c83dfc5ae72929c4acdddf6/site/public/selm/zuteilungsliste_pruefnr_3271.pdf",
+      "local_path": "reports/p1030680/sources/zuteilungsliste_pruefnr_3271.pdf",
+      "sha256": "92800e985f963454d396cabed8aa43dd36b14d99ffcad1e1c0e9f1bda2701ded",
+      "pages": 17,
+      "review_scope": "Complete cover and all remaining page headings visually checked; full Dorsch Part B and Part A, and Forelle, Haifisch and Zander Part B reviewed for column 645. Amendment headers cite MND IIc 2063/43 of 11 February 1943; effective applicability in May 1945 is not established.",
+      "retrieval_status": "Public primary scan obtained from an immutable mirror commit; the second filename Zuteilungsliste_fur_Kenngruppen_M.Dv.Nr.98.pdf has identical bytes, not an independent edition",
+      "named_sheets": ["Dorsch", "Forelle", "Haifisch", "Zander"],
+      "missing_named_sheet": "Hering is named on the cover but no Hering allocation sheet was identified in these 17 pages.",
+      "column_645": [
+        {"list": "Dorsch", "pdf_page": 2, "range": [621, 670], "assignment": "reserve-hand entry; not Thetis"},
+        {"list": "Forelle", "pdf_page": 8, "range": [641, 670], "assignment": "M-Aegir"},
+        {"list": "Haifisch", "pdf_page": 12, "range": [639, 663], "assignment": "M-Hydra"},
+        {"list": "Zander", "pdf_page": 16, "range": [622, 661], "assignment": "M-Freya"}
+      ],
+      "secondary_report": {
+        "url": "https://github.com/Digital-Defiance/HELUT/blob/0f24ed6451bf617d0c83dfc5ae72929c4acdddf6/BREAK_P1030680.md",
+        "section": "Phase 79",
+        "claim": "A reported 2 October 2026 letter from Frode Weierud identifies Hering, effective 4 March 1945, and Quelle as in force on 1 May 1945.",
+        "limit": "The original letter and a dated Hering allocation sheet were not inspected; this report does not identify the undated publisher fragment or a Thetis daily key."
+      }
     }
   ],
   "constraints": [
@@ -596,6 +627,26 @@
       "search_effect": "Prioritize the actual cipher-book/key-sheet holdings in NR 201/202 for machine settings; retain NR 1665 as a coverage and timing lead, while asking whether it also includes settings.",
       "target_key_restriction": false,
       "unknowns": "The logs themselves remain unread; their Thetis coverage and whether settings accompany the timing records are not established."
+    },
+    {
+      "id": "H21",
+      "claim": "M.Dv.32/1 copy 4508, printed 9-10, sections 32-35, lengthens ordinary traffic with three or four repeats of the same bigram and one or more neutral words before four-letter grouping and final consonant fill.",
+      "sources": ["mdv-32-1-4508"],
+      "pages": "PDF pages 6-7; printed 4 section 6 also specifies the usual a/o/u replacements for umlauts",
+      "status": "verified_original_1940_procedure",
+      "search_effect": "Prioritize remaining interior C06 placements as conditional longer-ending formats. Keep the existing broader 30-letter crib; do not force the manual's example padding or treat zero to three final consonants as a limit on all post-message padding.",
+      "target_key_restriction": false,
+      "unknowns": "The effective amendments and application on 1 May 1945 remain unverified. No target text or actual padding word is known; the source's example word supplies a format hypothesis, not an intercepted target plaintext."
+    },
+    {
+      "id": "H22",
+      "claim": "The reviewed Pruefnr.3271 sheets allocate column 645 to reserve-hand traffic in Dorsch, Aegir in Forelle, Hydra in Haifisch and Freya in Zander; none is the publisher's Thetis 621-653 fragment.",
+      "sources": ["mdv98-zuteilung-3271"],
+      "pages": "Full tables on PDF pages 2, 8, 12 and 16; complete cover and all page headings also reviewed",
+      "status": "verified_original_tables_effective_target_edition_unknown",
+      "search_effect": "Keep the current conditional Thetis hypothesis and unrestricted wheel/ring domain. Locate the complete dated Hering list, amendments and validity notice rather than applying one of these older tables to the target.",
+      "target_key_restriction": false,
+      "unknowns": "The cover names Hering but this scan supplies no identified Hering table; the expert chronology is reported indirectly, and no Thetis daily setting or target-linked plaintext was obtained."
     }
   ],
   "archival_leads": [
@@ -696,9 +747,9 @@
       "identifier": "TNA DEFE 3/577, C1910474, 29 April-3 May 1945; DEFE 3/578, C1910475, 3-17 May 1945",
       "source": "tna-defe3-577",
       "additional_sources": ["tna-defe3-578"],
-      "access_route": "Discovery digital microfilm; official API confirms digitisation, but returns no image-download links",
-      "status": "official_metadata_only",
-      "unknowns": "Full reels were not retrieved; no target-related Thetis intercept or plaintext pair has been identified"
+      "access_route": "Discovery digital microfilm; DEFE 3/577 was supplied as the user's five official PDF downloads and reviewed using cloud OCR plus selected original-page checks",
+      "status": "defe3_577_obtained_and_selectively_reviewed",
+      "unknowns": "DEFE 3/578 remains unread; OCR is not a full manual review of DEFE 3/577. No target-related Thetis intercept, dated key or original German plaintext pair has been established; report dates can lag intercept dates."
     },
     {
       "id": "A11",

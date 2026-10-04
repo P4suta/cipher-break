@@ -26,13 +26,13 @@ struct Null {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
-struct Placement {
-    offset: usize,
-    closures: usize,
-    components: usize,
+pub(crate) struct Placement {
+    pub offset: usize,
+    pub closures: usize,
+    pub components: usize,
 }
 
-fn placements(cipher: &[u8], word: &[u8], offsets: &Value) -> Vec<Placement> {
+pub(crate) fn placements(cipher: &[u8], word: &[u8], offsets: &Value) -> Vec<Placement> {
     if word.len() > cipher.len() {
         return Vec::new();
     }
@@ -85,6 +85,28 @@ fn find(parent: &[usize; 26], mut i: usize) -> usize {
     i
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Classification {
+    ConditionalHypothesis,
+    Deferred,
+}
+
+#[derive(Deserialize)]
+struct SearchIntent {
+    classification: Classification,
+    search_rationale: String,
+}
+
+pub(crate) fn measurement_candidate(candidate: &Value) -> bool {
+    serde_json::from_value::<SearchIntent>(candidate.clone()).is_ok_and(|intent| {
+        match intent.classification {
+            Classification::ConditionalHypothesis => !intent.search_rationale.trim().is_empty(),
+            Classification::Deferred => false,
+        }
+    })
+}
+
 fn published_plaintext(path: &Path) -> Result<String> {
     let raw = fs::read_to_string(path).with_context(|| {
         format!(
@@ -132,6 +154,7 @@ pub fn provenance() -> Result<BTreeMap<String, String>> {
         "data/p1030680/model-corpus.txt",
         "data/p1030680/candidates.json",
         "data/p1030680/transcription.json",
+        "proofs/assurance.json",
     ]
     .iter()
     .map(|p| root.join(p))
@@ -350,7 +373,12 @@ fn build(sources: &Path, recovery_path: &Path) -> Result<(Value, Value)> {
                 .collect();
                 jobs.push(json!({
                     "id": format!("{}-{word}-{}", string(&candidate, "id")?, menu.offset),
-                    "eligible": false, "reason": format!("{} Target-specific evidence and a measured whole-scope cost remain required.", string(&candidate, "unknowns")?),
+                    "eligible_for_measurement": measurement_candidate(&candidate),
+                    "eligible": false, "reason": if measurement_candidate(&candidate) {
+                        "Conditional attested crib: validate recovery and measure the selected scope before a budgeted exploratory search. A target-linked plaintext is not a prerequisite."
+                    } else {
+                        "Deferred hypothesis: record its search rationale before measurement or execution."
+                    },
                     "recovery_status": recovery_status, "input_version": ledger.input_version,
                     "input_sha256": sha(&root.join("data/ciphertext.txt"))?,
                     "model": "data/german-quadgrams.txt", "model_sha256": model_sha, "seed": 1,
@@ -469,7 +497,10 @@ fn string<'a>(value: &'a Value, name: &str) -> Result<&'a str> {
         .with_context(|| format!("missing string {name}"))
 }
 
-fn recovery_status<'a>(recovery: &'a Value, provenance: &BTreeMap<String, String>) -> &'a str {
+pub(crate) fn recovery_status<'a>(
+    recovery: &'a Value,
+    provenance: &BTreeMap<String, String>,
+) -> &'a str {
     if !recovery.is_null() && recovery["provenance_sha256"] != json!(provenance) {
         return "stale_provenance";
     }
@@ -566,6 +597,23 @@ fn number_before(line: &str, marker: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_attested_conditional_crib_can_be_measured_without_known_target_plaintext() {
+        let candidate = json!({
+            "eligible": false,
+            "classification": "conditional_hypothesis",
+            "search_rationale": "A literal Radio Control formula is a hypothesis, not a recovered target text."
+        });
+        assert!(measurement_candidate(&candidate));
+        assert!(!measurement_candidate(&json!({"eligible": true})));
+        assert!(!measurement_candidate(&json!({
+            "classification": "confirmed_setting", "search_rationale": "unverified key transfer"
+        })));
+        assert!(!measurement_candidate(&json!({
+            "classification": "conditional_hypothesis", "search_rationale": ""
+        })));
+    }
 
     #[test]
     fn a_recovery_result_cannot_outlive_its_source_hashes() {

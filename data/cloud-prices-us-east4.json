@@ -1,0 +1,17 @@
+{
+  "checked_at": "2026-10-03T04:44:53Z",
+  "currency": "USD",
+  "maximum_age_days": 7,
+  "vm_hourly": {
+    "us-east4/g2-standard-8/gpu": 0.850829188
+  },
+  "balanced_disk_gib_hourly": 0.000150685,
+  "ephemeral_ipv4_hourly": 0.005,
+  "egress_storage_tax_fx_reserve": 1.25,
+  "sources": [
+    "https://cloud.google.com/products/compute/pricing/accelerator-optimized",
+    "https://cloud.google.com/compute/disks-image-pricing",
+    "https://cloud.google.com/vpc/network-pricing"
+  ],
+  "note": "Northern Virginia on-demand VM and zonal balanced-disk prices were read with that region selected on the official pages; estimates precede promotional credits and settled billing."
+}

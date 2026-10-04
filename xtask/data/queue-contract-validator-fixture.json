@@ -1,0 +1,130 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "timestamp": "2026-10-03T11:22:48.461126Z",
+    "kani_version": "0.68.0",
+    "target": "aarch64-apple-darwin",
+    "build_mode": "release"
+  },
+  "tools": {
+    "kani": "0.68.0",
+    "rustc": "rustc 1.100.0-nightly (8925ea358 2026-08-20)",
+    "cbmc": "6.11.0 (cbmc-6.11.0)",
+    "goto_cc": "clang version 21.0.0 (goto-cc 6.11.0 (cbmc-6.11.0))",
+    "goto_instrument": "6.11.0 (cbmc-6.11.0)",
+    "solvers": [
+      {
+        "name": "cadical",
+        "version": null
+      }
+    ]
+  },
+  "harness_metadata": [
+    {
+      "pretty_name": "bombe::queue_checks_existing_partners_and_frames_every_new_assignment",
+      "source": {
+        "file": "proofs/queue-contract.rs",
+        "start_line": 5,
+        "end_line": 18
+      },
+      "attributes": {
+        "kind": "ProofForContract { target_fn: \"Scratch::queue\" }",
+        "should_panic": false
+      },
+      "contract": {
+        "contracted_function_name": "_RNCNCNvMs1_NtCsimOUHKCY8zJ_5queue5bombeNtB9_7Scratch5queues0_0s_0Bb_",
+        "recursion_tracker": null
+      }
+    }
+  ],
+  "verification_results": {
+    "summary": {
+      "total_harnesses": 1,
+      "executed": 1,
+      "status": "completed",
+      "successful": 1,
+      "failed": 0,
+      "duration_ms": 12672
+    },
+    "results": [
+      {
+        "harness_id": "bombe::queue_checks_existing_partners_and_frames_every_new_assignment",
+        "status": "Success",
+        "checks": [
+          {
+            "id": 20,
+            "function": "bombe::Scratch::queue::{closure#2}",
+            "status": "Success",
+            "description": "|result: &bool|\n{\n    let before = old(self.known(letter)); let stamps = old(self.stamp); let\n    values = old(self.value); let pending = old(self.pending); let count =\n    old(*waiting); self.generation == old(self.generation) &&\n    known_count(self) == old(known_count(self)) +\n    usize::from(before.is_none()) && match before\n    {\n        Some(value) => *result == (value == partner) && *waiting == count &&\n        self.stamp == stamps && self.value == values && self.pending ==\n        pending, None => *result && *waiting == count + 1 &&\n        self.known(letter) == Some(partner) && self.pending[count] == letter\n        &&\n        (0..ALPHABET).all(|index|\n        {\n            (index == usize::from(letter) % ALPHABET ||\n            (self.stamp[index] == stamps[index] && self.value[index] ==\n            values[index])) &&\n            (index == count || self.pending[index] == pending[index])\n        }),\n    }\n}",
+            "location": {
+              "file": "proofs/../src/bombe.rs",
+              "line": "248",
+              "column": "5"
+            },
+            "category": "assertion"
+          },
+          {
+            "id": 23,
+            "function": "bombe::queue_checks_existing_partners_and_frames_every_new_assignment",
+            "status": "Success",
+            "description": "assertion failed: result == before.is_none_or(|value| value == partner)",
+            "location": {
+              "file": "proofs/queue-contract.rs",
+              "line": "13",
+              "column": "5"
+            },
+            "category": "assertion"
+          },
+          {
+            "id": 25,
+            "function": "bombe::queue_checks_existing_partners_and_frames_every_new_assignment",
+            "status": "Success",
+            "description": "assertion failed: waiting == count + usize::from(before.is_none())",
+            "location": {
+              "file": "proofs/queue-contract.rs",
+              "line": "14",
+              "column": "5"
+            },
+            "category": "assertion"
+          },
+          {
+            "id": 27,
+            "function": "bombe::queue_checks_existing_partners_and_frames_every_new_assignment",
+            "status": "Satisfied",
+            "description": "cover condition: before.is_none() && count == ALPHABET - 1",
+            "location": {
+              "file": "proofs/queue-contract.rs",
+              "line": "15",
+              "column": "5"
+            },
+            "category": "cover"
+          },
+          {
+            "id": 28,
+            "function": "bombe::queue_checks_existing_partners_and_frames_every_new_assignment",
+            "status": "Satisfied",
+            "description": "cover condition: before.is_some_and(|value| value != partner)",
+            "location": {
+              "file": "proofs/queue-contract.rs",
+              "line": "16",
+              "column": "5"
+            },
+            "category": "cover"
+          },
+          {
+            "id": 29,
+            "function": "bombe::queue_checks_existing_partners_and_frames_every_new_assignment",
+            "status": "Satisfied",
+            "description": "cover condition: before == Some(partner) && scratch.generation == u32::MAX",
+            "location": {
+              "file": "proofs/queue-contract.rs",
+              "line": "17",
+              "column": "5"
+            },
+            "category": "cover"
+          }
+        ]
+      }
+    ]
+  }
+}

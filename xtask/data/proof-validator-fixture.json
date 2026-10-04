@@ -1,0 +1,20 @@
+{
+  "metadata": {"version":"1.0", "kani_version":"0.68.0", "build_mode":"release", "target":"aarch64-apple-darwin"},
+  "tools": {"kani":"0.68.0", "cbmc":"6.11.0 (cbmc-6.11.0)", "rustc":"rustc 1.100.0-nightly (8925ea358 2026-08-20)"},
+  "harness_metadata": [{"pretty_name":"ring_coordinate_round_trips", "source":{"file":"proofs/coordinates.rs"}, "attributes":{"kind":"Proof", "should_panic":false}}],
+  "verification_results": {
+    "summary": {"total_harnesses":1,"executed":1,"successful":1,"failed":0,"status":"completed"},
+    "results": [{
+      "harness_id":"ring_coordinate_round_trips", "status":"Success",
+      "checks": [
+        {"status":"Success","description":"assertion failed: round trip","location":{"file":"proofs/coordinates.rs"}},
+        {"status":"Success","description":"assertion failed: inverse","location":{"file":"proofs/coordinates.rs"}},
+        {"status":"Success","description":"assertion failed: range","location":{"file":"proofs/coordinates.rs"}},
+        {"status":"Success","description":"assertion failed: step","location":{"file":"proofs/coordinates.rs"}},
+        {"status":"Satisfied","category":"cover"},
+        {"status":"Satisfied","category":"cover"},
+        {"status":"Satisfied","category":"cover"}
+      ]
+    }]
+  }
+}

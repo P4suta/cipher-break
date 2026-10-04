@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+mod agreement;
+mod artifacts;
 mod audit;
 mod bootstrap;
+mod campaign;
 mod cloud;
+mod formal;
 mod gcp;
 mod jobs;
+mod lease;
 mod process;
+mod proof_gate;
+mod proof_work;
 mod runner;
+mod search_scope;
 
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
@@ -35,6 +43,7 @@ fn dispatch(args: &[String]) -> Result<()> {
     match command {
         "agree" => jobs::agree(rest),
         "check" => jobs::check(rest),
+        "prove" => formal::run(rest),
         "bench" => jobs::bench(rest),
         "cribs" => jobs::cribs(rest),
         "cloud" => cloud::dispatch(rest),
@@ -45,11 +54,15 @@ fn dispatch(args: &[String]) -> Result<()> {
             Some(("sources", options)) => audit::sources(options),
             Some(("model", options)) => audit::model(options),
             Some(("recovery", options)) => jobs::recovery(options),
-            _ => bail!("use p1030680 sources, model, audit, or recovery; see cargo xtask help"),
+            Some(("campaign", options)) => campaign::run(options),
+            _ => bail!(
+                "use p1030680 sources, model, audit, recovery, or campaign; see cargo xtask help"
+            ),
         },
         "help" | "--help" | "-h" => {
             println!(
                 "cargo xtask check [--quick]  (full checks run on GCP)\n\
+                 cargo xtask prove [--case NAME] [--max-seconds N] | --list | --verify | --verify-search\n\
                  cargo xtask agree\n\
                  cargo xtask bench [--period N]\n\
                  cargo xtask cribs LIST [MODEL_PATH_OR_GS_URI]\n\
@@ -57,7 +70,10 @@ fn dispatch(args: &[String]) -> Result<()> {
                  cargo xtask p1030680 model\n\
                  cargo xtask p1030680 audit [--sources DIR] [--output DIR] [--recovery-result FILE]\n\
                  cargo xtask p1030680 recovery [--max-minutes N] [--gpu-only]  (through domyjob on a cloud GPU)\n\
+                 cargo xtask p1030680 campaign [--candidate ID] [--max-minutes N]  (measure and search on a cloud GPU)\n\
+                     [--at N] [--control-only] [--reuse-recovery]\n\
                  cargo xtask cloud preflight [--project ID] [--zone ZONE] [--machine TYPE]\n\
+                 cargo xtask cloud prove CASE [--hours 1|2] [--zone ZONE] [--dry-run]\n\
                  cargo xtask cloud run cpu|gpu [--hours 1|2] [--machine TYPE] [--zone ZONE]\n\
                      [--project ID] [--standard] [--price-file FILE] [--ssh-key PUBLIC_KEY]\n\
                      [--dry-run] [--recovery [--gpu-only] | -- COMMAND ARG...]\n\

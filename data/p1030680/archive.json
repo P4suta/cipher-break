@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "investigation_status": "ended_without_decryption",
+  "archive_directory": "home/Archives/cipher-break/2026-10-04",
+  "transport": "Existing Synology Drive File Provider domain on the owner's Mac",
+  "independent_server_restore_performed": false,
+  "independent_local_copies_retained": true,
+  "research": {
+    "name": "research-sources.tar",
+    "prepared_at": "2026-10-04T02:17:41Z",
+    "bytes": 634574848,
+    "sha256": "5b988c796ddbf48566f6e2d06abb11421f8b172f7e803ade668025e9cb519190",
+    "members": 517,
+    "member_root": "reports/p1030680/sources/",
+    "local_copy_hash_matches": true,
+    "provider_uploaded": true,
+    "provider_uploading": false,
+    "provider_paused": false,
+    "provider_excluded": false,
+    "provider_has_conflicts": false,
+    "representative_extraction": {
+      "member": "reports/p1030680/sources/P1030680.jpg",
+      "sha256": "cbe4d39cf6acf0efd789f95789fda04be551bb6e40892b0e508f5505c10e0454",
+      "matches_original": true
+    },
+    "verification_limit": "Upload acknowledgement and extraction from the client-managed local copy were verified; an independent NAS server read and restore were not performed."
+  },
+  "execution": {
+    "name": "execution-evidence.tar.gz",
+    "bytes": 98153592,
+    "sha256": "528c4bb1d66ccb1eddd12a6c8d7597ad72be15199ba67f80d72c14daf7ec741c",
+    "members": 2148,
+    "created_at": "2026-10-04T04:13:35.6928613Z",
+    "prepared_on": "Windows",
+    "member_root": "reports/",
+    "source_revision_before_closeout_commit": "5c157eedaa279ff1755f9b9f848076805e33496b",
+    "source_state": "Working-tree evidence prior to the final closeout commit",
+    "code_provenance_record": "data/p1030680/recovery-result.json",
+    "local_copy_hash_matches": true,
+    "hash_and_restore_performed_on": "Windows",
+    "verified_at": "2026-10-04T04:30:23.8340371Z",
+    "provider_uploaded": true,
+    "provider_uploading": false,
+    "provider_paused": false,
+    "provider_excluded": false,
+    "provider_has_conflicts": false,
+    "gcs_objects_checked": 53,
+    "representative_extraction": {
+      "member": "reports/p1030680/source-key-check.json",
+      "sha256": "dfb0e749c19f45d9c77c86d4b920a60ba47a4c1502cafa1de60c494a47a3e478",
+      "matches_original": true
+    },
+    "raw_worker_proof_bundle": {
+      "member": "reports/cloud/cb-1791081782-60322000-gpu/out/proof-bundle.tar.gz",
+      "bytes": 13933608,
+      "sha256": "af31ecfc28863c6326d9908051f48b2b59ab202cd188a14a0581979fa2bcdc2f"
+    },
+    "verification_limit": "The actual Synology Drive client copy was sent back to Windows for hashing and representative restoration. Provider upload acknowledgement was verified; an independent NAS server read and restore were not performed."
+  },
+  "public_receipts": [
+    {
+      "path": "reports/p1030680/historical-prior-runs-20260923.json",
+      "sha256": "dc3b1840748a56796d4cf4a79eac621547833a177517b7ac7eb03936ae21ab44"
+    },
+    {
+      "path": "reports/p1030680/source-key-check.json",
+      "sha256": "dfb0e749c19f45d9c77c86d4b920a60ba47a4c1502cafa1de60c494a47a3e478"
+    },
+    {
+      "path": "reports/p1030680/c01-replay-result.json",
+      "sha256": "b5b60fd96daaab8bb34d9e5d9fc0c22fce1c1a2e261b950a59559c1561c086d1"
+    },
+    {
+      "path": "reports/p1030680/c01-replay-13-result.json",
+      "sha256": "bfe8a5d264dabea96ddad1ca43daa70a68e94f57e485166ee6cec0b3118ab9a9"
+    },
+    {
+      "path": "reports/p1030680/c04-continuation-static.json",
+      "sha256": "fb495302a7c3eb73b964dec6610debf13550f2f992016d6566bc0e81eaff08f9"
+    },
+    {
+      "path": "reports/p1030680/c06-padding-static.json",
+      "sha256": "baace556b8f1225d3abf386af74d6f2292a809557bf45f5d9959ed694a6b3c9b"
+    },
+    {
+      "path": "reports/p1030680/c06-source-replay-result.json",
+      "sha256": "f5cb24046cc4fb8461581160d7db26bcaa7c10b980273b9a4616186754c06719"
+    },
+    {
+      "path": "reports/proofs/lease-native.json",
+      "sha256": "cda51a5ed1cdbcedf8887ca7b81497f6a1d8ba05190db27f072b57f84e1d5ef0"
+    }
+  ],
+  "supplement": {
+    "name": "closeout-supplement.tar.gz",
+    "bytes": 390062,
+    "sha256": "a7ea5f8b5812e27f56c30ebc732034ba5a996d09bdecb61f5ed36ac7733acce7",
+    "members": 38,
+    "created_at": "2026-10-04T04:37:11.6972999Z",
+    "prepared_on": "Windows",
+    "member_root": "reports/",
+    "local_copy_hash_matches": true,
+    "hash_and_restore_performed_on": "Windows",
+    "verified_at": "2026-10-04T04:40:50.9926047Z",
+    "provider_uploaded": true,
+    "provider_uploading": false,
+    "provider_paused": false,
+    "provider_excluded": false,
+    "provider_has_conflicts": false,
+    "representative_extraction": {
+      "member": "reports/models/naval-de-l100.txt",
+      "sha256": "4496cc94c9a93930cbe231d062f9de904b91e22141c898b6a0cd34b37c33962a",
+      "matches_original": true
+    },
+    "verification_limit": "Client-copy hashing, representative restoration and provider upload acknowledgement were verified. Independent NAS server restoration remains unperformed."
+  },
+  "cleanup": {
+    "active_instances": 0,
+    "active_disks": 0,
+    "task_bucket_deleted": true,
+    "archived_gcs_objects_verified": 53,
+    "provider_soft_delete_retention_seconds": 604800,
+    "project_and_authentication_preserved": true
+  }
+}

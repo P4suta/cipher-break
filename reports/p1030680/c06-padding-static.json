@@ -1,0 +1,29 @@
+{
+  "kind": "read_only_static_comparison_of_conditional_manual_example",
+  "cipher_length": 72,
+  "word": "FFFTTTNICHTZULOESENFUNKLEITUNGKBKBKBGARDEROBENSTANDER",
+  "word_length": 53,
+  "placements": [
+    {
+      "offset": 18,
+      "remaining_letters": 1,
+      "self_encipherment_conflicts": [
+        {
+          "ciphertext_offset": 49,
+          "letter": "B"
+        }
+      ]
+    },
+    {
+      "offset": 19,
+      "remaining_letters": 0,
+      "self_encipherment_conflicts": [
+        {
+          "ciphertext_offset": 64,
+          "letter": "N"
+        }
+      ]
+    }
+  ],
+  "interpretation": "A documentary padding example is an ordering hypothesis, not an intercepted target plaintext or proof of the applicable edition. Both placements refute this literal example; the existing broader 30-letter C06 search allows different marker pairs and neutral words."
+}

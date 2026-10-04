@@ -1,0 +1,27 @@
+{
+  "ciphertext": "IAAOVEUEXXPJYRAEWTCUKIPWRATCZAPVSMYMWTEHSXRVTRHCFTESBOEHKVGNFCLVWDJXQOSQNKBGZYLLGZLCVUQLQBMADLQEKVBFRIEA",
+  "crib": "FFFTTTNICHTZULOESENFUNKLEITUNG",
+  "decryption_matches": true,
+  "implementation_sha256": "db099c06296e24d6aac446c3e9ab8354b3ac6b5566c5b03dc8934c21699afe03",
+  "key": {
+    "greek": "gamma",
+    "moving_rotors": [
+      4,
+      3,
+      8
+    ],
+    "plugs": "CH EJ NV OU TY LG SZ PK DI QB",
+    "rings": "AACU",
+    "thin_reflector": "B",
+    "window": "XVLI"
+  },
+  "letters": 104,
+  "plaintext": "SPRUCHSCHLIESSELVONFFFTTTMILUHRZEITGRUPSEEINSZWOZHOVIERSOFORTWERGEBENYDAFFFTTTNICHTZULOESENFUNKLEITUNGXZ",
+  "reencryption_matches": true,
+  "scope": "An exact replay of one published source message; no target search, key transfer or significance is claimed.",
+  "seconds": 0.000051208,
+  "source": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030686",
+  "source_offset": 72,
+  "source_range_end": 102,
+  "source_sha256": "4ef91319d382abbd0d9c95d5e3463bf62ea8121764dcf52a9c4d0520245130dd"
+}

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::process::{Cmd, json_write, now, option, sha};
+use crate::proof_work::Workload;
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use std::fs;
@@ -40,6 +41,10 @@ pub fn check(args: &[String]) -> Result<()> {
 }
 
 fn quick() -> Result<()> {
+    quick_for(Workload::Recovery)
+}
+
+pub fn quick_for(workload: Workload) -> Result<()> {
     let started = Instant::now();
     let limit = Duration::from_secs(60);
     let mut records = Vec::new();
@@ -48,6 +53,7 @@ fn quick() -> Result<()> {
         vec![
             "cargo",
             "clippy",
+            "--release",
             "--locked",
             "--workspace",
             "--all-targets",
@@ -57,7 +63,14 @@ fn quick() -> Result<()> {
             "-D",
             "warnings",
         ],
-        vec!["cargo", "test", "--locked", "--package", "xtask"],
+        vec![
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "--package",
+            "xtask",
+        ],
         vec!["cargo", "test", "--locked", "--release", "--lib", "bombe"],
         vec![
             "cargo",
@@ -82,6 +95,11 @@ fn quick() -> Result<()> {
         )?;
         outcome.require_success(&command)?;
     }
+    let attestation = crate::formal::workload_attestation(workload)?;
+    json_write(
+        &crate::root().join("reports/quick-proof-attestation.json"),
+        &attestation,
+    )?;
     Ok(())
 }
 
@@ -127,8 +145,11 @@ pub fn agree(args: &[String]) -> Result<()> {
         .and_then(|s| s.split_whitespace().next())
         .context("Haskell IC was not reported")?;
     ensure!(
-        rust_ic == haskell_ic,
-        "implementations disagree: Rust IC {rust_ic}, Haskell IC {haskell_ic}"
+        crate::agreement::matches_fixture(
+            rust_ic.as_bytes().try_into().ok(),
+            haskell_ic.as_bytes().try_into().ok()
+        ),
+        "expected fixture IC 0.0438 from both implementations: Rust IC {rust_ic}, Haskell IC {haskell_ic}"
     );
     println!("rust IC {rust_ic}, haskell IC {haskell_ic}");
     Ok(())
@@ -286,7 +307,7 @@ fn crib_lines(text: &str) -> Result<Vec<Vec<String>>> {
         .collect()
 }
 
-pub const GPU_TESTS: [(&str, &str); 3] = [
+pub const GPU_TESTS: [(&str, &str); 4] = [
     (
         "enigma",
         "device::the_device_refutes_exactly_what_the_processor_refutes",
@@ -298,6 +319,10 @@ pub const GPU_TESTS: [(&str, &str); 3] = [
     (
         "recovery",
         "the_gpu_shortlist_recovers_ten_leads_and_rejects_shuffles",
+    ),
+    (
+        "enigma",
+        "a_ring_swept_bombe_reads_a_short_signal_with_ten_leads",
     ),
 ];
 
@@ -330,6 +355,13 @@ pub fn recovery(args: &[String]) -> Result<()> {
         "crib_cases": [{"offset":0,"length":24},{"offset":0,"length":16},{"offset":30,"length":19}],
         "whole_key_space_validated": false, "tests": []
     });
+    report["wider_recovery"] = json!({
+        "scope": "six rotor orders, 104 composite reflectors, all middle/right rings",
+        "shortlist": 64, "distinct_readings": 5, "shuffle_controls": 8,
+        "crib_cases": [{"start":"LEW","length":16},{"start":"LEW","length":14},
+                       {"start":"LEK","length":16},{"start":"LEK","length":24}],
+        "contract": "retain the exact ten-lead key among distinct readings and verify re-encryption; a language score alone does not settle ring ambiguity"
+    });
     report["full_check_requested"] = json!(!gpu_only);
     report["full_check_in_this_run"] = json!(false);
     report["provenance_sha256"] = json!(crate::audit::provenance()?);
@@ -354,7 +386,14 @@ pub fn recovery(args: &[String]) -> Result<()> {
         report["error"] = json!(format!("{error:#}"));
     }
     json_write(&path, &report)?;
-    result
+    result?;
+    if !gpu_only && let Err(error) = crate::formal::recovery_attestation(&report) {
+        report["status"] = json!("failed");
+        report["error"] = json!(format!("{error:#}"));
+        json_write(&path, &report)?;
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn full_check_ran(report: &Value) -> bool {
@@ -362,6 +401,64 @@ fn full_check_ran(report: &Value) -> bool {
         runs.iter()
             .any(|run| run["command"]["argv"] == json!(["mise", "run", "check"]))
     })
+}
+
+pub fn verify_recovery_evidence(report: &Value) -> Result<()> {
+    ensure!(
+        report["status"] == "passed"
+            && report["full_check_in_this_run"] == true
+            && report["nulls"] == 8,
+        "full hardware recovery and matched controls are required"
+    );
+    let runs = report["tests"]
+        .as_array()
+        .context("missing recovery commands")?;
+    ensure!(
+        runs.iter()
+            .all(|run| run["result"]["exit_code"] == 0 && run["result"]["timed_out"] == false),
+        "failed or incomplete recovery command"
+    );
+    ensure!(
+        runs.iter()
+            .filter(|run| run["command"]["argv"] == json!(["mise", "run", "check"]))
+            .count()
+            == 1,
+        "full project check did not execute exactly once"
+    );
+    for (suite, name) in GPU_TESTS {
+        let actual: Vec<_> = runs
+            .iter()
+            .filter(|run| {
+                run["command"]["argv"]
+                    == json!([
+                        "mise",
+                        "x",
+                        "--",
+                        "cargo",
+                        "test",
+                        "--locked",
+                        "--release",
+                        "--features",
+                        "gpu",
+                        "--test",
+                        suite,
+                        "--",
+                        "--ignored",
+                        "--exact",
+                        name,
+                        "--nocapture"
+                    ])
+            })
+            .collect();
+        ensure!(
+            actual.len() == 1
+                && actual[0]["result"]["stdout"].as_str().is_some_and(
+                    |output| output.contains("test result: ok. 1 passed; 0 failed; 0 ignored;")
+                ),
+            "missing, duplicated or skipped GPU test {name}"
+        );
+    }
+    Ok(())
 }
 
 fn recover_tests(
@@ -378,6 +475,21 @@ fn recover_tests(
     for program in ["rustc", "cargo"] {
         let version = Cmd::new(["mise", "x", "--", program, "--version"]);
         recorded(&version, start, limit, path, report)?;
+    }
+    if !gpu_only {
+        let proofs = Cmd::new([
+            "mise",
+            "x",
+            "--",
+            "cargo",
+            "xtask",
+            "prove",
+            "--case",
+            "native",
+            "--max-seconds",
+            "600",
+        ]);
+        recorded(&proofs, start, limit, path, report)?;
     }
     let inputs: std::collections::BTreeMap<String, String> = [
         "data/ciphertext.txt",
@@ -491,6 +603,51 @@ fn exactly_one(output: &str, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retained_hardware_evidence_rejects_skipped_failed_and_substituted_commands() {
+        let original: Value =
+            serde_json::from_str(include_str!("../data/recovery-validator-fixture.json")).unwrap();
+        verify_recovery_evidence(&original).unwrap();
+        let index = original["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|run| {
+                run["command"]["argv"].as_array().unwrap().last() == Some(&json!("--nocapture"))
+            })
+            .unwrap();
+        for mutation in [
+            "skipped",
+            "failed",
+            "timeout",
+            "fake-command",
+            "omitted",
+            "duplicate",
+            "no-control",
+        ] {
+            let mut bad = original.clone();
+            match mutation {
+                "skipped" => {
+                    bad["tests"][index]["result"]["stdout"] =
+                        json!("test result: ok. 0 passed; 0 failed; 1 ignored;");
+                }
+                "failed" => bad["tests"][index]["result"]["exit_code"] = json!(1),
+                "timeout" => bad["tests"][index]["result"]["timed_out"] = json!(true),
+                "fake-command" => bad["tests"][index]["command"]["argv"][0] = json!("echo"),
+                "omitted" => {
+                    bad["tests"].as_array_mut().unwrap().remove(index);
+                }
+                "duplicate" => {
+                    let repeated = bad["tests"][index].clone();
+                    bad["tests"].as_array_mut().unwrap().push(repeated);
+                }
+                "no-control" => bad["nulls"] = json!(0),
+                _ => unreachable!(),
+            }
+            assert!(verify_recovery_evidence(&bad).is_err(), "{mutation}");
+        }
+    }
 
     #[test]
     fn requesting_the_full_check_does_not_claim_it_ran() {

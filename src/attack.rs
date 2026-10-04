@@ -15,6 +15,7 @@ use crate::rng::Rng;
 use crate::square::{self, Square};
 use crate::stats::index_of_coincidence;
 use rayon::prelude::*;
+use std::collections::HashSet;
 
 pub struct Context<'a> {
     pub judge: &'a Polyglot,
@@ -1166,9 +1167,11 @@ fn rank_enigma(mut found: Vec<(Candidate, usize)>, grams: usize, keep: usize) ->
     found.sort_unstable_by(|a, b| {
         penalised(b.0.score, b.1, grams).total_cmp(&penalised(a.0.score, a.1, grams))
     });
+    let mut reads = HashSet::new();
     found
         .into_iter()
         .map(|(candidate, _)| candidate)
+        .filter(|candidate| reads.insert(candidate.plain.clone()))
         .take(keep.max(1))
         .collect()
 }
@@ -1698,24 +1701,21 @@ fn climb_free(
     board
 }
 
-fn best_rings(
+fn compatible_rings(
     settings: Settings,
     reflector: [u8; ALPHABET],
-    board: Plugboard,
     reach: usize,
-    ct: &[Letter],
-    ctx: &Context,
-) -> Settings {
+    length: usize,
+) -> Vec<Settings> {
     let traced =
-        |s: Settings| Enigma::with_reflector(s, reflector, Plugboard::empty()).offset_trace(reach);
-    let over_the_crib = traced(settings);
+        |s: Settings, n| Enigma::with_reflector(s, reflector, Plugboard::empty()).offset_trace(n);
+    let over_the_crib = traced(settings, reach);
     let held = [
         settings.positions[1].against(settings.rings[1]),
         settings.positions[2].against(settings.rings[2]),
     ];
-    let mut machine = Enigma::with_reflector(settings, reflector, board);
-    let mut buf = vec![0u8; ct.len()];
-    let mut best = (settings, f64::NEG_INFINITY);
+    let mut seen = HashSet::new();
+    let mut compatible = Vec::new();
     for m in 0..ALPHABET as u8 {
         for r in 0..ALPHABET as u8 {
             let (middle, right) = (Ring::new(m), Ring::new(r));
@@ -1728,23 +1728,19 @@ fn best_rings(
                 ],
                 ..settings
             };
-            if trial != settings && traced(trial) != over_the_crib {
+            if traced(trial, reach) != over_the_crib {
                 continue;
             }
-            machine.aim(trial, reflector);
-            machine.replug(board);
-            machine.run_into(ct, &mut buf);
-            let s = ctx.refine(&buf);
-            if s > best.1 {
-                best = (trial, s);
+            if seen.insert(traced(trial, length)) {
+                compatible.push(trial);
             }
         }
     }
-    best.0
+    compatible
 }
 
 #[must_use]
-pub fn complete_board(
+pub fn complete_boards(
     settings: Settings,
     reflector: [u8; ALPHABET],
     (forced, known): (Plugboard, u32),
@@ -1752,20 +1748,33 @@ pub fn complete_board(
     reach: usize,
     ct: &[Letter],
     ctx: &Context,
+) -> Vec<(Settings, Plugboard, Vec<Letter>)> {
+    compatible_rings(settings, reflector, reach, ct.len())
+        .into_iter()
+        .map(|settings| {
+            let board = climb_free(settings, reflector, (forced, known), leads, 0.0, ct, ctx);
+            let plain = Enigma::with_reflector(settings, reflector, board).run(ct);
+            (settings, board, plain)
+        })
+        .collect()
+}
+
+#[must_use]
+/// # Panics
+/// Panics if no ring setting matches the initial setting's own trace.
+pub fn complete_board(
+    settings: Settings,
+    reflector: [u8; ALPHABET],
+    partial: (Plugboard, u32),
+    leads: usize,
+    reach: usize,
+    ct: &[Letter],
+    ctx: &Context,
 ) -> (Settings, Plugboard, Vec<Letter>) {
-    let board = climb_free(
-        settings,
-        reflector,
-        (forced, known),
-        leads,
-        LEAD_MARGIN,
-        ct,
-        ctx,
-    );
-    let settings = best_rings(settings, reflector, board, reach, ct, ctx);
-    let board = climb_free(settings, reflector, (forced, known), leads, 0.0, ct, ctx);
-    let plain = Enigma::with_reflector(settings, reflector, board).run(ct);
-    (settings, board, plain)
+    complete_boards(settings, reflector, partial, leads, reach, ct, ctx)
+        .into_iter()
+        .max_by(|a, b| ctx.refine(&a.2).total_cmp(&ctx.refine(&b.2)))
+        .expect("the initial settings have a compatible trace")
 }
 
 fn partial_score(
@@ -1781,6 +1790,8 @@ fn partial_score(
     score_outside_the_crib(&plain, ctx, offset, crib)
 }
 
+type Finished = ((Candidate, usize), (Plugboard, u32));
+
 fn finish_stop(
     ct: &[Letter],
     ctx: &Context,
@@ -1789,7 +1800,7 @@ fn finish_stop(
     reflector: &(String, [u8; ALPHABET]),
     reach: usize,
     crib: usize,
-) -> Option<((Candidate, usize), (Plugboard, u32))> {
+) -> Vec<Finished> {
     let positions = Positions::of(stop.settings, reflector.1, reach);
     let mut scratch = Scratch::new();
     scan_all_with(menu, &positions, &mut scratch)
@@ -1799,8 +1810,8 @@ fn finish_stop(
             Stop::Refuted => None,
         })
         .flat_map(|partial| complete_menu(menu, &positions, partial, ENIGMA_LEADS))
-        .filter_map(|(forced, known)| {
-            let (settings, board, plain) = complete_board(
+        .flat_map(|(forced, known)| {
+            complete_boards(
                 stop.settings,
                 reflector.1,
                 (forced, known),
@@ -1808,7 +1819,11 @@ fn finish_stop(
                 menu.offset + crib,
                 ct,
                 ctx,
-            );
+            )
+            .into_iter()
+            .map(move |completion| (completion, forced, known))
+        })
+        .filter_map(|((settings, board, plain), forced, known)| {
             if menu.edges.iter().any(|&(i, p, _)| plain[i] != p) {
                 return None;
             }
@@ -1830,7 +1845,7 @@ fn finish_stop(
             );
             Some((found, (forced, known)))
         })
-        .max_by(|a, b| a.0.0.score.total_cmp(&b.0.0.score))
+        .collect()
 }
 
 #[must_use]
@@ -1858,7 +1873,7 @@ pub fn finished_noise(
             let rings = [0, letter(&mut rng), letter(&mut rng)];
             let starts = [letter(&mut rng), letter(&mut rng), letter(&mut rng)];
             let (forced, known) = shapes[i as usize % shapes.len()];
-            let (_, _, plain) = complete_board(
+            complete_boards(
                 Settings::at(rotors, 0, rings, starts),
                 reflector,
                 (forced, known),
@@ -1866,8 +1881,11 @@ pub fn finished_noise(
                 offset + crib,
                 ct,
                 ctx,
-            );
-            score_outside_the_crib(&plain, ctx, offset, crib)
+            )
+            .into_iter()
+            .map(|(_, _, plain)| score_outside_the_crib(&plain, ctx, offset, crib))
+            .max_by(f64::total_cmp)
+            .unwrap_or(f64::NEG_INFINITY)
         })
         .collect()
 }
@@ -1894,9 +1912,9 @@ impl BombeAttack {
         pending.truncate(self.finish.max(1));
         self.finished
             .store(pending.len() as u64, std::sync::atomic::Ordering::Relaxed);
-        let finished: Vec<((Candidate, usize), (Plugboard, u32))> = pending
+        let finished: Vec<Finished> = pending
             .par_iter()
-            .filter_map(|stop| {
+            .flat_map_iter(|stop| {
                 finish_stop(
                     ct,
                     ctx,
@@ -2249,6 +2267,8 @@ mod bombe_recovery_tests {
             let menu = Menu::place(&ct, &plain[..length], 0).expect("true crib");
             let found = finish_stop(&ct, &ctx, &pending, &menu, &reflector, length, length);
             let recovered = found
+                .into_iter()
+                .max_by(|a, b| a.0.0.score.total_cmp(&b.0.0.score))
                 .expect("all menu components must survive finishing")
                 .0
                 .0;
@@ -2266,7 +2286,9 @@ mod bombe_recovery_tests {
                     ..pending
                 };
                 finish_stop(cipher, &ctx, &stop, &menu, &reflector, length, length)
+                    .into_iter()
                     .map(|result| result.0.0.score)
+                    .max_by(f64::total_cmp)
             };
             let mut wrong = settings;
             wrong.positions[2] =

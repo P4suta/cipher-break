@@ -7,6 +7,19 @@ ghc = "asdf:mise-plugins/mise-ghcup"
 ghc = "9.14.1"
 cabal = "3.16.1.0"
 
+[tools."github:Z3Prover/z3"]
+version = "z3-5.1.0"
+strip_components = 1
+bin_path = "bin"
+
+[tools."github:Z3Prover/z3".platforms]
+linux-x64 = { asset_pattern = "z3-5.1.0-x64-glibc-2.39.zip", checksum = "sha256:f47be8d27d3230e823bf1eeede2fe0abaca55bb78d0b59974370e6689a92284a" }
+linux-arm64 = { asset_pattern = "z3-5.1.0-arm64-glibc-2.38.zip", checksum = "sha256:2832cfd43c6862fbaf78834b5f1e35d031b4a87e85456b696c1c6f609cd5609e" }
+macos-arm64 = { asset_pattern = "z3-5.1.0-arm64-osx-13.3.zip", checksum = "sha256:81d29e934fd863079a74af35eecaeaef8047e0e12414d33ca322b358d68383db" }
+macos-x64 = { asset_pattern = "z3-5.1.0-x64-osx-13.3.zip", checksum = "sha256:f25cabdb01a32942a42227c36902c0846c759dcaabef4aca3b2e86331447f6ff" }
+windows-x64 = { asset_pattern = "z3-5.1.0-x64-win.zip", checksum = "sha256:6ff368eaa2f9dc18acf244e736a074df877026bfc83abede6f327ebb95680535" }
+windows-arm64 = { asset_pattern = "z3-5.1.0-arm64-win.zip", checksum = "sha256:82a21c5526ef47df895f43734aaea163caf92ce772502235817bcfc8daadcb40" }
+
 [tasks.build]
 description = "Build the Rust tool"
 run = "cargo build --release"
@@ -36,7 +49,7 @@ run = "njutest verify"
 
 [tasks.lint]
 description = "Formatting and clippy, with warnings denied"
-run = ["cargo fmt --all --check", "cargo clippy --workspace --all-targets --features gpu -- -D warnings"]
+run = ["cargo fmt --all --check", "cargo clippy --release --workspace --all-targets --features gpu -- -D warnings"]
 
 [tasks.check]
 description = "Full Rust/Haskell and hardware recovery checks on one bounded GCP GPU through domyjob"
@@ -45,6 +58,14 @@ run = "cargo xtask check"
 [tasks."check:quick"]
 description = "Local format, lint, xtask and CPU recovery checks, capped at one minute and two workers"
 run = "cargo xtask check --quick"
+
+[tasks.prove]
+description = "Verify the declared Kani and Lean obligations with a shared one-minute local limit"
+run = "cargo xtask prove"
+
+[tasks."check:proofs"]
+description = "Reject missing, incomplete or stale proof receipts"
+run = "cargo xtask prove --verify"
 
 [tasks."check:worker"]
 description = "The complete validation suite invoked by xtask on the cloud worker"

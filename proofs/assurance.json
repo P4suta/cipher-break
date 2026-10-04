@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "whole_search_proved": false,
+  "exploratory_proof": "propagation",
+  "exploratory_reason": "The four-edge compositional model is a stronger exploratory theorem, not a refinement of the production-size menu construction and GPU pipeline. Its native settlement prerequisites now have direct all-state proofs; the model no longer uses an unverified settlement stub.",
+  "exploratory_revisit": "Require a production-connected propagation refinement before claiming exhaustive rejection of arbitrary menus.",
+  "boundaries": [
+    {
+      "scope": "MenuPropagation",
+      "kind": "unsupported-model",
+      "sources": ["src/bombe.rs"],
+      "required_proofs": ["scratch-reset", "queue-contract", "settle-partitions", "settle-same", "settle-both-new", "settle-first-new", "settle-second-new", "settle-both-known"],
+      "reason": "The existing four-edge model does not refine production-size adjacency construction. Direct proofs establish all-state queue and reciprocal updates, including partial failure and pointwise framing, while hardware and CPU fixtures exercise actual menu propagation.",
+      "limits": "Recovery and CPU/GPU agreement cover the recorded fixtures, not every possible crib graph. A negative search does not formally exclude an entire hypothesis.",
+      "revisit": "Add a checked construction refinement and production-size induction when a complete menu-rejection guarantee is needed."
+    },
+    {
+      "scope": "RingTraces",
+      "kind": "unsupported-model",
+      "sources": ["src/attack.rs", "src/ciphers/enigma.rs"],
+      "required_proofs": ["coordinates", "clock", "double-step", "left-ring", "rotor-inverse", "reflector"],
+      "reason": "Native proofs cover finite machine coordinates and stepping. Lean proves conditional trace normalization, but the current HashSet trace deduplication has no checked translation to that model; wider hardware recovery tests actual ring alternatives.",
+      "limits": "All-ring recovery on the planted fixture is empirical; the Lean theorem alone does not prove Rust deduplication completeness.",
+      "revisit": "Require an implementation refinement before reporting complete retention of arbitrary equivalent ring traces."
+    },
+    {
+      "scope": "CandidateRetention",
+      "kind": "empirical",
+      "sources": ["src/attack.rs"],
+      "required_proofs": ["plugboard", "placement-bounds", "coordinates"],
+      "reason": "A finite language-ranked cap can discard the true key, as the required Lean counterexample establishes. The supported contract is bounded heuristic recovery with the crib held out of scoring and the identical procedure applied to eight shuffles.",
+      "limits": "A high score or a failed capped search is neither a reading nor an exhaustive key-space exclusion. Exact key retention and re-encryption are required on known recovery fixtures.",
+      "revisit": "Change the selection algorithm or prove a stronger bounded contract when complete retention is promised."
+    },
+    {
+      "scope": "GpuEquivalence",
+      "kind": "external",
+      "sources": ["src/gpu.rs", "src/gpu/enigma.wgsl", "src/gpu/bombe.wgsl", "src/gpu/plugboard.wgsl"],
+      "required_proofs": ["coordinates", "clock", "rotor-inverse", "reflector", "plugboard"],
+      "reason": "Rust verification does not check the WGSL compiler, graphics driver or actual GPU execution. Four exact hardware tests compare refutation and climbing with the CPU and require known-key recovery with matched controls.",
+      "limits": "Equivalence is established for recorded hardware fixtures, not all shaders or drivers. A missing adapter or skipped GPU test must fail.",
+      "revisit": "Adopt a supported shader refinement verifier when available, and rerun hardware tests after production source drift."
+    },
+    {
+      "scope": "WorkerScheduling",
+      "kind": "external",
+      "sources": ["xtask/src/jobs.rs", "xtask/src/process.rs", "xtask/src/lease.rs"],
+      "required_proofs": ["lease", "proof-plan", "cloud-proof-work", "campaign-placement"],
+      "reason": "Native proofs cover lock ownership, prerequisite planning and workload admission. Operating-system process scheduling and domyjob execution are trusted boundaries; native lock tests and the full cloud worker exercise actual completion and timeouts.",
+      "limits": "The process and operating-system implementations are not formally proved. Receipts must retain exit status, timeout status and executed test counts.",
+      "revisit": "Reassess after scheduler, cancellation or persistence changes and keep native failure-path regressions mandatory."
+    },
+    {
+      "scope": "ControllerLifecycle",
+      "kind": "external",
+      "sources": ["xtask/src/cloud.rs", "xtask/src/proof_work.rs", "xtask/src/runner.rs", "xtask/src/artifacts.rs"],
+      "required_proofs": ["cloud-proof-command", "cloud-proof-work", "lease", "artifact-staging"],
+      "reason": "The official cloud API, SSH transfer and remote deletion service are external assumptions. Fixed command admission and staging every required artifact before reading any are proved; native eviction regressions and real cloud runs check transfer hashes, absolute deletion deadlines and verified removal.",
+      "limits": "A successful command or requested cleanup does not prove remote deletion. Resource inventories and cleanup receipts remain operational evidence.",
+      "revisit": "Reassess API, retry or cleanup changes and verify cloud inventory after each real run."
+    },
+    {
+      "scope": "InputValidation",
+      "kind": "external",
+      "sources": ["xtask/src/audit.rs", "xtask/src/formal.rs", "xtask/src/gcp.rs"],
+      "required_proofs": ["placement-bounds", "crib-offset", "self-encryption", "proof-gate", "negative-gate", "cloud-proof-command"],
+      "reason": "Bounds and proof-admission decisions have native proofs. JSON/TOML decoding, filesystem reads and external CLI responses remain library and system boundaries, checked with malformed, missing, duplicate and stale-input regressions in the full project check.",
+      "limits": "Passing a decoder or a few fixtures does not establish complete validation of arbitrary external service responses; unknown assessment fields and omitted obligations fail the gate.",
+      "revisit": "Add source-bound proofs for any newly isolated deterministic parser decisions and reassess changed external schemas."
+    }
+  ]
+}

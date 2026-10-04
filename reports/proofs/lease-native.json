@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "source": "xtask/src/lease.rs",
+  "source_sha256": "0e5e3b20ce62c2bf6416d47f60e7ac7e8636ab6e1c20e9e9815c2f9fa9bda87f",
+  "rustc": "1.98.1",
+  "build_arguments": ["--edition=2024", "--test", "-C", "opt-level=3"],
+  "execution_arguments": ["--nocapture"],
+  "expected_tests": [
+    "tests::dropping_the_owner_unlocks_even_while_an_inherited_handle_remains",
+    "tests::reservations_remain_distinct_when_clock_readings_repeat",
+    "tests::another_process_observes_ownership_and_release_with_a_cloned_handle"
+  ],
+  "platforms": [
+    {"target": "aarch64-apple-darwin", "passed": 3, "failed": 0, "ignored": 0, "filtered_out": 0},
+    {"target": "x86_64-unknown-linux-gnu", "build_job": "linux:da317fee6ba00e6f4d77d41b0bddd0c6", "execution_job": "linux:95087b15875c0859d64df928101904ff", "passed": 3, "failed": 0, "ignored": 0, "filtered_out": 0},
+    {"target": "x86_64-pc-windows-msvc", "build_job": "win:76a3bec2874d14f8ba88cffa35349824", "execution_job": "win:3a68c6b5b847ee3018de4f092a90f8b4", "passed": 3, "failed": 0, "ignored": 0, "filtered_out": 0}
+  ],
+  "boundary": "Native empirical adapter evidence supplements the Kani ownership protocol; it does not prove the operating system or filesystem."
+}

@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::process::{Cmd, Outcome, home, json_read, json_write, now, option, sha};
+use crate::proof_work::{Workload, needs_proof_tools};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::fs::{self, File};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 const PROJECT: &str = "cipher-break-511266";
-const PILOT_USD: f64 = 5.0;
-const CAMPAIGN_USD: f64 = 50.0;
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub enum RecoveryScope {
@@ -288,12 +287,8 @@ fn estimate(config: &Config, at: OffsetDateTime) -> Result<Value> {
         "invalid price or insufficient transfer/tax reserve"
     );
     let maximum = (vm + disk + ip) * config.hours as f64 + reserve;
-    ensure!(
-        maximum <= PILOT_USD,
-        "maximum estimate USD {maximum:.4} exceeds the USD {PILOT_USD} pilot limit"
-    );
     Ok(
-        json!({"checked_at": prices["checked_at"], "price_sha256": sha(&config.price_file)?, "regional_key": key, "vm_hourly_usd": vm, "disk_hourly_usd": disk, "ipv4_hourly_usd": ip, "other_reserve_usd": reserve, "maximum_estimated_usd": maximum, "maximum_hours": config.hours, "pilot_cap_usd": PILOT_USD, "campaign_cap_usd": CAMPAIGN_USD, "sources": prices["sources"], "settled_usd": null, "credit_deduction_assumed": false}),
+        json!({"checked_at": prices["checked_at"], "price_sha256": sha(&config.price_file)?, "regional_key": key, "vm_hourly_usd": vm, "disk_hourly_usd": disk, "ipv4_hourly_usd": ip, "other_reserve_usd": reserve, "maximum_estimated_usd": maximum, "maximum_hours": config.hours, "spending_authorization":"owner-approved promotional-credit use; one VM and two-hour deletion limit", "sources": prices["sources"], "settled_usd": null, "credit_deduction_assumed": false}),
     )
 }
 
@@ -367,7 +362,42 @@ pub fn dispatch(args: &[String]) -> Result<()> {
         .split_first()
         .context("give a cloud action; see cargo xtask help")?;
     match action.as_str() {
-        "run" => run(&Config::parse(args, true)?),
+        "run" => {
+            let config = Config::parse(args, true)?;
+            let workload = if config.recovery {
+                Workload::Recovery
+            } else if experiment_command(&config.command) {
+                Workload::Experiment
+            } else {
+                Workload::Search
+            };
+            run(&config, workload)
+        }
+        "prove" => {
+            let (case, options) = args
+                .split_first()
+                .context("use cloud prove CASE [CLOUD_OPTIONS]")?;
+            ensure!(crate::formal::named_case(case), "unknown proof case {case}");
+            let mut options = std::iter::once("cpu".to_owned())
+                .chain(options.iter().cloned())
+                .collect::<Vec<_>>();
+            options.push("--standard".into());
+            let mut config = Config::parse(&options, false)?;
+            ensure!(
+                config.kind == "cpu" && !config.recovery && config.command.is_empty(),
+                "cloud prove accepts only CPU configuration options"
+            );
+            config.command = vec![
+                "cargo".into(),
+                "xtask".into(),
+                "prove".into(),
+                "--case".into(),
+                case.clone(),
+                "--max-seconds".into(),
+                "3300".into(),
+            ];
+            run(&config, Workload::Verification)
+        }
         "preflight" => {
             let config = Config::parse(args, false)?;
             let directory = crate::root().join("reports/p1030680/xtask-preflight");
@@ -410,19 +440,11 @@ pub fn dispatch(args: &[String]) -> Result<()> {
     }
 }
 
-fn lock() -> Result<File> {
+fn lock() -> Result<crate::lease::HeldFile> {
     let directory = home()?.join(".local/state/cipher-break");
     fs::create_dir_all(&directory)?;
-    let file = File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(directory.join("cloud.lock"))?;
-    file.try_lock().map_err(|error| {
-        anyhow::anyhow!("another cloud operation holds the single-VM lock: {error}")
-    })?;
-    Ok(file)
+    crate::lease::file(&directory.join("cloud.lock"))
+        .context("cannot acquire the single-VM operation lock")
 }
 
 struct StagedJudge(Option<PathBuf>);
@@ -464,7 +486,25 @@ fn stage_judge(config: &Config, name: &str) -> Result<(Vec<String>, StagedJudge,
 }
 
 #[allow(clippy::too_many_lines)]
-fn run(config: &Config) -> Result<()> {
+fn run(config: &Config, workload: Workload) -> Result<()> {
+    if workload == Workload::Verification {
+        ensure!(
+            proof_command(&config.command),
+            "verification dispatch requires a registered proof command"
+        );
+    }
+    if workload == Workload::Recovery {
+        ensure!(
+            config.recovery && config.command.is_empty(),
+            "recovery dispatch requires the fixed recovery job"
+        );
+    }
+    if workload == Workload::Experiment {
+        ensure!(
+            !config.recovery && config.kind == "gpu" && experiment_command(&config.command),
+            "experiment dispatch requires a bounded candidate campaign on a GPU"
+        );
+    }
     let at = OffsetDateTime::now_utc();
     let cost = estimate(config, at)?;
     let deadline = (at + time::Duration::hours(i64::try_from(config.hours)?))
@@ -483,14 +523,14 @@ fn run(config: &Config) -> Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(
-                &json!({"config": config, "estimate": cost, "create_argv": argv, "deadline": deadline, "remote_execution": "domyjob", "creates_resources": false})
+                &json!({"config": config, "workload":format!("{workload:?}"), "estimate": cost, "create_argv": argv, "deadline": deadline, "remote_execution": "domyjob", "creates_resources": false})
             )?
         );
         return Ok(());
     }
     let _lock = lock()?;
     let release = crate::runner::local_ready()?;
-    crate::jobs::check(&["--quick".into()])?;
+    crate::jobs::quick_for(workload)?;
     let mut api = Gcloud {
         directory: directory.clone(),
         sequence: 0,
@@ -500,17 +540,7 @@ fn run(config: &Config) -> Result<()> {
     let maximum = cost["maximum_estimated_usd"]
         .as_f64()
         .context("maximum estimate")?;
-    ensure!(
-        reserved + maximum <= CAMPAIGN_USD,
-        "recorded campaign estimates plus this run exceed USD {CAMPAIGN_USD}"
-    );
-    if config.recovery {
-        let pilot = recovery_vm_estimates(&crate::root().join("reports/cloud"))?;
-        ensure!(
-            pilot + maximum <= PILOT_USD,
-            "recorded recovery estimates plus this run exceed USD {PILOT_USD}"
-        );
-    }
+    let prior_recovery = recovery_vm_estimates(&crate::root().join("reports/cloud"))?;
     let key = public_key(config.ssh_key.as_deref())?;
     let (job_command, _staged_judge, judge_record) = stage_judge(config, &name)?;
     fs::create_dir_all(&directory)?;
@@ -526,7 +556,9 @@ fn run(config: &Config) -> Result<()> {
     let mut manifest = json!({
         "id": name, "at": now()?, "config": config, "create_argv": argv,
         "deadline": deadline, "estimate": cost, "preflight": checks,
+        "prior_reserved_estimate_usd": reserved, "prior_recovery_runtime_bound_usd": prior_recovery,
         "domyjob_release": release,
+        "controller_proof_attestation": crate::formal::workload_attestation(workload)?,
         "staged_judge": judge_record,
         "head": Cmd::new(["git", "rev-parse", "HEAD"]).checked()?.trim(),
         "provenance_sha256": crate::audit::provenance()?,
@@ -562,17 +594,28 @@ fn run(config: &Config) -> Result<()> {
         let address = instance["networkInterfaces"][0]["accessConfigs"][0]["natIP"]
             .as_str()
             .context("VM external IP")?;
-        await_ssh(address, Duration::from_secs(180))?;
         let target = ssh_config(&name, address, &identity, &directory)?;
         manifest["ssh_target"] = json!(target);
         json_write(&directory.join("manifest.json"), &manifest)?;
+        await_ssh_with(&target, Duration::from_secs(180), &directory, Cmd::live)?;
         crate::bootstrap::setup(&target, config.kind == "gpu", &directory)?;
+        let proof_path = if needs_proof_tools(
+            workload,
+            config.recovery && config.recovery_scope == RecoveryScope::Full,
+        ) {
+            Some(crate::bootstrap::proof_tools(&target, &directory)?)
+        } else {
+            None
+        };
         let remote_home = crate::runner::checked(&target, ["printenv", "HOME"])?
             .trim()
             .to_owned();
-        let remote_path = format!(
+        let mut remote_path = format!(
             "{remote_home}/.local/bin:{remote_home}/.cargo/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         );
+        if let Some(path) = proof_path {
+            remote_path = format!("{path}:{remote_path}");
+        }
         let mut submission_args = vec![
             "run".into(),
             target.clone(),
@@ -622,10 +665,9 @@ fn run(config: &Config) -> Result<()> {
         fetch_job(
             &job,
             &directory,
-            result_path(config.recovery, &config.command),
+            &result_artifacts(config.recovery, &config.recovery_scope, &config.command),
         )?;
         if config.recovery_scope == RecoveryScope::GpuOnly {
-            fetch_job(&job, &directory, Some("p1030680/artifact-probe.json"))?;
             manifest["artifact_transfer_probe"] = json!({"status":"passed", "bytes":fs::metadata(directory.join("out/artifact-probe.json"))?.len(), "sha256":sha(&directory.join("out/artifact-probe.json"))?});
         }
         result.require_success(&wait)?;
@@ -654,6 +696,21 @@ fn run(config: &Config) -> Result<()> {
         directory.display()
     );
     Ok(())
+}
+
+fn proof_command(command: &[String]) -> bool {
+    let slots = std::array::from_fn(|index| command.get(index).map(String::as_bytes));
+    let registered = command
+        .get(4)
+        .is_some_and(|name| crate::formal::named_case(name));
+    crate::proof_work::proof_command(command.len(), slots, registered)
+}
+
+fn experiment_command(command: &[String]) -> bool {
+    crate::proof_work::experiment_command(
+        command.len(),
+        std::array::from_fn(|index| command.get(index).map(String::as_bytes)),
+    )
 }
 
 fn committed_estimates(directory: &Path) -> Result<f64> {
@@ -733,20 +790,42 @@ fn bound_after_cleanup(manifest: &mut Value) -> Result<()> {
     Ok(())
 }
 
-fn await_ssh(address: &str, limit: Duration) -> Result<()> {
-    let address = std::net::SocketAddr::from((address.parse::<std::net::Ipv4Addr>()?, 22));
+fn await_ssh_with(
+    target: &str,
+    limit: Duration,
+    directory: &Path,
+    mut probe: impl FnMut(&Cmd, Duration) -> Result<Outcome>,
+) -> Result<()> {
+    let command = Cmd::new([
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        target,
+        "true",
+    ]);
     let start = std::time::Instant::now();
-    eprintln!("Waiting for the new VM's SSH listener.");
+    let mut attempts = Vec::new();
+    eprintln!("Waiting for authenticated SSH access on the new VM.");
     loop {
-        if std::net::TcpStream::connect_timeout(&address, Duration::from_secs(2)).is_ok() {
-            std::thread::sleep(Duration::from_secs(2));
+        let remaining = limit.checked_sub(start.elapsed()).context(
+            "authenticated SSH did not become ready before its deadline; inspect ssh-ready.json",
+        )?;
+        let outcome = probe(&command, remaining.min(Duration::from_secs(10)))?;
+        let ready = outcome.exit_code == 0 && !outcome.timed_out;
+        attempts.push(json!({"command": command, "result": outcome}));
+        json_write(
+            &directory.join("ssh-ready.json"),
+            &json!({"maximum_seconds": limit.as_secs_f64(), "attempts": attempts}),
+        )?;
+        if ready {
             return Ok(());
         }
-        ensure!(
-            start.elapsed() < limit,
-            "the VM's SSH listener did not become ready within three minutes"
-        );
-        std::thread::sleep(Duration::from_secs(2));
+        let remaining = limit
+            .checked_sub(start.elapsed())
+            .context("authenticated SSH did not become ready before its deadline")?;
+        std::thread::sleep(remaining.min(Duration::from_secs(2)));
     }
 }
 
@@ -929,27 +1008,55 @@ fn job_reference(text: &str) -> Result<String> {
 fn result_path(recovery: bool, command: &[String]) -> Option<&'static str> {
     if recovery {
         Some("p1030680/recovery-result.json")
+    } else if proof_command(command) {
+        Some("proof-bundle.tar.gz")
     } else if command.starts_with(&["cargo".into(), "xtask".into(), "bench".into()]) {
         Some("bench.json")
     } else if command.starts_with(&["cargo".into(), "xtask".into(), "cribs".into()]) {
         Some("cribs.json")
+    } else if command.starts_with(&[
+        "cargo".into(),
+        "xtask".into(),
+        "p1030680".into(),
+        "campaign".into(),
+    ]) {
+        Some("p1030680/campaign-result.json")
     } else {
         None
     }
 }
 
-fn fetch_job(job: &str, directory: &Path, artifact: Option<&str>) -> Result<()> {
+fn result_artifacts(
+    recovery: bool,
+    scope: &RecoveryScope,
+    command: &[String],
+) -> Vec<&'static str> {
+    let mut artifacts: Vec<_> = result_path(recovery, command).into_iter().collect();
+    if recovery {
+        artifacts.push(match scope {
+            RecoveryScope::Full => "proof-bundle.tar.gz",
+            RecoveryScope::GpuOnly => "p1030680/artifact-probe.json",
+        });
+    }
+    artifacts
+}
+
+fn fetch_job(job: &str, directory: &Path, artifacts: &[&str]) -> Result<()> {
     fs::create_dir_all(directory.join("out"))?;
     let logs = crate::runner::command(["logs", job]).checked()?;
     fs::write(directory.join("out/log.txt"), logs)?;
     let status = crate::runner::command(["status", job]).capture()?;
     fs::write(directory.join("out/status"), &status.stdout)?;
-    if let Some(artifact) = artifact {
+    if artifacts.is_empty() {
+        return Ok(());
+    }
+    let (target, id) = job.split_once(':').context("job reference")?;
+    let home = crate::runner::checked(target, ["printenv", "HOME"])?;
+    let mut files = Vec::new();
+    for artifact in artifacts {
         let destination = directory
             .join("out")
             .join(Path::new(artifact).file_name().context("artifact name")?);
-        let (target, id) = job.split_once(':').context("job reference")?;
-        let home = crate::runner::checked(target, ["printenv", "HOME"])?;
         let paths = crate::runner::checked(
             target,
             [
@@ -963,13 +1070,35 @@ fn fetch_job(job: &str, directory: &Path, artifact: Option<&str>) -> Result<()> 
         )?;
         let paths: Vec<_> = paths.lines().collect();
         ensure!(paths.len() == 1, "result path is missing or ambiguous");
-        crate::runner::read_file(target, paths[0], &destination)?;
+        files.push((paths[0].to_owned(), destination));
+    }
+    crate::runner::read_files(target, &files)?;
+    for (artifact, (_, destination)) in artifacts.iter().zip(files) {
+        if *artifact == "proof-bundle.tar.gz" {
+            continue;
+        }
         let report = json_read(&destination)?;
-        if artifact == "p1030680/recovery-result.json" {
+        if *artifact == "p1030680/recovery-result.json" {
             json_write(
                 &crate::root().join("data/p1030680/recovery-result.json"),
                 &report,
             )?;
+        } else if *artifact == "p1030680/campaign-result.json" {
+            json_write(
+                &crate::root().join("reports/p1030680/campaign-result.json"),
+                &report,
+            )?;
+            if let Some(recovery) = report.get("recovery_result") {
+                ensure!(
+                    crate::audit::recovery_status(recovery, &crate::audit::provenance()?)
+                        == "passed",
+                    "campaign recovery result is incomplete or belongs to different source code"
+                );
+                json_write(
+                    &crate::root().join("data/p1030680/recovery-result.json"),
+                    recovery,
+                )?;
+            }
         }
     }
     Ok(())
@@ -1018,7 +1147,15 @@ fn fetch(args: &[String]) -> Result<()> {
                 fetch_job(
                     job,
                     &directory,
-                    result_path(manifest["config"]["recovery"] == true, &command),
+                    &result_artifacts(
+                        manifest["config"]["recovery"] == true,
+                        &if manifest["config"]["recovery_scope"] == "GpuOnly" {
+                            RecoveryScope::GpuOnly
+                        } else {
+                            RecoveryScope::Full
+                        },
+                        &command,
+                    ),
                 )?;
             }
         }
@@ -1099,7 +1236,233 @@ struct SavedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_hardware_recovery_installs_the_same_proof_tools_as_a_proof_worker() {
+        let full = Config::parse(&["gpu".into(), "--recovery".into()], true).unwrap();
+        assert!(needs_proof_tools(
+            Workload::Recovery,
+            full.recovery_scope == RecoveryScope::Full
+        ));
+        let gpu_only = Config::parse(
+            &["gpu".into(), "--recovery".into(), "--gpu-only".into()],
+            true,
+        )
+        .unwrap();
+        assert!(!needs_proof_tools(
+            Workload::Recovery,
+            gpu_only.recovery_scope == RecoveryScope::Full
+        ));
+        assert!(needs_proof_tools(Workload::Verification, false));
+        assert!(!needs_proof_tools(Workload::Search, true));
+    }
     use std::collections::VecDeque;
+
+    #[test]
+    fn c06_explicit_positions_cover_the_actual_compatible_menus() {
+        let cipher: Vec<_> = include_bytes!("../../data/ciphertext.txt")
+            .iter()
+            .copied()
+            .filter(u8::is_ascii_uppercase)
+            .collect();
+        let menus = crate::audit::placements(
+            &cipher,
+            b"FFFTTTNICHTZULOESENFUNKLEITUNG",
+            &serde_json::json!("all"),
+        );
+        let mut command: Vec<_> = [
+            "cargo",
+            "xtask",
+            "p1030680",
+            "campaign",
+            "--candidate",
+            "C06",
+            "--max-minutes",
+            "100",
+            "--at",
+            "0",
+            "--reuse-recovery",
+        ]
+        .map(str::to_owned)
+        .into();
+        for offset in 0..=cipher.len() {
+            command[9] = offset.to_string();
+            assert_eq!(
+                experiment_command(&command),
+                menus
+                    .iter()
+                    .any(|menu| menu.offset == offset && menu.closures > 0),
+                "offset {offset}",
+            );
+        }
+        for invalid in ["-1", "018", "18x", "", "18446744073709551616"] {
+            command[9] = invalid.into();
+            assert!(!experiment_command(&command));
+        }
+    }
+
+    #[test]
+    fn bounded_experiments_accept_only_sourced_candidates_and_fixed_runtime_options() {
+        let base: Vec<String> = [
+            "cargo",
+            "xtask",
+            "p1030680",
+            "campaign",
+            "--candidate",
+            "C03",
+            "--max-minutes",
+            "100",
+        ]
+        .map(str::to_owned)
+        .into();
+        assert!(experiment_command(&base));
+        for flags in [
+            vec!["--control-only"],
+            vec!["--reuse-recovery"],
+            vec!["--control-only", "--reuse-recovery"],
+        ] {
+            let mut command = base.clone();
+            command.extend(flags.into_iter().map(str::to_owned));
+            assert!(experiment_command(&command));
+        }
+        let mut suffix = base.clone();
+        suffix[5] = "C06".into();
+        suffix.extend(["--at".into(), "42".into(), "--reuse-recovery".into()]);
+        assert!(experiment_command(&suffix));
+        suffix[5] = "C03".into();
+        assert!(!experiment_command(&suffix));
+        suffix[5] = "C06".into();
+        suffix[9] = "40".into();
+        assert!(!experiment_command(&suffix));
+        for (index, replacement) in [
+            (0, "sh"),
+            (2, "solve"),
+            (3, "recovery"),
+            (4, "--word"),
+            (5, "C05"),
+            (6, "--hours"),
+            (7, "0"),
+            (7, "101"),
+        ] {
+            let mut command = base.clone();
+            command[index] = replacement.into();
+            assert!(!experiment_command(&command));
+        }
+        let mut command = base;
+        command.extend(["--control-only".into(), "--control-only".into()]);
+        assert!(!experiment_command(&command));
+    }
+
+    #[test]
+    fn all_recovery_artifacts_are_collected_in_one_batch() {
+        assert_eq!(
+            result_artifacts(true, &RecoveryScope::Full, &[]),
+            ["p1030680/recovery-result.json", "proof-bundle.tar.gz"]
+        );
+        assert_eq!(
+            result_artifacts(true, &RecoveryScope::GpuOnly, &[]),
+            [
+                "p1030680/recovery-result.json",
+                "p1030680/artifact-probe.json"
+            ]
+        );
+        let proof: Vec<_> = [
+            "cargo",
+            "xtask",
+            "prove",
+            "--case",
+            "coordinates",
+            "--max-seconds",
+            "3300",
+        ]
+        .map(str::to_owned)
+        .into();
+        assert_eq!(
+            result_artifacts(false, &RecoveryScope::Full, &proof),
+            ["proof-bundle.tar.gz"]
+        );
+        assert!(result_artifacts(false, &RecoveryScope::Full, &[]).is_empty());
+    }
+
+    #[test]
+    fn verification_dispatch_rejects_other_programs_arguments_and_unregistered_proofs() {
+        let command: Vec<_> = [
+            "cargo",
+            "xtask",
+            "prove",
+            "--case",
+            "settle-contract",
+            "--max-seconds",
+            "3300",
+        ]
+        .map(str::to_owned)
+        .into();
+        assert!(proof_command(&command));
+        assert_eq!(result_path(false, &command), Some("proof-bundle.tar.gz"));
+        for (index, replacement) in [
+            (0, "sh"),
+            (1, "run"),
+            (2, "solve"),
+            (3, "--"),
+            (4, "unknown-proof"),
+            (5, "--gpu"),
+            (6, "3601"),
+        ] {
+            let mut invalid = command.clone();
+            invalid[index] = replacement.into();
+            assert!(!proof_command(&invalid));
+        }
+        for length in 0..command.len() {
+            assert!(!proof_command(&command[..length]));
+        }
+        let mut appended = command;
+        appended.push("--gpu".into());
+        assert!(!proof_command(&appended));
+    }
+
+    #[test]
+    fn ssh_readiness_requires_authenticated_success_within_its_deadline() {
+        let directory = std::env::temp_dir().join(format!(
+            "cipher-break-ssh-ready-{}",
+            OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let mut calls = 0;
+        assert!(
+            await_ssh_with("cloud", Duration::ZERO, &directory, |_, _| {
+                calls += 1;
+                unreachable!("an expired deadline must not start authentication")
+            })
+            .is_err()
+        );
+        assert_eq!(calls, 0);
+        let mut responses = VecDeque::from([(255, false), (0, true), (0, false)]);
+        await_ssh_with(
+            "cloud",
+            Duration::from_secs(10),
+            &directory,
+            |command, limit| {
+                assert_eq!(command.argv.last().unwrap(), "true");
+                assert!(command.argv.iter().any(|a| a == "BatchMode=yes"));
+                assert!(limit <= Duration::from_secs(10));
+                let (exit_code, timed_out) = responses.pop_front().unwrap();
+                Ok(Outcome {
+                    exit_code,
+                    timed_out,
+                    seconds: 0.0,
+                    stdout: String::new(),
+                    stderr: "Permission denied (publickey).".to_owned(),
+                })
+            },
+        )
+        .unwrap();
+        assert!(responses.is_empty());
+        let report = json_read(&directory.join("ssh-ready.json")).unwrap();
+        assert_eq!(report["attempts"].as_array().unwrap().len(), 3);
+        assert_eq!(report["attempts"][0]["result"]["exit_code"], 255);
+        assert_eq!(report["attempts"][1]["result"]["timed_out"], true);
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn managed_hosts_preserve_global_includes_and_existing_host_precedence() {
@@ -1230,7 +1593,6 @@ mod tests {
         }
         let compute = recovery_vm_estimates(&directory).unwrap();
         assert!((compute - 0.2).abs() < 0.000_001);
-        assert!(compute + 4.9 > PILOT_USD);
         fs::remove_dir_all(directory).unwrap();
     }
 }

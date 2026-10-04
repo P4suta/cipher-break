@@ -15,7 +15,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  proofs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: 2
+      LEAN_NUM_THREADS: 2
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        with:
+          install_args: github:Z3Prover/z3
+      - uses: leanprover/lean-action@f061402b660e0c34644504b324e830f2991d4865
+        with:
+          lake-package-directory: proofs/lean
+          auto-config: 'false'
+          build: 'true'
+          test: 'false'
+          lint: 'false'
+          use-mathlib-cache: 'false'
+          use-github-cache: 'false'
+          leanchecker: 'true'
+      - uses: model-checking/kani-github-action@69d357bade1eb7b32bc3fc3d5c3d173c5bfa5237
+        with:
+          kani-version: '0.68.0'
+          command: cargo
+          args: xtask prove --max-seconds 600
+      - name: Verify scoped proof requirements and current hardware evidence
+        run: cargo xtask prove --verify
+      - name: Preserve proof receipts and isolated models
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: source-bound-proofs
+          path: reports/proofs/
+          if-no-files-found: error
+          retention-days: 14
   check:
+    needs: proofs
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -35,9 +76,4 @@ jobs:
       - name: Run fast tests
         run: cargo test --release --lib --bin cb --test enigma
       - name: Check CLI output
-        run: |
-          set -euo pipefail
-          rust=$(./target/release/cb report data/ciphertext.txt --plain | awk '/^  cipher-break/{for (i = 1; i < NF; i++) if ($i == "IC") print $(i + 1)}')
-          haskell=$(cd reference && cabal run -v0 cipher-break-reference -- analyze ../data/ciphertext.txt --null 1 | awk '/^IC /{print $2}')
-          test "$rust" = "0.0438"
-          test "$haskell" = "$rust"
+        run: mise x -- cargo xtask agree

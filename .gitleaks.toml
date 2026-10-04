@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+title = "cipher-break secret detection"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Source-bound autokey digest in the canonical recovery receipt"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^data/p1030680/recovery-result\.json$''']
+regexes = ['''^\s*"src/ciphers/autokey\.rs"\s*:\s*"[0-9a-f]{64}"\s*,?\s*$''']

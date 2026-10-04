@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "issue": 4,
+  "scanner": "gitleaks",
+  "version": "8.30.1",
+  "config": ".gitleaks.toml",
+  "config_sha256": "3910e546be3a306e0cdbd103f7ae99a959c0a6c3841643e9f9eb0850c28fda42",
+  "verification_date": "2026-10-04",
+  "default_rules_preserved": true,
+  "suppression_requires": [
+    "generic-api-key rule",
+    "exact canonical recovery-result.json path",
+    "complete source-digest field line containing lowercase SHA-256 syntax"
+  ],
+  "history": {
+    "revision": "d7dc707235386fb5de3c91551e176d1d75dd62c7",
+    "log_opts": "--all",
+    "commits_scanned": 38,
+    "exit_code": 0,
+    "findings": 0,
+    "report_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  "fresh_commit_controls": [
+    {
+      "case": "canonical source-digest field",
+      "revision": "244e6b945afca6faad9f02cdb69ba0b2e8fd315b",
+      "exit_code": 0,
+      "findings": 0,
+      "report_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "case": "credential-shaped assignment at the canonical path",
+      "revision": "f37bd4efb17e728133444f9190448e2352baac64",
+      "exit_code": 1,
+      "findings": 1,
+      "rule": "generic-api-key",
+      "report_sha256": "c1b994856f0a0c2e277e6aa59c7b43b5e829009817e8de8bbada435a5e3d980a"
+    },
+    {
+      "case": "source-digest field at a different path",
+      "revision": "2d28a9e20aef7f4b72e6a2039cd1c650c23efffc",
+      "exit_code": 1,
+      "findings": 1,
+      "rule": "generic-api-key",
+      "report_sha256": "f93804bb66f0c873ab26bba596d7ce0aafde9214f1fd4d2a45a75604d6ecbaa8"
+    }
+  ],
+  "mutation_control": {
+    "change": "AND to OR",
+    "case": "source-digest field at a different path",
+    "exit_code": 0,
+    "findings": 0,
+    "broken_policy_detected_by_control": true
+  },
+  "assurance": {
+    "boundary": "Pinned external scanner and its Go regular-expression engine",
+    "checked_alternative": "Actual history scan, committed positive and negative controls, and a broken-conjunction control",
+    "implementation_and_hardware_provenance_unchanged": true,
+    "limit": "The controls establish the stated suppression boundary, not detection of every secret format.",
+    "reconsider_when": "Scanner version, field syntax, allowed path, inherited rules or allowlist condition changes"
+  }
+}

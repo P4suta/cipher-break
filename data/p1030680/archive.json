@@ -36,6 +36,7 @@
     "source_revision_before_closeout_commit": "5c157eedaa279ff1755f9b9f848076805e33496b",
     "source_state": "Working-tree evidence prior to the final closeout commit",
     "code_provenance_record": "data/p1030680/recovery-result.json",
+    "code_provenance_revision": "96d6b3e60d578606e74ea09d2525c165d96c06b2",
     "local_copy_hash_matches": true,
     "hash_and_restore_performed_on": "Windows",
     "verified_at": "2026-10-04T04:30:23.8340371Z",
@@ -114,12 +115,50 @@
     },
     "verification_limit": "Client-copy hashing, representative restoration and provider upload acknowledgement were verified. Independent NAS server restoration remains unperformed."
   },
+  "post_review": {
+    "name": "post-review-verification.tar.gz",
+    "bytes": 17353680,
+    "sha256": "cb30e987bdfbec127d127d540af2c505788a27fcf84e1dee4de6a3f863db3a37",
+    "members": 278,
+    "created_at": "2026-10-04T06:50:15.8093847Z",
+    "prepared_on": "Windows",
+    "implementation_revision": "b690169f80ac6e26c2befbe4a07406b89f9b5873",
+    "member_roots": ["reports/", "data/", "docs/"],
+    "local_copy_hash_matches": true,
+    "hash_and_restore_performed_on": "Windows",
+    "verified_at": "2026-10-04T06:57:25.4315791Z",
+    "provider_uploaded": true,
+    "provider_uploading": false,
+    "provider_paused": false,
+    "provider_excluded": false,
+    "provider_has_conflicts": false,
+    "representative_extraction": {
+      "member": "data/p1030680/recovery-result.json",
+      "sha256": "1326cca84cce97e86b92a6c6311ca7cf879e82598c1ebb211f0f7d6988f6cc25",
+      "matches_original": true
+    },
+    "raw_worker_proof_bundle": {
+      "member": "reports/cloud/cb-1791093254-319540000-gpu/out/proof-bundle.tar.gz",
+      "bytes": 14944169,
+      "sha256": "a97d77410977eb556b56e35f58839adb06fb8c9bc7aec1a7d3694ce1814d0e50"
+    },
+    "git_history": {
+      "member": "reports/archive-staging/investigation-history-before-final.bundle",
+      "bytes": 1918861,
+      "sha256": "bc150661886baf3ffbe3572348135fc026edad6e8391985b9362f102abe7e88d",
+      "complete_history_before_final_record_commit": true,
+      "restored_copy_hash_matches": true
+    },
+    "verification_limit": "The actual Synology Drive client copy was returned to Windows for hashing and representative recovery-record and Git-history restoration. Provider upload acknowledgement was verified; an independent NAS server restore remains unperformed."
+  },
   "cleanup": {
     "active_instances": 0,
     "active_disks": 0,
     "task_bucket_deleted": true,
     "archived_gcs_objects_verified": 53,
     "provider_soft_delete_retention_seconds": 604800,
-    "project_and_authentication_preserved": true
+    "project_and_authentication_preserved": true,
+    "last_run": "cb-1791093254-319540000-gpu",
+    "last_deletion_verified_at": "2026-10-04T06:43:30.837178Z"
   }
 }

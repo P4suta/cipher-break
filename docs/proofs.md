@@ -132,10 +132,11 @@ All four hardware tests and the full project check passed; the latter took 1,414
 The offset-42 target and its identical-placement control both completed with zero raw stops.
 The investigation subsequently ended without decryption; [the experiment record](p1030680.md) preserves all completed and untested conditions.
 
-The final closeout verification ran on GCP worker `cb-1791081782-60322000-gpu` on 4 October 2026.
-All 30 required Kani outcomes, the six Lean theorems and seven checked boundary assessments passed; the [scoped attestation](../data/p1030680/assurance-result.json) retains their exact receipt hashes and explicitly leaves whole-search completeness unproved.
-The current [hardware recovery record](../data/p1030680/recovery-result.json), SHA-256 `d66505b04bd39063f6bfbe9c105e8f2ff749853b5123107cbac31558e243e67f`, records all four actual GPU tests and eight matched shuffled recovery searches.
-The complete Rust/Haskell check passed in 1,416.01 seconds, within a 2,334.95-second worker run.
-The controller retrieved both the recovery record and the 13,933,608-byte raw proof bundle with verified hashes, then verified VM and boot-disk deletion at 03:30 UTC.
-The bundle's SHA-256 is `af31ecfc28863c6326d9908051f48b2b59ab202cd188a14a0581979fa2bcdc2f` and it is retained with the [private execution evidence](archive.md).
-The final Windows release regression separately executed all 44 xtask tests successfully in 4.02 seconds, including the two-artifact workspace-eviction case.
+The final closeout verification ran on GCP worker `cb-1791093254-319540000-gpu` on 4 October 2026 after the review fixes.
+All 31 required Kani outcomes, the six Lean theorems and seven checked boundary assessments passed; the [scoped attestation](../data/p1030680/assurance-result.json) retains their exact receipt hashes and explicitly leaves whole-search completeness unproved.
+The current [hardware recovery record](../data/p1030680/recovery-result.json), SHA-256 `1326cca84cce97e86b92a6c6311ca7cf879e82598c1ebb211f0f7d6988f6cc25`, records all four actual GPU tests and eight matched shuffled recovery searches.
+The complete Rust/Haskell check passed in 1,495.52 seconds, within a 2,460.32-second worker run.
+The controller retrieved both the recovery record and the 14,944,169-byte raw proof bundle with verified hashes, then verified VM and boot-disk deletion at 06:43 UTC.
+The bundle's SHA-256 is `a97d77410977eb556b56e35f58839adb06fb8c9bc7aec1a7d3694ce1814d0e50` and it is retained with the [private execution evidence](archive.md).
+The native release regressions separately executed all 49 xtask tests successfully on Mac, Linux and Windows, including workspace eviction, cleanup failures, preserved symlinks and native process arguments and timeouts.
+The earlier 30-outcome closeout receipts remain available at [commit 96d6b3e](https://github.com/P4suta/cipher-break/tree/96d6b3e60d578606e74ea09d2525c165d96c06b2/data/p1030680) and in the original execution archive.

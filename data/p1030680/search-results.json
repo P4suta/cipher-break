@@ -7,7 +7,7 @@
   "input_file_sha256": "694a947107250fe317e94da50b267a772988591f72b3e3462dae601bdc70a6fc",
   "model_sha256": "de0980ed3bc8706ec60d5bb00a6095b5320985fb1a3fd01fb752bdbf1a2f3977",
   "recovery_result_sha256": "4467a08e38564ea84ed7b94a2f771a4c0219415ca55f0dfcd6764e672e933542",
-  "recovery_provenance_status": "The experiments retain their exact historical recovery hashes. Final closeout revalidated the current implementation on 2026-10-04: all four hardware tests, eight matched recovery shuffles, the complete project check, 30 required Kani outcomes and six Lean theorems passed. The current canonical recovery and scoped assurance records are separate from the per-experiment historical provenance.",
+  "recovery_provenance_status": "The experiments retain their exact historical recovery hashes. Final closeout revalidated the current implementation after review fixes on 2026-10-04: all four hardware tests, eight matched recovery shuffles, the complete project check, 31 required Kani outcomes and six Lean theorems passed. The current canonical recovery and scoped assurance records are separate from the per-experiment historical provenance.",
   "formal_proof_status": "Full solver assurance remains incomplete. Bounded sourced candidate experiments require current known-key recovery and matched controls; proof gaps constrain interpretation rather than forbidding all experiments.",
   "reading_declared": false,
   "coverage": {

@@ -1,0 +1,413 @@
+[
+  {
+    "command": "cargo test --release --test enigma 2>&1 | tail -20",
+    "cribs": [],
+    "id": "20260923T131121Z-cpu",
+    "log": "missing",
+    "manifest_sha256": "100cd905880ac18d3ad21870d484491f1a699ccd3872d205bb20ec6f56f61514",
+    "status": "missing"
+  },
+  {
+    "command": "set -o pipefail; cargo test --release --features gpu --test enigma -- --ignored --exact the_naval_attack_breaks_a_short_message_with_the_rings_swept --nocapture && cargo test --release --features gpu --test enigma -- --ignored --exact the_message --nocapture",
+    "cribs": [],
+    "id": "20260923T131140Z-gpu",
+    "log_sha256": "21853b0853b9767a2aad0643b86989ff13482cded7843844e09d9da8605e4185",
+    "manifest_sha256": "6b8434535ddd36b0f5bf056b5d498c4cfe220a9263895ba75da990747d8714a4",
+    "status": "the driver would not load"
+  },
+  {
+    "command": "set -o pipefail; cargo test --release --features gpu --test enigma -- --ignored --exact the_naval_attack_breaks_a_short_message_with_the_rings_swept --nocapture && cargo test --release --features gpu --test enigma -- --ignored --exact the_message --nocapture",
+    "cribs": [],
+    "id": "20260923T131538Z-gpu",
+    "log_sha256": "78e4c6d1a20223f8bcd0a8aef2aca490d9e33ada2e885861790794857731553c",
+    "manifest_sha256": "2e442a79d1b6ce76e12aaa1e5485970b4c3dfc129796a0f572b0620b0a373959",
+    "status": "missing"
+  },
+  {
+    "command": "set -o pipefail; cargo test --release --features gpu --test enigma -- --ignored --exact the_naval_attack_breaks_a_short_message_with_the_rings_swept --nocapture && cargo test --release --features gpu --test enigma -- --ignored --exact the_message --nocapture",
+    "cribs": [],
+    "id": "20260923T133405Z-gpu",
+    "log_sha256": "9b4a9b6611c8ba805eb157d034ee8f94b89f5dda715d02e18a847254e3564607",
+    "manifest_sha256": "62d62531646daa56abeed81319e974205fe172a31af0d0ce57644b0996f21ef7",
+    "status": "exit 101"
+  },
+  {
+    "command": "set -o pipefail; cargo test --release --features gpu --test enigma -- --ignored --exact device::climbs_a_plugboard_exactly_as_the_processor_does --nocapture && cargo test --release --features gpu --test enigma -- --ignored --exact the_naval_attack_breaks_a_short_message_with_the_rings_swept --nocapture && cargo test --release --features gpu --test enigma -- --ignored --exact the_message --nocapture",
+    "cribs": [],
+    "id": "20260923T141528Z-gpu",
+    "log_sha256": "da13b73f94fa7b58f25e24a8b5474e41c19913e3fc16efc1142c470ab5a36d80",
+    "manifest_sha256": "dda07692a3b846a2c8bd2ae386dc8b3956a2ed0fdc0484f9a9407c3c0d56e637",
+    "status": "exit 101"
+  },
+  {
+    "command": "for w in FXDXUUUAUSBX FFFDDDUUUAUSBILDUNG UUUFUNFDREIVIER ANANUUUFUNFDREIVIER LEITUNGVONVON VONVONFUNKLEITUNG FUENFXUUUFLOTTX ANALLEUUUBOOTE SSDCHEFFUNFXUUUFLOTTXX VVVKOMXADMXUUUBOOTE; do echo \"=== crib $w at 0, rings swept\"; ( time ./target/release/cb bombe data/ciphertext.txt --word $w --at 0 --rings --language de --plain ) 2>&1; done",
+    "cribs": [
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 17992710,
+        "word": "FXDXUUUAUSBX"
+      },
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 2,
+        "word": "FFFDDDUUUAUSBILDUNG"
+      },
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 6405,
+        "word": "UUUFUNFDREIVIER"
+      },
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 0,
+        "word": "ANANUUUFUNFDREIVIER"
+      },
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 2280588,
+        "word": "LEITUNGVONVON"
+      },
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 531,
+        "word": "VONVONFUNKLEITUNG"
+      },
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "started; completion unconfirmed",
+        "word": "FUENFXUUUFLOTTX"
+      }
+    ],
+    "id": "20260923T145329Z-gpu",
+    "log_sha256": "28f75a9eb36264c6d33abbd5d3bb5648cfde163ca7265ff9c248bede04ed25b0",
+    "manifest_sha256": "38c280d777d6b88928112e8f8e68678de56b872f2c85b6ac61cae7605961712f",
+    "status": "missing"
+  },
+  {
+    "command": "for w in FXDXUUUAUSBX FFFDDDUUUAUSBILDUNG FXDXUUUAUSBILDUNG VONVONFXDXUUUAUSBX UUUFUNFDREIVIER ZWOFUNFXUUUFLOTTX ANANZWOSECHSUUUFLOTTX FUENFXUUUFLOTTX LEITUNGVONVON VONVONFUNKLEITUNG ANALLEUUUBOOTE SSDCHEFFUNFXUUUFLOTTXX VVVKOMXADMXUUUBOOTE FFFTTTVONVON DIEFUNKSPRUECHEMITUHRZEIT NICHTZULOESEN NEUHERGEBEN; do echo \"=== crib $w at 0, rings swept, stops finished\"; ( time ./target/release/cb bombe data/ciphertext.txt --word $w --at 0 --rings --language de --plain ) 2>&1; done",
+    "cribs": [
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "started; completion unconfirmed",
+        "word": "FXDXUUUAUSBX"
+      }
+    ],
+    "id": "20260923T184051Z-gpu",
+    "log_sha256": "de5c240617851cdc2bc23f75aa383892f641213fea379815d1c20a13d80ee432",
+    "manifest_sha256": "52a481a7a0f19025d18db809a597667f2ad0d88e295150d586b92169590d9f74",
+    "status": "missing"
+  },
+  {
+    "command": "for w in FXDXUUUAUSBX FFFDDDUUUAUSBILDUNG FXDXUUUAUSBILDUNG VONVONFXDXUUUAUSBX UUUFUNFDREIVIER ZWOFUNFXUUUFLOTTX ANANZWOSECHSUUUFLOTTX FUENFXUUUFLOTTX LEITUNGVONVON VONVONFUNKLEITUNG ANALLEUUUBOOTE SSDCHEFFUNFXUUUFLOTTXX VVVKOMXADMXUUUBOOTE FFFTTTVONVON DIEFUNKSPRUECHEMITUHRZEIT NICHTZULOESEN NEUHERGEBEN; do echo \"=== crib $w at 0, rings swept, stops finished\"; ( time ./target/release/cb bombe data/ciphertext.txt --word $w --at 0 --rings --language de --plain ) 2>&1; done",
+    "cribs": [
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "started; completion unconfirmed",
+        "word": "FXDXUUUAUSBX"
+      }
+    ],
+    "id": "20260923T191251Z-gpu",
+    "log_sha256": "03a42508a43feeae5592ee074491a5ecf02038a5d5f2a6afb495faf9ea918660",
+    "manifest_sha256": "eb7eba4565a3ee13fad095627c66e386101d2f2169ce1f600f43bcfb9c9acab4",
+    "status": "missing"
+  },
+  {
+    "command": "gcloud storage cp --quiet gs://cipher-break-511266-runs/models/naval-de-l100.txt /tmp/naval.txt && for w in FXDXUUUAUSBX FFFDDDUUUAUSBILDUNG FXDXUUUAUSBILDUNG VONVONFXDXUUUAUSBX UUUFUNFDREIVIER ZWOFUNFXUUUFLOTTX ANANZWOSECHSUUUFLOTTX FUENFXUUUFLOTTX LEITUNGVONVON VONVONFUNKLEITUNG ANALLEUUUBOOTE SSDCHEFFUNFXUUUFLOTTXX VVVKOMXADMXUUUBOOTE FFFTTTVONVON DIEFUNKSPRUECHEMITUHRZEIT NICHTZULOESEN NEUHERGEBEN; do echo \"=== crib $w at 0, rings swept, stops finished, naval judge\"; ( time ./target/release/cb bombe data/ciphertext.txt --word $w --at 0 --rings --focus /tmp/naval.txt --plain ) 2>&1; done",
+    "cribs": [
+      {
+        "finished": 200000,
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "capped finishing",
+        "survived": 7904821,
+        "verdict": "not further than the historical fitted null",
+        "word": "FXDXUUUAUSBX"
+      },
+      {
+        "finished": 2,
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "all reported rotor stops finished; plugboard completion remains heuristic",
+        "survived": 2,
+        "verdict": "not further than the historical fitted null",
+        "word": "FFFDDDUUUAUSBILDUNG"
+      },
+      {
+        "finished": 56,
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "capped finishing",
+        "survived": 58,
+        "verdict": "not further than the historical fitted null",
+        "word": "FXDXUUUAUSBILDUNG"
+      },
+      {
+        "finished": 2416,
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "capped finishing",
+        "survived": 2495,
+        "verdict": "not further than the historical fitted null",
+        "word": "VONVONFXDXUUUAUSBX"
+      },
+      {
+        "offset": 0,
+        "rings": "middle and right",
+        "state": "started; completion unconfirmed",
+        "word": "UUUFUNFDREIVIER"
+      }
+    ],
+    "id": "20260923T195639Z-gpu",
+    "log_sha256": "0aa49efb81b23424a651aa3e07ba19f9be2a61687ef1948d1d6d141f89140a5c",
+    "manifest_sha256": "4ec04c12c7f0abe28c66c978ff7051a4b2e42bae76dda5478fd1d39d318c4dca",
+    "status": "missing"
+  },
+  {
+    "command": "bash cloud/jobs/cribs.sh cloud/jobs/p1030680-2026-09-24.txt gs://cipher-break-511266-runs/models/naval-de-l100.txt",
+    "cribs": [
+      {
+        "finished": 8,
+        "offset": 0,
+        "rings": "right only",
+        "state": "all reported rotor stops finished; plugboard completion remains heuristic",
+        "survived": 8,
+        "verdict": "not further than the historical fitted null",
+        "word": "FXDXUUUAUSBXANALLE"
+      },
+      {
+        "offset": 0,
+        "rings": "right only",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 0,
+        "word": "FFFDDDUUUAUSBILDUNGANALLE"
+      },
+      {
+        "finished": 306,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 307,
+        "verdict": "not further than the historical fitted null",
+        "word": "VVVFXDXUUUAUSBX"
+      },
+      {
+        "finished": 8,
+        "offset": 0,
+        "rings": "right only",
+        "state": "all reported rotor stops finished; plugboard completion remains heuristic",
+        "survived": 8,
+        "verdict": "not further than the historical fitted null",
+        "word": "DREIEINSXUUUFLOTTX"
+      },
+      {
+        "finished": 29,
+        "offset": 0,
+        "rings": "right only",
+        "state": "all reported rotor stops finished; plugboard completion remains heuristic",
+        "survived": 29,
+        "verdict": "not further than the historical fitted null",
+        "word": "DREIDREIXUUUFLOTTX"
+      },
+      {
+        "finished": 45,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 46,
+        "verdict": "not further than the historical fitted null",
+        "word": "ANALLEUUUBOOTEXX"
+      },
+      {
+        "offset": 0,
+        "rings": "right only",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 0,
+        "word": "ZWOFUNFXUUUFLOTTXANALLE"
+      },
+      {
+        "offset": 0,
+        "rings": "right only",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 0,
+        "word": "VONVONFUNFXUUUFLOTTX"
+      },
+      {
+        "offset": 0,
+        "rings": "right only",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 0,
+        "word": "VONVONFUENFXUUUFLOTTX"
+      },
+      {
+        "offset": 0,
+        "rings": "right only",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 0,
+        "word": "FUNKSPRUCHNICHTZULOESEN"
+      },
+      {
+        "finished": 1,
+        "offset": 0,
+        "rings": "right only",
+        "state": "all reported rotor stops finished; plugboard completion remains heuristic",
+        "survived": 1,
+        "verdict": "not further than the historical fitted null",
+        "word": "ZWOFUNFXUUUFLOTTX"
+      },
+      {
+        "offset": 0,
+        "rings": "right only",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 0,
+        "word": "ANANZWOSECHSUUUFLOTTX"
+      },
+      {
+        "finished": 289,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 291,
+        "verdict": "not further than the historical fitted null",
+        "word": "FUENFXUUUFLOTTX"
+      },
+      {
+        "finished": 49,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 51,
+        "verdict": "not further than the historical fitted null",
+        "word": "VONVONFUNKLEITUNG"
+      },
+      {
+        "finished": 9170,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 9326,
+        "verdict": "not further than the historical fitted null",
+        "word": "ANALLEUUUBOOTE"
+      },
+      {
+        "offset": 0,
+        "rings": "right only",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 0,
+        "word": "SSDCHEFFUNFXUUUFLOTTXX"
+      },
+      {
+        "finished": 57828,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 59091,
+        "verdict": "not further than the historical fitted null",
+        "word": "VVVKOMXADMXUUUBOOTE"
+      },
+      {
+        "finished": 200000,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 1785795,
+        "verdict": "not further than the historical fitted null",
+        "word": "FFFTTTVONVON"
+      },
+      {
+        "offset": 0,
+        "rings": "right only",
+        "state": "rotor sweep reported; finishing unconfirmed",
+        "survived": 0,
+        "word": "DIEFUNKSPRUECHEMITUHRZEIT"
+      },
+      {
+        "finished": 200000,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 3543442,
+        "verdict": "not further than the historical fitted null",
+        "word": "NICHTZULOESEN"
+      },
+      {
+        "finished": 200000,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 10772154,
+        "verdict": "not further than the historical fitted null",
+        "word": "NEUHERGEBEN"
+      },
+      {
+        "finished": 1715179,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 1793952,
+        "verdict": "not further than the historical fitted null",
+        "word": "FXDXUUUAUSBX"
+      },
+      {
+        "finished": 225655,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 230311,
+        "verdict": "not further than the historical fitted null",
+        "word": "LEITUNGVONVON"
+      },
+      {
+        "finished": 745825,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 766823,
+        "verdict": "not further than the historical fitted null",
+        "word": "ANANUUUBOOTE"
+      },
+      {
+        "finished": 1030525,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 1065080,
+        "verdict": "not further than the historical fitted null",
+        "word": "ALLEUUUBOOTE"
+      },
+      {
+        "finished": 2000000,
+        "offset": 0,
+        "rings": "right only",
+        "state": "capped finishing",
+        "survived": 28619658,
+        "verdict": "not further than the historical fitted null",
+        "word": "VONVONLEITUNG"
+      },
+      {
+        "offset": "all or unrecorded",
+        "rings": "right only",
+        "state": "started; completion unconfirmed",
+        "word": "FESTUNGSALARMFUERKIEL"
+      }
+    ],
+    "id": "20260923T213911Z-gpu",
+    "log_sha256": "17c9744bae4e06a9685b5b86abf9c56f8b1f3f3edf8be678551c5400bdc8beab",
+    "manifest_sha256": "eda5ef9f0ccb57273d8e71ae73fcdba6634993e54c22cc31ef9c681d80306453",
+    "status": "missing"
+  }
+]

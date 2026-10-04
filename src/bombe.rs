@@ -14,10 +14,14 @@ pub struct Menu {
 
 pub const RANK_OF_TRUTH_WHEN_SHORT: u64 = 146;
 
+fn placement_fits(ciphertext_length: usize, crib_length: usize, offset: usize) -> bool {
+    crib_length != 0 && offset <= ciphertext_length && crib_length <= ciphertext_length - offset
+}
+
 impl Menu {
     #[must_use]
     pub fn place(ct: &[Letter], crib: &[Letter], offset: usize) -> Option<Menu> {
-        if crib.is_empty() || offset + crib.len() > ct.len() {
+        if !placement_fits(ct.len(), crib.len(), offset) {
             return None;
         }
         let edges: Vec<(usize, Letter, Letter)> = crib
@@ -188,9 +192,9 @@ impl Positions {
     }
 }
 
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Scratch {
-    generation: u32,
-    stamp: [u32; ALPHABET],
+    assigned: u32,
     value: [Letter; ALPHABET],
     pending: [Letter; ALPHABET],
 }
@@ -205,8 +209,7 @@ impl Scratch {
     #[must_use]
     pub fn new() -> Scratch {
         Scratch {
-            generation: 0,
-            stamp: [0; ALPHABET],
+            assigned: 0,
             value: [0; ALPHABET],
             pending: [0; ALPHABET],
         }
@@ -214,17 +217,13 @@ impl Scratch {
 
     #[inline]
     fn begin(&mut self) {
-        self.generation = self.generation.wrapping_add(1);
-        if self.generation == 0 {
-            self.stamp = [0; ALPHABET];
-            self.generation = 1;
-        }
+        self.assigned = 0;
     }
 
     #[inline]
     fn known(&self, l: Letter) -> Option<Letter> {
         let i = l as usize % ALPHABET;
-        if self.stamp[i] == self.generation {
+        if self.assigned & (1 << i) != 0 {
             Some(self.value[i])
         } else {
             None
@@ -234,8 +233,83 @@ impl Scratch {
     #[inline]
     fn set(&mut self, l: Letter, v: Letter) {
         let i = l as usize % ALPHABET;
-        self.stamp[i] = self.generation;
+        self.assigned |= 1 << i;
         self.value[i] = v;
+    }
+
+    #[cfg_attr(kani, kani::requires(*waiting <= ALPHABET && (self.known(letter).is_some() || *waiting < ALPHABET)))]
+    #[cfg_attr(kani, kani::modifies(self, waiting))]
+    #[cfg_attr(kani, kani::ensures(|result: &bool| {
+        let before = old(self.known(letter));
+        let assigned = old(self.assigned);
+        let values = old(self.value);
+        let pending = old(self.pending);
+        let count = old(*waiting);
+        known_count(self) == old(known_count(self)) + usize::from(before.is_none())
+            && match before {
+                Some(value) => *result == (value == partner)
+                    && *waiting == count
+                    && self.assigned == assigned
+                    && self.value == values
+                    && self.pending == pending,
+                None => *result
+                    && *waiting == count + 1
+                    && self.known(letter) == Some(partner)
+                    && self.assigned == assigned | (1 << (usize::from(letter) % ALPHABET))
+                    && self.pending[count] == letter
+                    && (0..ALPHABET).all(|index| {
+                        (index == usize::from(letter) % ALPHABET
+                            || self.value[index] == values[index])
+                            && (index == count || self.pending[index] == pending[index])
+                    }),
+            }
+    }))]
+    fn queue(&mut self, waiting: &mut usize, letter: Letter, partner: Letter) -> bool {
+        if let Some(value) = self.known(letter) {
+            value == partner
+        } else {
+            self.set(letter, partner);
+            self.pending[*waiting] = letter;
+            *waiting += 1;
+            true
+        }
+    }
+
+    #[cfg_attr(kani, kani::requires(usize::from(a) < ALPHABET && usize::from(b) < ALPHABET
+        && *waiting <= ALPHABET && missing_pair(self, a, b) <= ALPHABET - *waiting))]
+    #[cfg_attr(kani, kani::modifies(self, waiting))]
+    #[cfg_attr(kani, kani::ensures(|result: &bool| {
+        let first = old(self.known(a));
+        let second = old(self.known(b));
+        let assigned = old(self.assigned);
+        let known = old(known_count(self));
+        let before_count = old(*waiting);
+        let mut values = old(self.value);
+        let mut pending = old(self.pending);
+        let agrees = *result == (first.is_none_or(|value| value == b)
+            && second.is_none_or(|value| value == a));
+        if !*result {
+            agrees
+        } else {
+            let mut count = before_count;
+            values[usize::from(a)] = b;
+            values[usize::from(b)] = a;
+            if first.is_none() {
+                pending[count] = a;
+                count += 1;
+            }
+            if a != b && second.is_none() {
+                pending[count] = b;
+                count += 1;
+            }
+            agrees && self.known(a) == Some(b) && self.known(b) == Some(a)
+                && self.assigned == assigned | (1 << a) | (1 << b)
+                && *waiting == count && known_count(self) == known + count - before_count
+                && self.value == values && self.pending == pending
+        }
+    }))]
+    fn settle(&mut self, waiting: &mut usize, a: Letter, b: Letter) -> bool {
+        self.queue(waiting, a, b) && self.queue(waiting, b, a)
     }
 }
 
@@ -273,6 +347,72 @@ pub fn scan_all_with(menu: &Menu, positions: &Positions, scratch: &mut Scratch) 
     out
 }
 
+pub fn complete_menu<'a>(
+    menu: &'a Menu,
+    positions: &'a Positions,
+    (board, known): (Plugboard, u32),
+    leads: usize,
+) -> impl Iterator<Item = (Plugboard, u32)> + 'a {
+    let mut pending = vec![(board, known)];
+    let letters = menu.letters();
+    std::iter::from_fn(move || {
+        while let Some((mut board, mut known)) = pending.pop() {
+            if !propagate(menu, positions, &mut board, &mut known) || board.pairs().len() > leads {
+                continue;
+            }
+            let next = letters
+                .iter()
+                .copied()
+                .filter(|&l| known & (1 << l) == 0)
+                .max_by_key(|&l| menu.starts[l as usize + 1] - menu.starts[l as usize]);
+            let Some(next) = next else {
+                return Some((board, known));
+            };
+            for guess in (0..ALPHABET as u8).rev() {
+                let (mut trial, mut fixed) = (board, known);
+                if fix_lead(&mut trial, &mut fixed, next, guess) {
+                    pending.push((trial, fixed));
+                }
+            }
+        }
+        None
+    })
+}
+
+fn fix_lead(board: &mut Plugboard, known: &mut u32, a: Letter, b: Letter) -> bool {
+    if (*known & (1 << a) != 0 && board.map(a) != b)
+        || (*known & (1 << b) != 0 && board.map(b) != a)
+    {
+        return false;
+    }
+    board.connect(a, b);
+    *known |= (1 << a) | (1 << b);
+    true
+}
+
+fn propagate(menu: &Menu, positions: &Positions, board: &mut Plugboard, known: &mut u32) -> bool {
+    loop {
+        let before = *known;
+        for &(i, p, c) in &menu.edges {
+            let pair = if *known & (1 << p) != 0 {
+                Some((c, positions.at(i, board.map(p))))
+            } else if *known & (1 << c) != 0 {
+                Some((p, positions.at(i, board.map(c))))
+            } else {
+                None
+            };
+            if let Some((a, b)) = pair
+                && !fix_lead(board, known, a, b)
+            {
+                return false;
+            }
+        }
+        if before == *known {
+            return true;
+        }
+    }
+}
+
 fn survived(scratch: &Scratch, start: Letter, guess: Letter) -> Stop {
     let mut board = Plugboard::empty();
     let mut known = 0u32;
@@ -296,56 +436,99 @@ fn follow(
     guess: Letter,
     scratch: &mut Scratch,
 ) -> bool {
+    follow_with(
+        menu,
+        |i, letter| positions.at(i, letter),
+        start,
+        guess,
+        scratch,
+        #[cfg(kani)]
+        &[0; ALPHABET],
+    )
+}
+
+fn follow_with(
+    menu: &Menu,
+    at: impl Fn(usize, Letter) -> Letter,
+    start: Letter,
+    guess: Letter,
+    scratch: &mut Scratch,
+    #[cfg(kani)] truth: &[Letter; ALPHABET],
+) -> bool {
     scratch.begin();
     let mut waiting = 0usize;
 
-    macro_rules! settle {
-        ($a:expr, $b:expr) => {{
-            let mut ok = true;
-            for (x, y) in [($a, $b), ($b, $a)] {
-                match scratch.known(x) {
-                    Some(v) if v != y => {
-                        ok = false;
-                        break;
-                    }
-                    Some(_) => {}
-                    None => {
-                        scratch.set(x, y);
-                        scratch.pending[waiting] = x;
-                        waiting += 1;
-                    }
-                }
-            }
-            ok
-        }};
-    }
-
-    if !settle!(start, guess) {
+    if !scratch.settle(&mut waiting, start, guess) {
         return false;
     }
 
+    #[cfg_attr(
+        kani,
+        kani::loop_invariant(propagation_invariant(scratch, waiting, truth))
+    )]
+    #[cfg_attr(kani, kani::loop_modifies(&*scratch, &waiting))]
+    #[cfg_attr(kani, kani::loop_decreases(waiting + ALPHABET - known_count(scratch)))]
     while waiting > 0 {
         waiting -= 1;
         let from = scratch.pending[waiting];
-        let Some(u) = scratch.known(from) else {
+        let Some(input) = scratch.known(from) else {
             continue;
         };
-        let l = from as usize % ALPHABET;
-        let (first, last) = (menu.starts[l] as usize, menu.starts[l + 1] as usize);
-        for &(i, to) in &menu.incident[first..last] {
-            let v = positions.at(i as usize, u);
+        let letter_index = from as usize % ALPHABET;
+        let (first, last) = (
+            menu.starts[letter_index] as usize,
+            menu.starts[letter_index + 1] as usize,
+        );
+        let mut cursor = first;
+        #[cfg(kani)]
+        let capacity = waiting + ALPHABET - known_count(scratch);
+        #[cfg_attr(kani, kani::loop_invariant(
+            first <= cursor && cursor <= last && last <= menu.incident.len()
+                && propagation_invariant(scratch, waiting, truth)
+                && waiting + ALPHABET - known_count(scratch) == capacity
+        ))]
+        #[cfg_attr(kani, kani::loop_modifies(&*scratch, &waiting, &cursor))]
+        #[cfg_attr(kani, kani::loop_decreases(last - cursor))]
+        while cursor < last {
+            let (position, to) = menu.incident[cursor];
+            let mapped_to = at(position as usize, input);
             match scratch.known(to) {
-                Some(w) if w != v => return false,
+                Some(existing) if existing != mapped_to => return false,
                 Some(_) => {}
                 None => {
-                    if !settle!(to, v) {
+                    if !scratch.settle(&mut waiting, to, mapped_to) {
                         return false;
                     }
                 }
             }
+            cursor += 1;
         }
     }
     true
+}
+
+#[cfg(kani)]
+fn missing_pair(scratch: &Scratch, a: Letter, b: Letter) -> usize {
+    usize::from(scratch.known(a).is_none()) + usize::from(a != b && scratch.known(b).is_none())
+}
+
+#[cfg(kani)]
+fn known_count(scratch: &Scratch) -> usize {
+    (scratch.assigned & ((1u32 << ALPHABET) - 1)).count_ones() as usize
+}
+
+#[cfg(kani)]
+fn propagation_invariant(scratch: &Scratch, waiting: usize, truth: &[Letter; ALPHABET]) -> bool {
+    waiting <= known_count(scratch)
+        && scratch.assigned & !((1u32 << ALPHABET) - 1) == 0
+        && (0..ALPHABET).all(|letter| {
+            scratch
+                .known(letter as Letter)
+                .is_none_or(|value| value == truth[letter])
+        })
+        && scratch.pending[..waiting]
+            .iter()
+            .all(|&letter| usize::from(letter) < ALPHABET && scratch.known(letter).is_some())
 }
 
 #[cfg(test)]
@@ -422,6 +605,18 @@ mod tests {
     }
 
     #[test]
+    fn an_invalid_offset_is_refused_without_arithmetic_overflow() {
+        let ct = to_letters("AB");
+        let crib = to_letters("C");
+        for offset in [ct.len(), ct.len() + 1, usize::MAX - 1, usize::MAX] {
+            assert!(Menu::place(&ct, &crib, offset).is_none());
+        }
+        assert!(Menu::place(&ct, &crib, ct.len() - 1).is_some());
+        assert!(Menu::place(&[], &crib, usize::MAX).is_none());
+        assert!(Menu::place(&ct, &[], usize::MAX).is_none());
+    }
+
+    #[test]
     fn a_star_of_fresh_letters_has_no_loops() {
         let ct = to_letters("ZZZZZZ");
         let menu = Menu::place(&ct, &to_letters("ABCDEF"), 0).expect("placed");
@@ -474,6 +669,60 @@ mod tests {
             Stop::Refuted => panic!("the true setting was refuted by its own crib"),
         }
         let _ = plain;
+    }
+
+    #[test]
+    fn completing_components_preserves_the_key_and_every_menu_edge() {
+        let (settings, reflector, truth, plain, ct) = planted();
+        let menu = Menu::place(&ct, &plain[..16], 0).expect("true crib");
+        let positions = Positions::of(settings, reflector, menu.edges.len());
+        let found: Vec<_> = scan_all_with(&menu, &positions, &mut Scratch::new())
+            .into_iter()
+            .filter_map(|stop| match stop {
+                Stop::Survived { board, known, .. } => Some((board, known)),
+                Stop::Refuted => None,
+            })
+            .flat_map(|partial| complete_menu(&menu, &positions, partial, 10))
+            .collect();
+        assert!(!found.is_empty());
+        assert!(found.iter().any(|(board, known)| {
+            (0..26u8).all(|l| known & (1 << l) == 0 || board.map(l) == truth.map(l))
+        }));
+        for (board, known) in found {
+            assert!(board.pairs().len() <= 10);
+            assert!(menu.letters().iter().all(|&l| known & (1 << l) != 0));
+            let read = Enigma::with_reflector(settings, reflector, board).run(&ct);
+            assert_eq!(read[..16], plain[..16]);
+            for l in 0..26u8 {
+                assert_eq!(board.map(board.map(l)), l);
+                if known & (1 << l) != 0 {
+                    assert_ne!(known & (1 << board.map(l)), 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_fixed_complete_board_still_checks_edges_and_the_lead_limit() {
+        let (settings, reflector, truth, plain, ct) = planted();
+        let menu = Menu::place(&ct, &plain[..16], 0).expect("true crib");
+        let positions = Positions::of(settings, reflector, menu.edges.len());
+        let known = (1 << ALPHABET) - 1;
+        assert_eq!(
+            complete_menu(&menu, &positions, (truth, known), 5).count(),
+            1
+        );
+        assert_eq!(
+            complete_menu(&menu, &positions, (truth, known), 4).count(),
+            0
+        );
+        let mut wrong = settings;
+        wrong.positions[2] = Indicator::new((wrong.positions[2].value() + 1) % 26);
+        let wrong_positions = Positions::of(wrong, reflector, menu.edges.len());
+        assert_eq!(
+            complete_menu(&menu, &wrong_positions, (truth, known), 5).count(),
+            0
+        );
     }
 
     #[test]

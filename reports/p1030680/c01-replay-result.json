@@ -1,0 +1,37 @@
+{
+  "crib": "FFFDDDUUUAUSBILDUNG",
+  "offset": 0,
+  "results": [
+    {
+      "completions": [],
+      "core_loop_stops": 1,
+      "finished_attempts": 0,
+      "forced_menu_boards": 0,
+      "reported_reflector": "gamma/V B-thin",
+      "reported_rings": "AAU",
+      "reported_rotors": [
+        4,
+        5,
+        3
+      ],
+      "reported_start": "RDJ"
+    },
+    {
+      "completions": [],
+      "core_loop_stops": 1,
+      "finished_attempts": 0,
+      "forced_menu_boards": 0,
+      "reported_reflector": "gamma/V B-thin",
+      "reported_rings": "AXU",
+      "reported_rotors": [
+        4,
+        5,
+        3
+      ],
+      "reported_start": "QZJ"
+    }
+  ],
+  "scope": "Only the two printed September 23 settings; no rotor sweep and no full-crib exclusion.",
+  "seconds": 0.011631,
+  "selection": "Historical target-selected settings; no significance or matched whole-search null is claimed."
+}

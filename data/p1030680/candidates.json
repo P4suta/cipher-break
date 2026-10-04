@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "input_version": "body-v1",
+  "null": {"method": "same-letter shuffles using src/rng.rs xorshift64 and Fisher-Yates", "seed": 20261002, "samples": 128},
+  "candidates": [
+    {
+      "id": "C01",
+      "classification": "conditional_hypothesis",
+      "search_rationale": "The recovered May 1 message P1030659 uses this literal Comsubs Training address. A training address is a conditional format hypothesis for the principally Thetis target; no shared net, daily key, sender or subject is asserted. The historical printed keys failed current whole-menu replay, so the old finishing does not replace a corrected full sweep.",
+      "hypothesis": "A message addressed to Comsubs Training",
+      "cribs": [{"word": "FFFDDDUUUAUSBILDUNG", "source_message": "P1030659", "offsets": [0]}],
+      "source": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030659",
+      "source_key": "Potsdam, published 1 May 1945 key; not a Thetis depth partner",
+      "source_form_date": "1.5; the year is contextual; small time digits are unresolved",
+      "conditions": "The target begins with this exact address form and has the unaltered photographed body.",
+      "prior_cribs": ["FFFDDDUUUAUSBILDUNG", "FFFDDDUUUAUSBILDUNGANALLE"],
+      "difference": "Repeat the exact published prefix with corrected whole-menu completion and current known-key recovery after rejecting the two historical printed keys by replay.",
+      "unknowns": "No source connects this address to the target; the prior VM run lacks a final status.",
+      "eligible": false
+    },
+    {
+      "id": "C02",
+      "hypothesis": "A torpedo recovery boat receives an order from Comsubs Training",
+      "cribs": [{"word": "TTTFFFZWOVIERVVVFXDXUUUXAUSB", "source_message": "P1030698", "offsets": [0]}],
+      "source": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030698",
+      "source_key": "Potsdam, published 1 May 1945 key; not a Thetis depth partner",
+      "source_form_date": "2.5; the year is contextual; a key label is not a reception date",
+      "conditions": "Boat 24 and the exact published header are at the beginning.",
+      "prior_cribs": ["TTTFFFZWOVIERVV"],
+      "difference": "Use the complete literal header rather than the shorter earlier right-ring prefix.",
+      "unknowns": "The addressee is not identified on the target form; reject any self-enciphering placement before searching.",
+      "eligible": false
+    },
+    {
+      "id": "C03",
+      "classification": "conditional_hypothesis",
+      "search_rationale": "Radio Control clarification requests are attested in the same recovered collection. The literal prefix is a conditional plaintext hypothesis; it does not assert a common daily key or a known target address.",
+      "hypothesis": "A Radio Control request to retransmit an unreadable signal",
+      "cribs": [
+        {"word": "DIEFUNKSPRUECHEMITUHRZEIT", "source_message": "P1030692", "offsets": [0]},
+        {"word": "VVVFUNKOEITUNG", "source_message": "P1030692", "offsets": [59]}
+      ],
+      "source": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030692",
+      "source_key": "Potsdam, published 1 May 1945 key; not a Thetis depth partner",
+      "source_form_date": "1.5; faint handwriting; small time digits are unresolved",
+      "conditions": "The request shares the published prefix or literal final signature; offset 59 additionally assumes a final 13-letter signature.",
+      "prior_cribs": ["DIEFUNKSPRUECHEMITUHRZEIT", "DIEFUNKSPRUECHE", "VVVFUNKLEITUNG", "VONVONFUNKLEITUNG", "NEUHERGEBEN"],
+      "difference": "Group prefix and signature variants under one hypothesis; preserve the actual FUNKOEITUNG reading rather than silently repairing it.",
+      "unknowns": "The source's 1921/1552 time groups do not identify P1030680; no same-net plaintext has been found.",
+      "eligible": false
+    },
+    {
+      "id": "C04",
+      "hypothesis": "An order to remain in Travemuende",
+      "cribs": [{"word": "TRAVEMUENDEBLEIBENX", "source_message": "P1030698", "offsets": "all"}],
+      "source": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030698",
+      "source_key": "Potsdam, published 1 May 1945 key; not a Thetis depth partner",
+      "source_form_date": "2.5; the year is contextual; a key label is not a reception date",
+      "conditions": "This contiguous historical phrase occurs somewhere in the target.",
+      "prior_cribs": [],
+      "difference": "A literal published phrase replaces an invented boat-number list; its location remains unconstrained.",
+      "unknowns": "There is no evidence for this subject in the target; broad placement is too costly without an independent link.",
+      "eligible": false
+    },
+    {
+      "id": "C05",
+      "hypothesis": "A broadcast from Radio Control about unclear messages",
+      "cribs": [{"word": "ANALLEVONVONFUNKHEITUNG", "source_message": "P1030699", "offsets": [0]}],
+      "source": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030699",
+      "source_key": "Potsdam, published 1 May 1945 key; not a Thetis depth partner",
+      "source_form_date": "2.5; the year is contextual; a key label is not a reception date",
+      "conditions": "The exact published address and spelling begin the target.",
+      "prior_cribs": ["ANALLEVONVONFUN", "VONVONFUNKLEITUNG"],
+      "difference": "Retain the actual decrypted FUNKHEITUNG spelling; the longer header has different menu constraints.",
+      "unknowns": "Its key-change wording is incomplete and cannot establish the target's key interval or net.",
+      "eligible": false
+    },
+    {
+      "id": "C06",
+      "hypothesis": "Radio Control reports that a specified telegram cannot be solved",
+      "classification": "conditional_hypothesis",
+      "search_rationale": "P1030686 contains a literal Radio Control formula for an unresolved telegram. This is a testable message-format hypothesis for the short target, not evidence that either message shares a key or refers to the other.",
+      "cribs": [{"word": "FFFTTTNICHTZULOESENFUNKLEITUNG", "source_message": "P1030686", "offsets": "all"}],
+      "source": "https://enigma.hoerenberg.com/index.php?cat=The+U534+messages&page=P1030686",
+      "source_key": "Published Potsdam 438/AACU setting; no transfer of that setting to Thetis is assumed",
+      "source_form_date": "Not established for this hypothesis; not used as a target-key restriction",
+      "conditions": "The target contains this contiguous, literal formula in a single-layer Allgemein body. All compatible offsets remain queued.",
+      "prior_cribs": [],
+      "difference": "A new 30-letter attested formula supplies stronger menus than the earlier short signatures. Re-run the corrected CPU/GPU finishing, and retain unvisited offsets rather than excluding the whole hypothesis.",
+      "unknowns": "The target's subject and sender remain unknown. A successful search must recover coherent held-out text and pass exact re-encryption and matched full-search controls.",
+      "eligible": false
+    }
+  ]
+}

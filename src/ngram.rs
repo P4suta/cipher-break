@@ -61,13 +61,27 @@ impl Model {
 
     #[must_use]
     pub fn score(&self, ls: &[Letter]) -> f64 {
+        self.score_segments(&[ls])
+    }
+
+    #[must_use]
+    pub fn score_segments(&self, segments: &[&[Letter]]) -> f64 {
         let mut sum = 0.0f64;
         let mut n = 0usize;
-        for g in Grams::new(self.order, ls) {
+        for g in segments.iter().flat_map(|ls| Grams::new(self.order, ls)) {
             sum += f64::from(self.logp[g]);
             n += 1;
         }
         if n == 0 { 0.0 } else { sum / n as f64 }
+    }
+
+    #[must_use]
+    pub fn supplemented(&self, corpus: &[Letter]) -> Self {
+        let mut counts = self.counts.clone();
+        for g in Grams::new(self.order, corpus) {
+            counts[g] += 1;
+        }
+        Self::from_counts(self.order, counts)
     }
 
     #[inline]
@@ -213,6 +227,23 @@ mod tests {
     fn a_model_prefers_the_text_it_learned() {
         let m = Model::train(3, &to_letters(CORPUS));
         assert!(m.score(&to_letters(CORPUS)) > m.score(&to_letters("ZQXJZQXJZQXJ")));
+    }
+
+    #[test]
+    fn supplementation_preserves_document_boundaries() {
+        let base = Model::train(3, &to_letters("ABC"));
+        let model = base.supplemented(&to_letters("DEF"));
+        assert_eq!(base.total(), 1.0);
+        assert_eq!(model.total(), 2.0);
+        assert_eq!(
+            model.score(&to_letters("ABC")),
+            model.score(&to_letters("DEF"))
+        );
+        assert!(model.score(&to_letters("BCD")) < model.score(&to_letters("ABC")));
+        assert_eq!(
+            model.score_segments(&[&to_letters("ABC"), &to_letters("DEF")]),
+            model.score(&to_letters("ABC"))
+        );
     }
 
     #[test]

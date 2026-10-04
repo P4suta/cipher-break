@@ -1,0 +1,24 @@
+{
+  "checked_at": "2026-10-02T15:00:43Z",
+  "currency": "USD",
+  "maximum_age_days": 7,
+  "vm_hourly": {
+    "us-central1/g2-standard-8/gpu": 0.853624312,
+    "us-central1/n1-standard-8/gpu": 0.729998,
+    "us-west1/n1-standard-8/gpu": 0.729998,
+    "us-central1/n1-standard-8/cpu": 0.379998,
+    "us-west1/n1-standard-8/cpu": 0.379998
+  },
+  "balanced_disk_gib_hourly": 0.000136986,
+  "ephemeral_ipv4_hourly": 0.005,
+  "egress_storage_tax_fx_reserve": 1.25,
+  "sources": [
+    "https://cloud.google.com/products/compute/pricing/accelerator-optimized",
+    "https://cloud.google.com/products/compute/pricing/general-purpose",
+    "https://cloud.google.com/products/compute/gpus-pricing?hl=en",
+    "https://cloud.google.com/compute/disks-image-pricing",
+    "https://cloud.google.com/vpc/network-pricing",
+    "https://cloudbilling.googleapis.com/v1/services/6F81-5844-456A/skus"
+  ],
+  "note": "On-demand prices bound Spot compute charges; these estimates precede credits and settled billing. Refresh the regional evidence before using an expired snapshot."
+}

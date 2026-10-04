@@ -1,0 +1,3 @@
+# The historical recovery receipt contains the SHA-256 of src/ciphers/autokey.rs.
+# This exception covers only that immutable source-digest finding.
+3b2959148a002402d14a4ada76e431a778d9358a:data/p1030680/recovery-result.json:generic-api-key:29

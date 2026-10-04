@@ -1,0 +1,6 @@
+name = "cipher-proofs"
+version = "0.1.0"
+defaultTargets = ["CipherProofs"]
+
+[[lean_lib]]
+name = "CipherProofs"

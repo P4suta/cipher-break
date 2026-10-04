@@ -164,6 +164,34 @@ fn climb(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocatio
         connect(&board, best_a, best_b);
     }
 
+    // Match the processor's second phase by replacing each existing lead.
+    loop {
+        var found = false;
+        var better = board;
+        for (var x = 0u; x < 26u; x = x + 1u) {
+            let y = plug(&board, x);
+            if (x >= y) { continue; }
+            var without = board;
+            plug_put(&without, x, x);
+            plug_put(&without, y, y);
+            for (var a = 0u; a < 26u; a = a + 1u) {
+                for (var b = a + 1u; b < 26u; b = b + 1u) {
+                    var trial = without;
+                    connect(&trial, a, b);
+                    if (leads_used(&trial) > params.leads) { continue; }
+                    let s = score(&trial, r0, r1, r2, refl, middle, ring, q0, q1, q2);
+                    if (s > best + margin) {
+                        best = s;
+                        better = trial;
+                        found = true;
+                    }
+                }
+            }
+        }
+        if (!found) { break; }
+        board = better;
+    }
+
     let slot = tid * 6u;
     out[slot] = bitcast<u32>(best);
     for (var i = 0u; i < 5u; i = i + 1u) { out[slot + 1u + i] = board[i]; }

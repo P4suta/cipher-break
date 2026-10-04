@@ -1,0 +1,58 @@
+{
+  "key": "Potsdam, published May 1; gamma/B-thin, rotors 4/3/8, rings AACU, ten leads",
+  "sources": [
+    {
+      "id": "P1030659",
+      "start": "YVOS",
+      "form_date_review": "1.5",
+      "plain_prefix": "FFFDDDUUUAUSBILDUNGVONVONZWOSECHSUUUFLOTTXXTTTFFFZWODREIAUSGEZQESTETMITSSSSSSGCGXTTTFFFZWOQI",
+      "cipher_prefix": "YUPOVEJTBKONNFSALTWELQAZJXTIRJLLISCSGXSHEJFYNZQDNQSUXPGFTJKWINGORYBJYADWNFCLPPNSLWUYBUQISXGQ",
+      "source_sha256": "52d35174309e8000ca6039308b26474fe85cf6f28219ff2ea63da1805cc0f171",
+      "decrypted_prefix": "FFFDDDUUUAUSBILDUNGVONVONZWOSECHSUUUFLOTTXXTTTFFFZWODREIAUSGEZQESTETMITSSSSSSGCGXTTTFFFZWOQI",
+      "mismatches": [],
+      "matching_initial_letters": 92,
+      "prefix_reencryption": "exact match",
+      "verified_letters": 92
+    },
+    {
+      "id": "P1030692",
+      "start": "NGHY",
+      "form_date_review": "1.5, faint",
+      "plain_prefix": "DIEFUNKSPRUECHEMITUHRZEITJRUPPENEINSNEUNZWOEINSYYEINSFUNFFUNFZWOSINDNICHTGELOESTWORDENXNEUHERGEBENVVVFUNKOEITUNG",
+      "cipher_prefix": "HDQQRDLCWFZVIVCRUICVNHDQISLNMWCOIXTBGPMKKQBGVHCLELODACTDLCJZPSXXCTIBEWOMJSKPWVBVQCTEIJTJZSIBKSVIKHWZOVQOJQTTPLKM",
+      "source_sha256": "4acb03a81e8e4addd061013554bc0bb991de9f399682f2df12029b727ba084f0",
+      "decrypted_prefix": "DIEFUNKSPRUECHEMITUHRZEITJRUPPENEINSNEUNZWOEINSYYEINSFUNFFUNFZWOSINDNICHTGELOESTWORDENXNEUHERGEBENVVVFUNKOEITUNG",
+      "mismatches": [],
+      "matching_initial_letters": 112,
+      "prefix_reencryption": "exact match",
+      "verified_letters": 112
+    },
+    {
+      "id": "P1030698",
+      "start": "WQYR",
+      "form_date_review": "2.5",
+      "plain_prefix": "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX",
+      "cipher_prefix": "VIDTGYBSPAXVEDJFKONPMXHTCNAAFKXIOWVCZXUTDGFSEWGFAIDHPKQVARAGUAUPWVRBFOWO",
+      "source_sha256": "30bbf7a499c9f640470724cd1d8b254a4589dec5d28d8c927f6bafd52d249482",
+      "decrypted_prefix": "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX",
+      "mismatches": [],
+      "matching_initial_letters": 72,
+      "prefix_reencryption": "exact match",
+      "verified_letters": 72
+    },
+    {
+      "id": "P1030699",
+      "start": "VUYW",
+      "form_date_review": "2.5",
+      "plain_prefix": "ANALLEVONVONFUNKHEITUNGXXGROSSEZAHLUNKLLRERFUNKSPRGECHEGIBTVERANLASSUNGDARAUFHINZUWEISENYDASSABEINSXFUENFXEINGBWFNUSNULUHRSCHLUESSMLE",
+      "cipher_prefix": "NKNWVNDMSCTYOYWFWGPUQWFMNYIKFUHRDFBMWCNRJCKVZJLGOUSIHDYRKUUXMAJUQSBWSOQVZSCDVTKSNZAFREIJNVTDUZSHZKFIUSBEONFAFZOLROWBBFGGUXEQKWGPJCSUP",
+      "source_sha256": "d52ac832f9afe6059a473daeb80b491993b3b23bb600c6d849f6c47121f3d214",
+      "decrypted_prefix": "ANALLEVONVONFUNKHEITUNGXXGROSSEZAHLUNKLLRERFUNKSPRGECHEGIBTVERANLASSUNGDARAUFHINZUWEISENYDASSABEINSXFUENFXEINGBWFNUSNULUHRSCHLUESSMLE",
+      "mismatches": [],
+      "matching_initial_letters": 133,
+      "prefix_reencryption": "exact match",
+      "verified_letters": 133
+    }
+  ],
+  "extraction": "Compare contiguous letters before gaps; stop each HTML section before its next heading."
+}

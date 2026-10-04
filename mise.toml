@@ -7,6 +7,19 @@ ghc = "asdf:mise-plugins/mise-ghcup"
 ghc = "9.14.1"
 cabal = "3.16.1.0"
 
+[tools."github:Z3Prover/z3"]
+version = "z3-5.1.0"
+strip_components = 1
+bin_path = "bin"
+
+[tools."github:Z3Prover/z3".platforms]
+linux-x64 = { asset_pattern = "z3-5.1.0-x64-glibc-2.39.zip", checksum = "sha256:f47be8d27d3230e823bf1eeede2fe0abaca55bb78d0b59974370e6689a92284a" }
+linux-arm64 = { asset_pattern = "z3-5.1.0-arm64-glibc-2.38.zip", checksum = "sha256:2832cfd43c6862fbaf78834b5f1e35d031b4a87e85456b696c1c6f609cd5609e" }
+macos-arm64 = { asset_pattern = "z3-5.1.0-arm64-osx-13.3.zip", checksum = "sha256:81d29e934fd863079a74af35eecaeaef8047e0e12414d33ca322b358d68383db" }
+macos-x64 = { asset_pattern = "z3-5.1.0-x64-osx-13.3.zip", checksum = "sha256:f25cabdb01a32942a42227c36902c0846c759dcaabef4aca3b2e86331447f6ff" }
+windows-x64 = { asset_pattern = "z3-5.1.0-x64-win.zip", checksum = "sha256:6ff368eaa2f9dc18acf244e736a074df877026bfc83abede6f327ebb95680535" }
+windows-arm64 = { asset_pattern = "z3-5.1.0-arm64-win.zip", checksum = "sha256:82a21c5526ef47df895f43734aaea163caf92ce772502235817bcfc8daadcb40" }
+
 [tasks.build]
 description = "Build the Rust tool"
 run = "cargo build --release"
@@ -22,7 +35,7 @@ run = "cabal build all"
 
 [tasks.test]
 description = "Run the Rust suites: unit, then the planted ciphers"
-run = "cargo test --release"
+run = "cargo test --release --workspace"
 
 [tasks."test:reference"]
 description = "Run the Haskell reference suite"
@@ -36,22 +49,32 @@ run = "njutest verify"
 
 [tasks.lint]
 description = "Formatting and clippy, with warnings denied"
-run = ["cargo fmt --check", "cargo clippy --all-targets --features gpu -- -D warnings"]
+run = ["cargo fmt --all --check", "cargo clippy --release --workspace --all-targets --features gpu -- -D warnings"]
 
 [tasks.check]
-description = "Everything: both implementations built, linted and tested"
+description = "Full Rust/Haskell and hardware recovery checks on one bounded GCP GPU through domyjob"
+run = "cargo xtask check"
+
+[tasks."check:quick"]
+description = "Local format, lint, xtask and CPU recovery checks, capped at one minute and two workers"
+run = "cargo xtask check --quick"
+
+[tasks.prove]
+description = "Verify the declared Kani and Lean obligations with a shared one-minute local limit"
+run = "cargo xtask prove"
+
+[tasks."check:proofs"]
+description = "Reject missing, incomplete or stale proof receipts"
+run = "cargo xtask prove --verify"
+
+[tasks."check:worker"]
+description = "The complete validation suite invoked by xtask on the cloud worker"
 depends = ["build", "build:reference", "lint", "test", "test:reference", "agree"]
 
 [tasks.agree]
 description = "Check that Rust and the Haskell reference agree on the same ciphertext"
 depends = ["build", "test:reference"]
-run = """
-set -e
-rust=$(cargo run --release --quiet -- report data/ciphertext.txt --plain | awk '/^  cipher-break/{for (i = 1; i < NF; i++) if ($i == "IC") print $(i + 1)}')
-cd reference && haskell=$(cabal run -v0 cipher-break-reference -- analyze ../data/ciphertext.txt --null 1 | awk '/^IC /{print $2}')
-echo "rust IC $rust, haskell IC $haskell"
-[ "$rust" = "$haskell" ] || { echo "the two implementations disagree"; exit 1; }
-"""
+run = "cargo xtask agree"
 
 [tasks.solve]
 description = "Run the tool over the committed ciphertext"
@@ -59,25 +82,32 @@ run = "cargo run --release --features gpu --quiet -- solve data/ciphertext.txt -
 
 [tasks.bench]
 description = "Time the exhaustive periodic sweeps on both backends"
-run = """
-set -e
-cargo build --release --features gpu
-for p in 4 5 6; do
-  printf 'period %s  cpu ' "$p"
-  /usr/bin/time -p ./target/release/cb try "vigenere period $p" data/ciphertext.txt --nulls 0 --depth 7 --plain >/dev/null 2>/tmp/cb-cpu; grep real /tmp/cb-cpu
-  printf 'period %s  gpu ' "$p"
-  /usr/bin/time -p ./target/release/cb try "vigenere period $p" data/ciphertext.txt --nulls 0 --depth 7 --plain --gpu >/dev/null 2>/tmp/cb-gpu; grep real /tmp/cb-gpu
-done
-"""
+run = "cargo xtask bench"
 
 [tasks."cloud:run"]
-description = "Run a command on a throwaway GCP Spot VM: mise run cloud:run gpu -- <command>"
-run = "cloud/run.sh"
+description = "Run through domyjob on one bounded GCP VM: mise run cloud:run gpu -- <command>"
+run = "cargo xtask cloud run"
 
 [tasks."cloud:fetch"]
-description = "Bring a cloud run's results into reports/cloud/, or list runs"
-run = "cloud/fetch.sh"
+description = "Fetch domyjob results into reports/cloud/, or list retained runs"
+run = "cargo xtask cloud fetch"
 
 [tasks."cloud:ls"]
 description = "Every VM still alive in the project, which should be none"
-run = "gcloud compute instances list"
+run = "cargo xtask cloud ls"
+
+[tasks."cloud:preflight"]
+description = "Check project, billing, quotas, empty resources and the reviewed regional price"
+run = "cargo xtask cloud preflight"
+
+[tasks."p1030680:audit"]
+description = "Audit sourced cribs and previous coverage with identical shuffle controls"
+run = "cargo xtask p1030680 audit"
+
+[tasks."gcp:setup"]
+description = "Install the generic GCP skill and official local MCP in three user clients"
+run = "cargo xtask gcp setup"
+
+[tasks."gcp:check"]
+description = "Verify official MCP transport, registered clients and shared skill discovery"
+run = "cargo xtask gcp check"

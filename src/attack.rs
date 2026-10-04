@@ -2,7 +2,7 @@
 
 use crate::alphabet::{ALPHABET, Letter, from_letters};
 use crate::anneal::{Schedule, anneal};
-use crate::bombe::{Menu, Positions, Scratch, Stop, scan_all_with, scan_with};
+use crate::bombe::{Menu, Positions, Scratch, Stop, complete_menu, scan_all_with, scan_with};
 use crate::ciphers::enigma::{self, Enigma, Plugboard, Settings};
 use crate::ciphers::{
     autokey, bifid, hill, periodic, playfair, porta, substitution, transposition,
@@ -15,6 +15,7 @@ use crate::rng::Rng;
 use crate::square::{self, Square};
 use crate::stats::index_of_coincidence;
 use rayon::prelude::*;
+use std::collections::HashSet;
 
 pub struct Context<'a> {
     pub judge: &'a Polyglot,
@@ -1166,9 +1167,11 @@ fn rank_enigma(mut found: Vec<(Candidate, usize)>, grams: usize, keep: usize) ->
     found.sort_unstable_by(|a, b| {
         penalised(b.0.score, b.1, grams).total_cmp(&penalised(a.0.score, a.1, grams))
     });
+    let mut reads = HashSet::new();
     found
         .into_iter()
         .map(|(candidate, _)| candidate)
+        .filter(|candidate| reads.insert(candidate.plain.clone()))
         .take(keep.max(1))
         .collect()
 }
@@ -1578,17 +1581,35 @@ fn sift(stops: &mut Vec<Pending>, keep: usize) {
 
 #[must_use]
 pub fn score_outside_the_crib(plain: &[Letter], ctx: &Context, offset: usize, len: usize) -> f64 {
-    let end = (offset + len).min(plain.len());
+    let end = offset.saturating_add(len).min(plain.len());
     if offset >= plain.len() || end <= offset {
         return ctx.score(plain);
     }
-    let mut rest: Vec<Letter> = Vec::with_capacity(plain.len() - (end - offset));
-    rest.extend_from_slice(&plain[..offset]);
-    rest.extend_from_slice(&plain[end..]);
-    if rest.is_empty() {
+    let segments = [&plain[..offset], &plain[end..]];
+    let order = ctx
+        .focus
+        .zip(ctx.focus_scale)
+        .map_or(ctx.judge.order(), |(model, _)| model.order());
+    let grams: usize = segments
+        .iter()
+        .map(|s| s.len().saturating_sub(order.saturating_sub(1)))
+        .sum();
+    if grams == 0 || order == 0 {
         return f64::NEG_INFINITY;
     }
-    ctx.score(&rest)
+    if segments[0].is_empty() {
+        return ctx.score(segments[1]);
+    }
+    if segments[1].is_empty() {
+        return ctx.score(segments[0]);
+    }
+    let effective_len = grams + order - 1;
+    match ctx.focus.zip(ctx.focus_scale) {
+        Some((model, scale)) => scale.standardise(effective_len, model.score_segments(&segments)),
+        None => ctx
+            .scale
+            .standardise(effective_len, ctx.judge.score_segments(&segments)),
+    }
 }
 
 pub const BOMBE_FINISH: usize = 200_000;
@@ -1680,24 +1701,21 @@ fn climb_free(
     board
 }
 
-fn best_rings(
+fn compatible_rings(
     settings: Settings,
     reflector: [u8; ALPHABET],
-    board: Plugboard,
     reach: usize,
-    ct: &[Letter],
-    ctx: &Context,
-) -> Settings {
+    length: usize,
+) -> Vec<Settings> {
     let traced =
-        |s: Settings| Enigma::with_reflector(s, reflector, Plugboard::empty()).offset_trace(reach);
-    let over_the_crib = traced(settings);
+        |s: Settings, n| Enigma::with_reflector(s, reflector, Plugboard::empty()).offset_trace(n);
+    let over_the_crib = traced(settings, reach);
     let held = [
         settings.positions[1].against(settings.rings[1]),
         settings.positions[2].against(settings.rings[2]),
     ];
-    let mut machine = Enigma::with_reflector(settings, reflector, board);
-    let mut buf = vec![0u8; ct.len()];
-    let mut best = (settings, f64::NEG_INFINITY);
+    let mut seen = HashSet::new();
+    let mut compatible = Vec::new();
     for m in 0..ALPHABET as u8 {
         for r in 0..ALPHABET as u8 {
             let (middle, right) = (Ring::new(m), Ring::new(r));
@@ -1710,23 +1728,19 @@ fn best_rings(
                 ],
                 ..settings
             };
-            if trial != settings && traced(trial) != over_the_crib {
+            if traced(trial, reach) != over_the_crib {
                 continue;
             }
-            machine.aim(trial, reflector);
-            machine.replug(board);
-            machine.run_into(ct, &mut buf);
-            let s = ctx.refine(&buf);
-            if s > best.1 {
-                best = (trial, s);
+            if seen.insert(traced(trial, length)) {
+                compatible.push(trial);
             }
         }
     }
-    best.0
+    compatible
 }
 
 #[must_use]
-pub fn complete_board(
+pub fn complete_boards(
     settings: Settings,
     reflector: [u8; ALPHABET],
     (forced, known): (Plugboard, u32),
@@ -1734,20 +1748,33 @@ pub fn complete_board(
     reach: usize,
     ct: &[Letter],
     ctx: &Context,
+) -> Vec<(Settings, Plugboard, Vec<Letter>)> {
+    compatible_rings(settings, reflector, reach, ct.len())
+        .into_iter()
+        .map(|settings| {
+            let board = climb_free(settings, reflector, (forced, known), leads, 0.0, ct, ctx);
+            let plain = Enigma::with_reflector(settings, reflector, board).run(ct);
+            (settings, board, plain)
+        })
+        .collect()
+}
+
+#[must_use]
+/// # Panics
+/// Panics if no ring setting matches the initial setting's own trace.
+pub fn complete_board(
+    settings: Settings,
+    reflector: [u8; ALPHABET],
+    partial: (Plugboard, u32),
+    leads: usize,
+    reach: usize,
+    ct: &[Letter],
+    ctx: &Context,
 ) -> (Settings, Plugboard, Vec<Letter>) {
-    let board = climb_free(
-        settings,
-        reflector,
-        (forced, known),
-        leads,
-        LEAD_MARGIN,
-        ct,
-        ctx,
-    );
-    let settings = best_rings(settings, reflector, board, reach, ct, ctx);
-    let board = climb_free(settings, reflector, (forced, known), leads, 0.0, ct, ctx);
-    let plain = Enigma::with_reflector(settings, reflector, board).run(ct);
-    (settings, board, plain)
+    complete_boards(settings, reflector, partial, leads, reach, ct, ctx)
+        .into_iter()
+        .max_by(|a, b| ctx.refine(&a.2).total_cmp(&ctx.refine(&b.2)))
+        .expect("the initial settings have a compatible trace")
 }
 
 fn partial_score(
@@ -1763,6 +1790,8 @@ fn partial_score(
     score_outside_the_crib(&plain, ctx, offset, crib)
 }
 
+type Finished = ((Candidate, usize), (Plugboard, u32));
+
 fn finish_stop(
     ct: &[Letter],
     ctx: &Context,
@@ -1771,7 +1800,7 @@ fn finish_stop(
     reflector: &(String, [u8; ALPHABET]),
     reach: usize,
     crib: usize,
-) -> Option<((Candidate, usize), (Plugboard, u32))> {
+) -> Vec<Finished> {
     let positions = Positions::of(stop.settings, reflector.1, reach);
     let mut scratch = Scratch::new();
     scan_all_with(menu, &positions, &mut scratch)
@@ -1780,8 +1809,9 @@ fn finish_stop(
             Stop::Survived { board, known, .. } => Some((board, known)),
             Stop::Refuted => None,
         })
-        .map(|(forced, known)| {
-            let (settings, board, plain) = complete_board(
+        .flat_map(|partial| complete_menu(menu, &positions, partial, ENIGMA_LEADS))
+        .flat_map(|(forced, known)| {
+            complete_boards(
                 stop.settings,
                 reflector.1,
                 (forced, known),
@@ -1789,7 +1819,14 @@ fn finish_stop(
                 menu.offset + crib,
                 ct,
                 ctx,
-            );
+            )
+            .into_iter()
+            .map(move |completion| (completion, forced, known))
+        })
+        .filter_map(|((settings, board, plain), forced, known)| {
+            if menu.edges.iter().any(|&(i, p, _)| plain[i] != p) {
+                return None;
+            }
             let found = (
                 Candidate {
                     score: score_outside_the_crib(&plain, ctx, menu.offset, crib),
@@ -1806,9 +1843,9 @@ fn finish_stop(
                 },
                 board.pairs().len(),
             );
-            (found, (forced, known))
+            Some((found, (forced, known)))
         })
-        .max_by(|a, b| a.0.0.score.total_cmp(&b.0.0.score))
+        .collect()
 }
 
 #[must_use]
@@ -1836,7 +1873,7 @@ pub fn finished_noise(
             let rings = [0, letter(&mut rng), letter(&mut rng)];
             let starts = [letter(&mut rng), letter(&mut rng), letter(&mut rng)];
             let (forced, known) = shapes[i as usize % shapes.len()];
-            let (_, _, plain) = complete_board(
+            complete_boards(
                 Settings::at(rotors, 0, rings, starts),
                 reflector,
                 (forced, known),
@@ -1844,8 +1881,11 @@ pub fn finished_noise(
                 offset + crib,
                 ct,
                 ctx,
-            );
-            score_outside_the_crib(&plain, ctx, offset, crib)
+            )
+            .into_iter()
+            .map(|(_, _, plain)| score_outside_the_crib(&plain, ctx, offset, crib))
+            .max_by(f64::total_cmp)
+            .unwrap_or(f64::NEG_INFINITY)
         })
         .collect()
 }
@@ -1872,9 +1912,9 @@ impl BombeAttack {
         pending.truncate(self.finish.max(1));
         self.finished
             .store(pending.len() as u64, std::sync::atomic::Ordering::Relaxed);
-        let finished: Vec<((Candidate, usize), (Plugboard, u32))> = pending
+        let finished: Vec<Finished> = pending
             .par_iter()
-            .filter_map(|stop| {
+            .flat_map_iter(|stop| {
                 finish_stop(
                     ct,
                     ctx,
@@ -2057,7 +2097,8 @@ impl Attack for BombeAttack {
             enigma::REFLECTOR_COUNT as u64
         };
         let rings = self.ring_count() as u64 * self.middle_count() as u64;
-        Coverage::Exhaustive(placements * orders * reflectors * rings * (ALPHABET as u64).pow(3))
+        // The rotor sweep is exhaustive, but completing the surviving plugboards uses a shortlist and hill climbing.
+        Coverage::Searched(placements * orders * reflectors * rings * (ALPHABET as u64).pow(3))
     }
 
     fn own_null(&self) -> Option<Vec<f64>> {
@@ -2182,4 +2223,88 @@ pub fn registry(depth: usize) -> Vec<Box<dyn Attack>> {
 #[must_use]
 pub fn candidate_ic(c: &Candidate) -> f64 {
     index_of_coincidence(&c.plain)
+}
+
+#[cfg(test)]
+mod bombe_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn finishing_recovers_the_whole_menu_including_disconnected_edges() {
+        let plain = crate::to_letters(
+            "TTTFFFZWOVIERVVVFXDXUUUXAUSBXXTRAVEMUENDEBLEIBENXWEITEREBEFEHLEATWARTKNX",
+        );
+        let ct = crate::to_letters(
+            "VIDTGYBSPAXVEDJFKONPMXHTCNAAFKXIOWVCZXUTDGFSEWGFAIDHPKQVARAGUAUPWVRBFOWO",
+        );
+        let bank = Polyglot::from_bundle(include_str!("../data/models.bundle"));
+        let focus = crate::ngram::Model::parse(include_str!("../data/german-quadgrams.txt"))
+            .expect("German model");
+        let scale = Scale::build(&bank, ct.len(), 128, &mut Rng::new(1));
+        let focus_scale = Scale::for_model(&focus, ct.len(), 128, &mut Rng::new(2));
+        let ctx = Context {
+            judge: &bank,
+            scale: &scale,
+            plan: Schedule::default(),
+            seed: 1,
+            keep: 5,
+            trace: &crate::trace::QUIET,
+            focus: Some(&focus),
+            focus_scale: Some(&focus_scale),
+        };
+        let settings = Settings::at([3, 2, 7], 0, [0, 2, 20], [16, 24, 17]);
+        let reflector = (
+            "gamma/W B-thin".to_string(),
+            enigma::composite_reflector(1, 22, 0),
+        );
+        let pending = Pending {
+            partial: 0.0,
+            settings,
+            reflector: 0,
+            menu: 0,
+        };
+        for length in [16, 24] {
+            let menu = Menu::place(&ct, &plain[..length], 0).expect("true crib");
+            let found = finish_stop(&ct, &ctx, &pending, &menu, &reflector, length, length);
+            let recovered = found
+                .into_iter()
+                .max_by(|a, b| a.0.0.score.total_cmp(&b.0.0.score))
+                .expect("all menu components must survive finishing")
+                .0
+                .0;
+            assert_eq!(
+                recovered.plain, plain,
+                "recover the complete published message with a {length}-letter crib"
+            );
+            let finish = |cipher: &[Letter], settings: Settings| {
+                let menu = Menu::place(cipher, &plain[..length], 0)?;
+                if menu.closures() == 0 {
+                    return None;
+                }
+                let stop = Pending {
+                    settings,
+                    ..pending
+                };
+                finish_stop(cipher, &ctx, &stop, &menu, &reflector, length, length)
+                    .into_iter()
+                    .map(|result| result.0.0.score)
+                    .max_by(f64::total_cmp)
+            };
+            let mut wrong = settings;
+            wrong.positions[2] =
+                crate::enigma_types::Indicator::new((wrong.positions[2].value() + 1) % 26);
+            assert!(finish(&ct, wrong).is_none_or(|score| score < recovered.score));
+            let mut rng = Rng::new(20_261_002);
+            for control in 0..8 {
+                let mut shuffled = ct.clone();
+                rng.shuffle(&mut shuffled);
+                let score = finish(&shuffled, settings);
+                println!(
+                    "crib {length}, fixed-setting shuffle {control}: {score:?}; real {}",
+                    recovered.score
+                );
+                assert!(score.is_none_or(|score| score < recovered.score));
+            }
+        }
+    }
 }

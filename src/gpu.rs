@@ -397,7 +397,11 @@ impl Gpu {
             ..Default::default()
         }))
         .map_err(|e| format!("no GPU adapter: {e}"))?;
-        let name = adapter.get_info().name;
+        let info = adapter.get_info();
+        if info.device_type == wgpu::DeviceType::Cpu {
+            return Err(format!("a hardware GPU is required; found {}", info.name));
+        }
+        let name = info.name;
         let limits = adapter.limits();
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("cipher-break"),

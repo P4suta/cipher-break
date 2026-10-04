@@ -1,0 +1,130 @@
+{
+  "fixture": "Schema regression fixture derived from the previously passed L4 recovery record; this file is not execution evidence.",
+  "status": "passed",
+  "full_check_in_this_run": true,
+  "nulls": 8,
+  "tests": [
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "enigma",
+          "--",
+          "--ignored",
+          "--exact",
+          "device::the_device_refutes_exactly_what_the_processor_refutes",
+          "--nocapture"
+        ]
+      },
+      "result": {
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "test device::the_device_refutes_exactly_what_the_processor_refutes ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 3.02s"
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "enigma",
+          "--",
+          "--ignored",
+          "--exact",
+          "device::climbs_a_plugboard_exactly_as_the_processor_does",
+          "--nocapture"
+        ]
+      },
+      "result": {
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "test device::climbs_a_plugboard_exactly_as_the_processor_does ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 2.79s"
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "recovery",
+          "--",
+          "--ignored",
+          "--exact",
+          "the_gpu_shortlist_recovers_ten_leads_and_rejects_shuffles",
+          "--nocapture"
+        ]
+      },
+      "result": {
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "test the_gpu_shortlist_recovers_ten_leads_and_rejects_shuffles ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.67s"
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "x",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--release",
+          "--features",
+          "gpu",
+          "--test",
+          "enigma",
+          "--",
+          "--ignored",
+          "--exact",
+          "a_ring_swept_bombe_reads_a_short_signal_with_ten_leads",
+          "--nocapture"
+        ]
+      },
+      "result": {
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "test a_ring_swept_bombe_reads_a_short_signal_with_ten_leads has been running for over 60 seconds\ntest a_ring_swept_bombe_reads_a_short_signal_with_ten_leads ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 289.37s"
+      }
+    },
+    {
+      "command": {
+        "argv": [
+          "mise",
+          "run",
+          "check"
+        ]
+      },
+      "result": {
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": ""
+      }
+    }
+  ]
+}
